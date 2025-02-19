@@ -1357,6 +1357,15 @@ const loadTags = () => {
     tags.value = JSON.parse(savedTags)
   }
 }
+
+// 在 prompts 相关方法中添加删除提示词的方法
+const deletePrompt = (promptId) => {
+  if (confirm('确定要删除这个提示词吗？')) {
+    prompts.value = prompts.value.filter(p => p.id !== promptId)
+    // 保存到本地存储
+    localStorage.setItem('prompts', JSON.stringify(prompts.value))
+  }
+}
 </script>
 
 <style scoped>

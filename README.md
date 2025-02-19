@@ -94,6 +94,10 @@ npm run build
 - 支持将内容导出为 JSONL 格式
 - 支持拖拽文件导入
 
+### 注意！
+
+- 谷歌Gemini API 请求地址是：https://generativelanguage.googleapis.com/v1beta/models/{模型名称}:generateContent
+- openai API 请求会自动将在最后赋值/chat/completions
 ## 🤝 贡献指南
 
 欢迎提交 Issue 和 Pull Request 来帮助改进这个项目！

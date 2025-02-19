@@ -251,22 +251,54 @@ const handleFilesImport = async (event) => {
     for (const file of files) {
       let content = await file.text()
 
-      if (file.name.endsWith('.json')) {
+      if (file.name.endsWith('.jsonl')) {
+        // 处理JSONL格式
+        const lines = content.trim().split('\n')
+        for (const line of lines) {
+          try {
+            const cardData = JSON.parse(line)
+            props.scene.cards.push({
+              id: Date.now() + Math.random(),
+              title: cardData.title || '未命名',
+              content: cardData.content || '',
+              tags: cardData.tags || [],
+              height: '200px',
+              insertedContents: []
+            })
+          } catch (e) {
+            console.warn('JSONL行解析失败，跳过:', e)
+          }
+        }
+      } else if (file.name.endsWith('.json')) {
         try {
           const jsonData = JSON.parse(content)
           content = JSON.stringify(jsonData, null, 2)
+          props.scene.cards.push({
+            id: Date.now() + Math.random(),
+            content: content.trim(),
+            title: file.name,
+            height: '200px',
+            insertedContents: []
+          })
         } catch (e) {
-          console.warn('JSON 解析失败，作为普通文本处理')
+          console.warn('JSON解析失败，作为普通文本处理')
+          props.scene.cards.push({
+            id: Date.now() + Math.random(),
+            content: content.trim(),
+            title: file.name,
+            height: '200px',
+            insertedContents: []
+          })
         }
+      } else {
+        props.scene.cards.push({
+          id: Date.now() + Math.random(),
+          content: content.trim(),
+          title: file.name,
+          height: '200px',
+          insertedContents: []
+        })
       }
-
-      props.scene.cards.push({
-        id: Date.now() + Math.random(),
-        content: content.trim(),
-        title: file.name,
-        height: '200px',
-        insertedContents: [] // Initialize inserted contents
-      })
     }
 
     event.target.value = ''
@@ -283,7 +315,6 @@ const handleDragOver = (event) => {
   event.preventDefault()
   event.stopPropagation()
 }
-
 const handleDrop = async (event) => {
   event.preventDefault()
   event.stopPropagation()
@@ -294,22 +325,54 @@ const handleDrop = async (event) => {
       for (const file of files) {
         let content = await file.text()
         
-        if (file.name.endsWith('.json')) {
+        if (file.name.endsWith('.jsonl')) {
+          // 处理JSONL格式
+          const lines = content.trim().split('\n')
+          for (const line of lines) {
+            try {
+              const cardData = JSON.parse(line)
+              props.scene.cards.push({
+                id: Date.now() + Math.random(),
+                title: cardData.title || '未命名',
+                content: cardData.content || '',
+                tags: cardData.tags || [],
+                height: '200px',
+                insertedContents: []
+              })
+            } catch (e) {
+              console.warn('JSONL行解析失败，跳过:', e)
+            }
+          }
+        } else if (file.name.endsWith('.json')) {
           try {
             const jsonData = JSON.parse(content)
             content = JSON.stringify(jsonData, null, 2)
+            props.scene.cards.push({
+              id: Date.now() + Math.random(),
+              content: content.trim(),
+              title: file.name,
+              height: '200px',
+              insertedContents: []
+            })
           } catch (e) {
-            console.warn('JSON 解析失败，作为普通文本处理')
+            console.warn('JSON解析失败，作为普通文本处理')
+            props.scene.cards.push({
+              id: Date.now() + Math.random(),
+              content: content.trim(),
+              title: file.name,
+              height: '200px',
+              insertedContents: []
+            })
           }
+        } else {
+          props.scene.cards.push({
+            id: Date.now() + Math.random(),
+            content: content.trim(),
+            title: file.name,
+            height: '200px',
+            insertedContents: []
+          })
         }
-
-        props.scene.cards.push({
-          id: Date.now() + Math.random(),
-          content: content.trim(),
-          title: file.name,
-          height: '200px',
-          insertedContents: [] // Initialize inserted contents
-        })
       }
       emit('update:scene', props.scene)
     } catch (error) {
@@ -321,9 +384,10 @@ const handleDrop = async (event) => {
 
 // 导出功能
 const exportToJsonl = () => {
-  const jsonl = props.textCards.map(card => JSON.stringify({
-    content: card.content,
-    insertedContents: card.insertedContents // Include inserted contents
+  const jsonl = props.scene.cards.map(card => JSON.stringify({
+    title: card.title || '',
+    content: card.content || '',
+    tags: card.tags || []
   })).join('\n')
 
   const blob = new Blob([jsonl], { type: 'application/x-jsonlines' })

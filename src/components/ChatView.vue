@@ -49,7 +49,7 @@
               v-model="currentChat.enableKeywords"
               id="keywordToggle"
             >
-            <label for="keywordToggle">关联卡片内容</label>
+            <label for="keywordToggle">关联卡片</label>
           </div>
         </div>
 

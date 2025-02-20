@@ -335,7 +335,7 @@ const continueProcessing = async (scene) => {
         saveScenes()
         
         if (scene.currentIndex < scene.originalCards.length && !scene.isPaused) {
-          await delay(3000)
+          await delay(1500)
         }
       } catch (error) {
         console.error(`处理章节 ${card.title} 失败:`, error)

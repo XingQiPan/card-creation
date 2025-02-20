@@ -242,71 +242,66 @@ const removeInsertedPrompt = (card, index) => {
   emit('update-card', card)
 }
 
-// 文件导入处理
+// 修改文件导入方法
 const handleFilesImport = async (event) => {
   const files = event.target.files
   if (!files.length) return
 
   try {
     for (const file of files) {
-      let content = await file.text()
-
       if (file.name.endsWith('.jsonl')) {
-        // 处理JSONL格式
+        // 处理 JSONL 文件
+        const content = await file.text()
         const lines = content.trim().split('\n')
+        
         for (const line of lines) {
           try {
             const cardData = JSON.parse(line)
-            props.scene.cards.push({
-              id: Date.now() + Math.random(),
-              title: cardData.title || '未命名',
-              content: cardData.content || '',
-              tags: cardData.tags || [],
-              height: '200px',
-              insertedContents: []
-            })
+            // 确保导入的卡片有新的 ID
+            cardData.id = Date.now() + Math.random()
+            props.scene.cards.push(cardData)
           } catch (e) {
-            console.warn('JSONL行解析失败，跳过:', e)
+            console.error('解析 JSONL 行失败:', e)
           }
         }
       } else if (file.name.endsWith('.json')) {
-        try {
-          const jsonData = JSON.parse(content)
-          content = JSON.stringify(jsonData, null, 2)
-          props.scene.cards.push({
-            id: Date.now() + Math.random(),
-            content: content.trim(),
-            title: file.name,
-            height: '200px',
-            insertedContents: []
+        // 处理 JSON 文件
+        const content = await file.text()
+        const cardData = JSON.parse(content)
+        
+        // 如果是数组,添加多个卡片
+        if (Array.isArray(cardData)) {
+          cardData.forEach(card => {
+            card.id = Date.now() + Math.random()
+            props.scene.cards.push(card)
           })
-        } catch (e) {
-          console.warn('JSON解析失败，作为普通文本处理')
-          props.scene.cards.push({
-            id: Date.now() + Math.random(),
-            content: content.trim(),
-            title: file.name,
-            height: '200px',
-            insertedContents: []
-          })
+        } else {
+          // 单个卡片
+          cardData.id = Date.now() + Math.random()
+          props.scene.cards.push(cardData)
         }
       } else {
-        props.scene.cards.push({
+        // 处理文本文件 (.txt, .md)
+        const content = await file.text()
+        const newCard = {
           id: Date.now() + Math.random(),
-          content: content.trim(),
-          title: file.name,
-          height: '200px',
-          insertedContents: []
-        })
+          title: file.name.replace(/\.(txt|md)$/, ''),
+          content: content,
+          tags: [],
+          height: '120px'
+        }
+        props.scene.cards.push(newCard)
       }
     }
 
-    event.target.value = ''
+    // 更新场景
     emit('update:scene', props.scene)
+    // 清空文件输入
+    event.target.value = ''
 
   } catch (error) {
     console.error('文件导入错误:', error)
-    alert('文件导入失败: ' + error.message)
+    alert('导入失败: ' + error.message)
   }
 }
 
@@ -382,23 +377,33 @@ const handleDrop = async (event) => {
   }
 }
 
-// 导出功能
+// 修改导出方法
 const exportToJsonl = () => {
-  const jsonl = props.scene.cards.map(card => JSON.stringify({
-    title: card.title || '',
-    content: card.content || '',
-    tags: card.tags || []
-  })).join('\n')
+  if (!props.scene.cards.length) {
+    alert('没有可导出的卡片')
+    return
+  }
 
-  const blob = new Blob([jsonl], { type: 'application/x-jsonlines' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${props.scene.name || 'scene'}_export.jsonl`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  try {
+    // 将每个卡片转换为 JSON 行
+    const jsonlContent = props.scene.cards
+      .map(card => JSON.stringify(card))
+      .join('\n')
+
+    // 创建下载
+    const blob = new Blob([jsonlContent], { type: 'application/x-jsonlines' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${props.scene.name || 'cards'}.jsonl`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('导出错误:', error)
+    alert('导出失败: ' + error.message)
+  }
 }
 
 const startCardResize = (e, card) => {

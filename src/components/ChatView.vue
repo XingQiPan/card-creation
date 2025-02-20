@@ -164,8 +164,17 @@ const sendMessage = async () => {
     const model = props.models.find(m => m.id === currentChat.value.modelId)
     if (!model) throw new Error('未找到选择的模型')
 
+    // 获取完整的对话历史
+    const context = currentChat.value.messages.map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.content
+    }))
+
+    // 移除最新的用户消息(因为它会作为新消息发送)
+    context.pop()
+    
     // 调用 API 获取回复
-    const response = await sendToModel(model, userMessage.content)
+    const response = await sendToModel(model, userMessage.content, context)
     
     const assistantMessage = {
       id: Date.now(),
@@ -173,26 +182,37 @@ const sendMessage = async () => {
       content: response,
       timestamp: new Date()
     }
-    
+
     currentChat.value.messages.push(assistantMessage)
     saveSessions()
-    
+
     // 滚动到底部
     await nextTick()
-    scrollToBottom()
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    }
+
   } catch (error) {
-    console.error('发送消息失败:', error)
-    alert('发送失败: ' + error.message)
+    console.error('发送失败:', error)
+    // 移除失败的消息
+    currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== userMessage.id)
+    alert(error.message)
   }
 }
 
 // 调用模型 API
-const sendToModel = async (model, content) => {
+const sendToModel = async (model, content, context = []) => {
   let response
   let result
 
   try {
     if (model.provider === 'openai') {
+      // 构建完整的消息历史
+      const messages = [
+        ...context,
+        { role: 'user', content }
+      ]
+
       response = await fetch(model.apiUrl + '/chat/completions', {
         method: 'POST',
         headers: {
@@ -201,7 +221,7 @@ const sendToModel = async (model, content) => {
         },
         body: JSON.stringify({
           model: model.modelId,
-          messages: [{ role: 'user', content }],
+          messages,
           max_tokens: Number(model.maxTokens),
           temperature: Number(model.temperature)
         })
@@ -211,6 +231,18 @@ const sendToModel = async (model, content) => {
       return result.choices[0].message.content
 
     } else if (model.provider === 'gemini') {
+      // 构建 Gemini 格式的历史消息
+      const contents = context.map(msg => ({
+        parts: [{ text: msg.content }],
+        role: msg.role === 'user' ? 'user' : 'model'
+      }))
+      
+      // 添加当前消息
+      contents.push({
+        parts: [{ text: content }],
+        role: 'user'
+      })
+
       response = await fetch(model.apiUrl, {
         method: 'POST',
         headers: {
@@ -218,7 +250,7 @@ const sendToModel = async (model, content) => {
           'x-goog-api-key': model.apiKey
         },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: content }] }],
+          contents,
           generationConfig: {
             temperature: Number(model.temperature),
             maxOutputTokens: Number(model.maxTokens),
@@ -230,6 +262,12 @@ const sendToModel = async (model, content) => {
       return result.candidates[0].content.parts[0].text
 
     } else if (model.provider === 'ollama') {
+      // 构建 Ollama 格式的消息历史
+      const messages = [
+        ...context,
+        { role: "user", content }
+      ]
+
       response = await fetch(model.apiUrl, {
         method: 'POST',
         headers: {
@@ -237,12 +275,7 @@ const sendToModel = async (model, content) => {
         },
         body: JSON.stringify({
           model: model.modelId,
-          messages: [
-            {
-              role: "user",
-              content: content
-            }
-          ],
+          messages,
           stream: false,
           options: {
             temperature: Number(model.temperature),

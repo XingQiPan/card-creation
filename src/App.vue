@@ -1,185 +1,211 @@
 <template>
   <div class="container">
-    <!-- 左侧提示词模板区 -->
-    <div class="prompt-panel" :style="{ width: promptPanelWidth + 'px' }">
-      <div class="panel-header">
-        <h2>提示词模板</h2>
-        <div class="header-actions">
-          <button @click="showTagModal = true">
-            <i class="fas fa-tags"></i> 管理标签
-          </button>
-          <button @click="createNewPrompt">
-            <i class="fas fa-plus"></i> 新建模板
-          </button>
-          <button @click="showSettings = true">
-            <i class="fas fa-cog"></i>
-          </button>
-        </div>
-      </div>
-      <div class="prompt-panel-header">
-        <div class="header-actions">
-          <button @click="showPromptModal = true">
-            <i class="fas fa-plus"></i> 新建提示词
-          </button>
-          <label class="import-btn">
-            <input 
-              type="file" 
-              multiple
-              accept=".txt,.md,.json,.text"
-              @change="importPrompts"
-              ref="promptFileInput"
-            >
-            <i class="fas fa-file-import"></i> 导入提示词
-          </label>
-        </div>
-      </div>
-      <div class="prompt-list">
-        <div 
-          v-for="prompt in prompts" 
-          :key="prompt.id"
-          class="prompt-item"
-          :class="{ 
-            'can-insert': canInsertText(prompt),
-            'has-content': hasInsertedContent(prompt)
-          }"
-        >
-          <div class="prompt-content">
-            <h3>{{ prompt.title }}</h3>
-            <div class="template-preview" @click="showPromptDetail(prompt)">
-              {{ truncateText(prompt.template, 200) }}
-              <span v-if="prompt.template.length > 200" class="show-more">
-                点击查看更多...
-              </span>
-            </div>
-            <div class="prompt-info">
-              <template v-if="canInsertText(prompt)">
-                <span>可插入数量: {{ getInsertCount(prompt.template) }}</span>
-                <div v-if="prompt.insertedContents?.length" class="inserted-contents">
-                  <div v-for="(content, index) in prompt.insertedContents" 
-                       :key="index" 
-                       class="inserted-content">
-                    <span>插入 {{index + 1}}: {{ truncateText(content) }}</span>
-                    <button @click.stop="removeInsertedContent(prompt, index)">
-                      <i class="fas fa-times"></i>
-                    </button>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </div>
-          <div class="card-footer">
-            <div class="model-select">
-              <select v-model="prompt.selectedModel">
-                <option value="">选择模型</option>
-                <option 
-                  v-for="model in models" 
-                  :key="model.id" 
-                  :value="model.id"
-                >
-                  {{ model.name }}
-                </option>
-              </select>
-            </div>
-            <div class="action-buttons">
-              <button @click.stop="editPrompt(prompt)" class="edit-btn">
-                <i class="fas fa-edit"></i>
-              </button>
-              <button @click.stop="deletePrompt(prompt.id)" class="delete-btn">
-                <i class="fas fa-trash"></i>
-              </button>
-              <button 
-                @click.stop="sendPromptRequest(prompt)"
-                :disabled="!canSendRequest(prompt) || !prompt.selectedModel"
-                class="send-btn"
-                :class="{ 'ready': canSendRequest(prompt) && prompt.selectedModel }"
-              >
-                <i class="fas fa-paper-plane"></i>
-                发送
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <!-- 面板调整器 -->
-      <div 
-        class="panel-resizer"
-        @mousedown="startPanelResize"
-      ></div>
+    <!-- 添加视图切换按钮 -->
+    <div class="view-switcher">
+      <button 
+        @click="currentView = 'main'"
+        :class="{ active: currentView === 'main' }"
+      >
+        <i class="fas fa-columns"></i> 主界面
+      </button>
+      <button 
+        @click="currentView = 'bookSplitter'"
+        :class="{ active: currentView === 'bookSplitter' }"
+      >
+        <i class="fas fa-book-open"></i> 拆书工具
+      </button>
     </div>
 
-    <!-- 右侧内容区改为场景管理 -->
-    <div class="scenes-container">
-      <div class="scenes-header">
-        <draggable 
-          v-model="scenes"
-          class="scene-tabs"
-          item-key="id"
-          handle=".scene-name"
-          @start="dragScene=true"
-          @end="dragScene=false"
-        >
-          <template #item="{ element: scene }">
-            <div 
-              class="scene-tab"
-              :class="{ 
-                active: currentScene?.id === scene.id,
-                'is-dragging': dragScene && currentScene?.id === scene.id
-              }"
-            >
-              <span class="scene-name" @click="switchScene(scene)">
-                <i class="fas fa-grip-lines"></i>
-                {{ scene.name }}
-              </span>
-              <div class="scene-actions">
-                <button 
-                  class="edit-name-btn"
-                  @click.stop="editSceneName(scene)"
-                >
+    <!-- 主界面内容 -->
+    <div v-if="currentView === 'main'" class="main-content">
+      <!-- 左侧提示词模板区 -->
+      <div class="prompt-panel" :style="{ width: promptPanelWidth + 'px' }">
+        <div class="panel-header">
+          <h2>提示词模板</h2>
+          <div class="header-actions">
+            <button @click="showTagModal = true">
+              <i class="fas fa-tags"></i> 管理标签
+            </button>
+            <button @click="createNewPrompt">
+              <i class="fas fa-plus"></i> 新建模板
+            </button>
+            <button @click="showSettings = true">
+              <i class="fas fa-cog"></i>
+            </button>
+          </div>
+        </div>
+        <div class="prompt-panel-header">
+          <div class="header-actions">
+            <button @click="showPromptModal = true">
+              <i class="fas fa-plus"></i> 新建提示词
+            </button>
+            <label class="import-btn">
+              <input 
+                type="file" 
+                multiple
+                accept=".txt,.md,.json,.text"
+                @change="importPrompts"
+                ref="promptFileInput"
+              >
+              <i class="fas fa-file-import"></i> 导入提示词
+            </label>
+          </div>
+        </div>
+        <div class="prompt-list">
+          <div 
+            v-for="prompt in prompts" 
+            :key="prompt.id"
+            class="prompt-item"
+            :class="{ 
+              'can-insert': canInsertText(prompt),
+              'has-content': hasInsertedContent(prompt)
+            }"
+          >
+            <div class="prompt-content">
+              <h3>{{ prompt.title }}</h3>
+              <div class="template-preview" @click="showPromptDetail(prompt)">
+                {{ truncateText(prompt.template, 200) }}
+                <span v-if="prompt.template.length > 200" class="show-more">
+                  点击查看更多...
+                </span>
+              </div>
+              <div class="prompt-info">
+                <template v-if="canInsertText(prompt)">
+                  <span>可插入数量: {{ getInsertCount(prompt.template) }}</span>
+                  <div v-if="prompt.insertedContents?.length" class="inserted-contents">
+                    <div v-for="(content, index) in prompt.insertedContents" 
+                         :key="index" 
+                         class="inserted-content">
+                      <span>插入 {{index + 1}}: {{ truncateText(content) }}</span>
+                      <button @click.stop="removeInsertedContent(prompt, index)">
+                        <i class="fas fa-times"></i>
+                      </button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+            <div class="card-footer">
+              <div class="model-select">
+                <select v-model="prompt.selectedModel">
+                  <option value="">选择模型</option>
+                  <option 
+                    v-for="model in models" 
+                    :key="model.id" 
+                    :value="model.id"
+                  >
+                    {{ model.name }}
+                  </option>
+                </select>
+              </div>
+              <div class="action-buttons">
+                <button @click.stop="editPrompt(prompt)" class="edit-btn">
                   <i class="fas fa-edit"></i>
                 </button>
+                <button @click.stop="deletePrompt(prompt.id)" class="delete-btn">
+                  <i class="fas fa-trash"></i>
+                </button>
                 <button 
-                  v-if="scenes.length > 1"
-                  @click.stop="deleteScene(scene.id)"
-                  class="delete-scene-btn"
+                  @click.stop="sendPromptRequest(prompt)"
+                  :disabled="!canSendRequest(prompt) || !prompt.selectedModel"
+                  class="send-btn"
+                  :class="{ 'ready': canSendRequest(prompt) && prompt.selectedModel }"
                 >
-                  <i class="fas fa-times"></i>
+                  <i class="fas fa-paper-plane"></i>
+                  发送
                 </button>
               </div>
             </div>
-          </template>
-        </draggable>
-        <div class="tag-filters">
-          <div 
-            v-for="tag in tags" 
-            :key="tag.id"
-            class="tag-filter"
-            :class="{ active: selectedTags.includes(tag.id) }"
-            @click="toggleTagFilter(tag.id)"
-          >
-            {{ tag.name }}
           </div>
         </div>
-        <button @click="createNewScene" class="new-scene-btn">
-          <i class="fas fa-plus"></i> 新场景
-        </button>
+        <!-- 面板调整器 -->
+        <div 
+          class="panel-resizer"
+          @mousedown="startPanelResize"
+        ></div>
       </div>
-      
-      <Scene
-        v-if="currentScene"
-        v-model:scene="currentScene"
-        :text-cards="textCards"
-        :selected-cards="selectedCards"
-        :prompts="prompts"
-        :insertable-prompts="insertablePrompts"
-        :models="models"
-        :tags="tags"
-        :selected-tags="selectedTags"
-        @view-card="viewCardDetail"
-        @delete-card="deleteCard"
-        @update-card="updateCard"
-        @insert-prompt-at-cursor="insertPromptAtCursor"
-      />
+
+      <!-- 右侧内容区改为场景管理 -->
+      <div class="scenes-container">
+        <div class="scenes-header">
+          <draggable 
+            v-model="scenes"
+            class="scene-tabs"
+            item-key="id"
+            handle=".scene-name"
+            @start="dragScene=true"
+            @end="dragScene=false"
+          >
+            <template #item="{ element: scene }">
+              <div 
+                class="scene-tab"
+                :class="{ 
+                  active: currentScene?.id === scene.id,
+                  'is-dragging': dragScene && currentScene?.id === scene.id
+                }"
+              >
+                <span class="scene-name" @click="switchScene(scene)">
+                  <i class="fas fa-grip-lines"></i>
+                  {{ scene.name }}
+                </span>
+                <div class="scene-actions">
+                  <button 
+                    class="edit-name-btn"
+                    @click.stop="editSceneName(scene)"
+                  >
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button 
+                    v-if="scenes.length > 1"
+                    @click.stop="deleteScene(scene.id)"
+                    class="delete-scene-btn"
+                  >
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </draggable>
+          <div class="tag-filters">
+            <div 
+              v-for="tag in tags" 
+              :key="tag.id"
+              class="tag-filter"
+              :class="{ active: selectedTags.includes(tag.id) }"
+              @click="toggleTagFilter(tag.id)"
+            >
+              {{ tag.name }}
+            </div>
+          </div>
+          <button @click="createNewScene" class="new-scene-btn">
+            <i class="fas fa-plus"></i> 新场景
+          </button>
+        </div>
+        
+        <Scene
+          v-if="currentScene"
+          v-model:scene="currentScene"
+          :text-cards="textCards"
+          :selected-cards="selectedCards"
+          :prompts="prompts"
+          :insertable-prompts="insertablePrompts"
+          :models="models"
+          :tags="tags"
+          :selected-tags="selectedTags"
+          @view-card="viewCardDetail"
+          @delete-card="deleteCard"
+          @update-card="updateCard"
+          @insert-prompt-at-cursor="insertPromptAtCursor"
+        />
+      </div>
     </div>
+
+    <!-- 拆书工具界面 -->
+    <BookSplitter 
+      v-else-if="currentView === 'bookSplitter'"
+      :prompts="prompts"
+      :models="models"
+    />
 
     <!-- 提示词选择模态框 -->
     <div v-if="showPromptSelectModal" class="modal">
@@ -448,6 +474,7 @@ import draggable from 'vuedraggable'
 import Scene from './components/Scene.vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import BookSplitter from './components/BookSplitter.vue'
 
 // 状态管理
 const prompts = ref([])
@@ -1366,6 +1393,9 @@ const deletePrompt = (promptId) => {
     localStorage.setItem('prompts', JSON.stringify(prompts.value))
   }
 }
+
+// 添加视图切换状态
+const currentView = ref('main')
 </script>
 
 <style scoped>
@@ -1796,7 +1826,7 @@ button:disabled {
 }
 
 input, textarea {
-  width: 100%;
+  width: 90%;
   padding: 8px;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -1948,6 +1978,7 @@ textarea.template-input {
 }
 
 .form-group {
+  justify-content: center;
   margin-bottom: 0;
 }
 
@@ -1959,7 +1990,7 @@ textarea.template-input {
 }
 
 .form-group input {
-  width: 100%;
+  width: 80%;
   padding: 8px;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -2137,6 +2168,7 @@ textarea.template-input {
 /* 添加模型选择样式 */
 .model-select {
   position: relative;
+  margin: 10px 0 10px 0;
   min-width: 150px;
 }
 
@@ -2324,7 +2356,7 @@ textarea.template-input {
 
 .form-group input,
 .form-group select {
-  width: 100%;
+  width: 90%;
   padding: 10px 12px;
   border: 1px solid #ddd;
   border-radius: 6px;
@@ -2681,4 +2713,50 @@ textarea.template-input {
   font-family: "Microsoft YaHei", "微软雅黑", sans-serif !important;
 }
 
+/* 添加视图切换器样式 */
+.view-switcher {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  gap: 8px;
+  z-index: 100;
+}
+
+.view-switcher button {
+  padding: 8px 16px;
+  background: #ffffff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.view-switcher button:hover {
+  background: #f0f0f0;
+}
+
+.view-switcher button.active {
+  background: #646cff;
+  color: white;
+  border-color: #646cff;
+}
+
+/* 确保主界面内容在切换时保持布局 */
+.main-content {
+  display: flex;
+  height: 100%;
+  width: 100%;
+}
+
+/* 调整容器样式以适应新的布局 */
+.container {
+  position: relative;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
 </style> 

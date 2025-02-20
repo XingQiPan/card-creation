@@ -31,16 +31,53 @@
     <!-- 右侧聊天区域 -->
     <div class="chat-main" v-if="currentChat">
       <div class="chat-header">
-        <select v-model="currentChat.modelId" class="model-select">
-          <option value="">选择模型</option>
-          <option 
-            v-for="model in models" 
-            :key="model.id" 
-            :value="model.id"
-          >
-            {{ model.name }}
-          </option>
-        </select>
+        <div class="header-controls">
+          <select v-model="currentChat.modelId" class="model-select">
+            <option value="">选择模型</option>
+            <option 
+              v-for="model in models" 
+              :key="model.id" 
+              :value="model.id"
+            >
+              {{ model.name }}
+            </option>
+          </select>
+          
+          <div class="keyword-toggle">
+            <input 
+              type="checkbox" 
+              v-model="currentChat.enableKeywords"
+              id="keywordToggle"
+            >
+            <label for="keywordToggle">关联卡片内容</label>
+          </div>
+        </div>
+
+        <!-- 修改关键词显示区域 -->
+        <div v-if="currentChat.enableKeywords && detectedKeywords.length" class="keywords-area">
+          <div class="keywords-header">
+            <i class="fas fa-link"></i> 检测到相关卡片:
+          </div>
+          <div class="keywords-list">
+            <div 
+              v-for="keyword in detectedKeywords" 
+              :key="keyword.id"
+              class="keyword-card"
+              @click="toggleKeywordContent(keyword)"
+            >
+              <div class="keyword-title">
+                <span>{{ keyword.name }}</span>
+                <i :class="['fas', expandedKeywords.includes(keyword.id) ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
+              </div>
+              <div 
+                v-if="expandedKeywords.includes(keyword.id)"
+                class="keyword-content"
+              >
+                {{ getKeywordContent(keyword) }}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       
       <div class="messages" ref="messagesContainer">
@@ -109,6 +146,10 @@ const props = defineProps({
   models: {
     type: Array,
     required: true
+  },
+  scenes: {  // 添加场景数据
+    type: Array,
+    default: () => []
   }
 })
 
@@ -122,14 +163,70 @@ const currentChat = computed(() =>
   chatSessions.value.find(c => c.id === currentChatId.value)
 )
 
+// 获取所有卡片标题作为关键词
+const allKeywords = computed(() => {
+  console.log("scenes:", props.scenes) // 打印整个 scenes 数据
+  const keywords = new Set()
+  props.scenes.forEach(scene => {
+    console.log("scene:", scene) // 打印每个场景
+    scene.cards?.forEach(card => {
+      console.log("card:", card) // 打印每个卡片
+      if (card.title?.trim()) {
+        console.log("found title:", card.title.trim())
+        keywords.add(card.title.trim())
+      }
+    })
+  })
+  const result = Array.from(keywords).map(title => ({
+    id: title,
+    name: title
+  }))
+  console.log("all keywords:", result) // 打印最终的关键词列表
+  return result
+})
+
+// 检测关键词并找到关联卡片
+const detectedKeywords = computed(() => {
+  if (!currentChat.value?.enableKeywords || !currentChat.value?.messages.length) {
+    return []
+  }
+
+  // 获取最新的用户消息
+  const latestMessage = currentChat.value.messages
+    .filter(msg => msg.role === 'user')
+    .slice(-1)[0]
+
+  if (!latestMessage) return []
+
+  // 检测消息中包含的关键词
+  return allKeywords.value.filter(keyword => 
+    latestMessage.content.toLowerCase().includes(keyword.name.toLowerCase())
+  )
+})
+
+// 获取关键词关联的卡片内容
+const getKeywordContent = (keyword) => {
+  for (const scene of props.scenes) {
+    const card = scene.cards?.find(card => 
+      card.title?.trim().toLowerCase() === keyword.name.toLowerCase()
+    )
+    if (card) {
+      return card.content
+    }
+  }
+  return null
+}
+
 // 创建新对话
 const createNewChat = () => {
   const newChat = {
     id: Date.now(),
     title: '新对话',
+    messages: [],
     modelId: '',
-    messages: []
+    enableKeywords: false  // 添加关键词检测开关
   }
+  
   chatSessions.value.push(newChat)
   currentChatId.value = newChat.id
   saveSessions()
@@ -146,7 +243,7 @@ const deleteChat = (id) => {
   }
 }
 
-// 发送消息
+// 修改发送消息方法
 const sendMessage = async () => {
   if (!inputMessage.value.trim() || !currentChat.value?.modelId) return
 
@@ -164,17 +261,47 @@ const sendMessage = async () => {
     const model = props.models.find(m => m.id === currentChat.value.modelId)
     if (!model) throw new Error('未找到选择的模型')
 
-    // 获取完整的对话历史
+    // 获取对话历史
     const context = currentChat.value.messages.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content
     }))
-
-    // 移除最新的用户消息(因为它会作为新消息发送)
     context.pop()
+
+    // 如果启用了关键词检测，将检测到的关键词和关联内容添加到提示中
+    let processedContent = userMessage.content
+    console.log(processedContent)
+    console.log(currentChat.value.enableKeywords)
+    if (currentChat.value.enableKeywords) {
+      console.log("message content:", userMessage.content) // 打印用户消息
+      console.log("all keywords available:", allKeywords.value) // 打印可用的关键词
+
+      // 检测关键词
+      const keywords = allKeywords.value.filter(keyword => {
+        const found = userMessage.content.toLowerCase().includes(keyword.name.toLowerCase())
+        console.log(`checking keyword: ${keyword.name}, found: ${found}`) // 打印每个关键词的检测结果
+        return found
+      })
+
+      console.log(keywords)
+
+      if (keywords.length > 0) {
+        let keywordsContext = '检测到以下相关内容:\n\n'
+        
+        for (const keyword of keywords) {
+          const content = getKeywordContent(keyword)
+          if (content) {
+            keywordsContext += `【${keyword.name}】:\n${content}\n\n`
+          }
+        }
+        
+        // 将关键词内容添加到用户消息前面
+        processedContent = keywordsContext + '用户问题:\n' + userMessage.content
+      }
+    }
     
     // 调用 API 获取回复
-    const response = await sendToModel(model, userMessage.content, context)
+    const response = await sendToModel(model, processedContent, context)
     
     const assistantMessage = {
       id: Date.now(),
@@ -186,7 +313,6 @@ const sendMessage = async () => {
     currentChat.value.messages.push(assistantMessage)
     saveSessions()
 
-    // 滚动到底部
     await nextTick()
     if (messagesContainer.value) {
       messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
@@ -194,7 +320,6 @@ const sendMessage = async () => {
 
   } catch (error) {
     console.error('发送失败:', error)
-    // 移除失败的消息
     currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== userMessage.id)
     alert(error.message)
   }
@@ -332,6 +457,11 @@ watch(
   { deep: true }
 )
 
+// 添加 watch 来监听 scenes 的变化
+watch(() => props.scenes, (newScenes) => {
+  console.log("scenes changed:", newScenes)
+}, { deep: true })
+
 // 初始化
 onMounted(() => {
   const saved = localStorage.getItem('chatSessions')
@@ -369,6 +499,19 @@ const deleteMessage = (msgId) => {
   
   currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== msgId)
   saveSessions()
+}
+
+// 添加展开状态管理
+const expandedKeywords = ref([])
+
+// 切换关键词内容显示
+const toggleKeywordContent = (keyword) => {
+  const index = expandedKeywords.value.indexOf(keyword.id)
+  if (index === -1) {
+    expandedKeywords.value.push(keyword.id)
+  } else {
+    expandedKeywords.value.splice(index, 1)
+  }
 }
 </script>
 
@@ -449,26 +592,116 @@ const deleteMessage = (msgId) => {
   flex: 1;
   display: flex;
   flex-direction: column;
+  background: #fff;
 }
 
 .chat-header {
-  padding: 16px 24px;
+  padding: 20px;
   border-bottom: 1px solid #e8e8e8;
   background: #fff;
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
 .model-select {
   padding: 8px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid #e0e0e0;
   border-radius: 6px;
-  width: 240px;
   font-size: 0.95em;
+  color: #333;
+  min-width: 200px;
+}
+
+.keyword-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.keyword-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.keyword-toggle label {
+  font-size: 0.95em;
+  color: #666;
+  user-select: none;
+  cursor: pointer;
+}
+
+.keywords-area {
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.keywords-header {
+  font-size: 0.9em;
+  color: #666;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.keywords-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.keyword-card {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  width: auto;
+  min-width: 120px;
+  max-width: 200px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.keyword-card:hover {
+  border-color: #2196f3;
+  box-shadow: 0 2px 8px rgba(33, 150, 243, 0.1);
+}
+
+.keyword-title {
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 500;
+  color: #1976d2;
+  font-size: 0.9em;
+}
+
+.keyword-title i {
+  font-size: 0.8em;
+  color: #666;
+}
+
+.keyword-content {
+  padding: 8px 12px;
+  border-top: 1px solid #e0e0e0;
+  font-size: 0.85em;
+  color: #666;
+  line-height: 1.4;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 20px;
   background: #f8f9fa;
 }
 
@@ -489,8 +722,8 @@ const deleteMessage = (msgId) => {
 .message-header {
   display: flex;
   align-items: center;
-  margin-bottom: 6px;
   gap: 8px;
+  margin-bottom: 6px;
 }
 
 .role-badge {
@@ -502,14 +735,14 @@ const deleteMessage = (msgId) => {
 }
 
 .message-time {
-  font-size: 0.8em;
-  color: #666;
+  font-size: 0.85em;
+  color: #999;
 }
 
 .message-actions {
+  margin-left: auto;
   opacity: 0;
   transition: opacity 0.2s ease;
-  margin-left: auto;
 }
 
 .message:hover .message-actions {
@@ -527,11 +760,6 @@ const deleteMessage = (msgId) => {
 .user .message-content {
   background: #e3f2fd;
   color: #1976d2;
-}
-
-.assistant .message-content {
-  background: #fff;
-  color: #333;
 }
 
 .chat-input {

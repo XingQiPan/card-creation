@@ -193,6 +193,7 @@
       <ChatView
         v-else-if="currentView === 'chat'"
         :models="models"
+        :scenes="scenes"
       />
     </div>
 
@@ -641,6 +642,9 @@ onMounted(() => {
   if (savedPrompts) {
     prompts.value = JSON.parse(savedPrompts)
   }
+
+  // 在组件挂载时加载场景数据
+  loadScenes()
 })
 
 // 工具函数
@@ -1455,6 +1459,14 @@ const deletePrompt = (promptId) => {
 
 // 添加视图切换状态
 const currentView = ref('main')
+
+// 加载场景数据
+const loadScenes = () => {
+  const savedScenes = localStorage.getItem('scenes')
+  if (savedScenes) {
+    scenes.value = JSON.parse(savedScenes)
+  }
+}
 </script>
 
 <style scoped>

@@ -829,7 +829,7 @@ const closeTagSelector = () => {
 
 .card-content textarea {
   flex: 1;
-  width: 100%;
+  width: 90%;
   min-height: 120px;
   padding: 12px;
   border: none;

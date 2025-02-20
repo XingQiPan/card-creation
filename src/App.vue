@@ -2173,7 +2173,7 @@ textarea.template-input {
 }
 
 .model-select select {
-  width: 100%;
+  width: 90%;
   padding: 8px 12px;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -2632,7 +2632,7 @@ textarea.template-input {
 }
 
 .title-input {
-  width: 100%;
+  width: 90%;
   padding: 8px 12px;
   font-size: var(--font-size-large);
   border: 1px solid #ddd;

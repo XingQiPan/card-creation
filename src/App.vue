@@ -298,6 +298,7 @@
                   <select v-model="model.provider">
                     <option value="openai">OpenAI</option>
                     <option value="gemini">Gemini</option>
+                    <option value="ollama">Ollama</option>
                   </select>
                 </div>
                 <div class="form-group">
@@ -722,7 +723,8 @@ const clearSelection = () => {
 // 定义提供商类型
 const PROVIDERS = {
   OPENAI: 'openai',
-  GEMINI: 'gemini'
+  GEMINI: 'gemini',
+  OLLAMA: 'ollama'  // 添加 Ollama 提供商
 }
 
 // 修改发送提示词请求的方法
@@ -829,6 +831,31 @@ const sendPromptRequest = async (prompt) => {
       
       const result = await response.json()
       content = result.candidates?.[0]?.content?.parts?.[0]?.text
+    } else if (model.provider === PROVIDERS.OLLAMA) {
+      console.log(model.apiUrl)
+      response = await fetch(model.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: model.modelId,
+          messages: [
+            {
+              role: "user",
+              content: processedTemplate
+            }
+          ],
+          stream: false,
+          options: {
+            temperature: Number(model.temperature),
+            num_predict: Number(model.maxTokens)
+          }
+        })
+      })
+      
+      const result = await response.json()
+      content = result.message?.content
     }
 
     if (!response.ok) {
@@ -1061,18 +1088,19 @@ const saveModels = () => {
 
 // 添加 API URL 验证
 const validateApiUrl = (url) => {
-  return url.startsWith('https://')
+  return url.startsWith('https://') || url.startsWith('http://')
 }
 
 // 修改创建默认模型的方法
 const createDefaultModel = () => ({
   id: Date.now(),
   name: '',
-  apiUrl: 'https://api.siliconflow.cn/v1', // 移除 /chat/completions
+  apiUrl: 'https://api.siliconflow.cn/v1',
   modelId: 'deepseek-ai/DeepSeek-V3',
   apiKey: '',
   maxTokens: 512,
-  temperature: 0.7
+  temperature: 0.7,
+  provider: PROVIDERS.OPENAI  // 添加默认提供商类型
 })
 
 // 修改默认的 Gemini 模型配置
@@ -1087,6 +1115,18 @@ const defaultGeminiModel = {
   temperature: 0.7
 }
 
+// 添加默认的 Ollama 模型配置
+const defaultOllamaModel = {
+  id: 'ollama',
+  name: 'Ollama',
+  provider: PROVIDERS.OLLAMA,
+  apiUrl: 'http://localhost:11434/api/chat',  // Ollama 默认地址
+  modelId: 'llama2',  // 默认模型
+  apiKey: '',  // Ollama 本地服务不需要 API key
+  maxTokens: 512,
+  temperature: 0.7
+}
+
 // 在 onMounted 中初始化模型
 onMounted(() => {
   // 加载保存的模型
@@ -1094,8 +1134,8 @@ onMounted(() => {
   if (savedModels) {
     models.value = JSON.parse(savedModels)
   } else {
-    // 如果没有保存的模型，添加默认模型
-    models.value = [createDefaultModel(), defaultGeminiModel]
+    // 如果没有保存的模型，添加所有默认模型
+    models.value = [createDefaultModel(), defaultGeminiModel, defaultOllamaModel]
   }
   
   // 确保所有提示词都有必要的属性

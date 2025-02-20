@@ -1,119 +1,160 @@
 <template>
   <div class="book-splitter">
     <div class="header">
-      <h2>小说拆解器</h2>
-      <div class="actions">
-        <button class="upload-btn">
-          <input 
-            type="file" 
-            accept=".txt"
-            @change="handleBookUpload"
-            ref="fileInput"
-          >
-          <i class="fas fa-book"></i> 上传小说
+      <div class="left-actions">
+        <button @click="addScene" class="add-tab-btn">
+          <i class="fas fa-plus"></i> 新建场景
         </button>
-        <button 
-          @click="exportResults" 
-          :disabled="!hasResults"
-          class="export-btn"
+        <button @click="clearAllScenes" class="clear-btn">
+          <i class="fas fa-trash"></i> 清空所有
+        </button>
+      </div>
+      <div class="scene-tabs">
+        <div 
+          v-for="scene in scenes" 
+          :key="scene.id" 
+          class="scene-tab"
+          :class="{ active: currentSceneId === scene.id }"
+          @click="currentSceneId = scene.id"
         >
-          <i class="fas fa-file-export"></i> 导出结果
-        </button>
+          <input 
+            v-model="scene.name" 
+            placeholder="场景名称"
+            @input="saveScenes"
+            @click.stop
+          />
+          <button 
+            @click.stop="deleteScene(scene.id)" 
+            class="delete-tab-btn"
+          >
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
       </div>
     </div>
 
-    <div class="content">
-      <!-- 原文场景 -->
-      <div class="scene original-scene">
-        <h3>原文章节 ({{ originalCards.length }}章)</h3>
-        <div class="cards-container">
-          <div 
-            v-for="card in originalCards" 
-            :key="card.id"
-            class="text-card"
+    <div class="scene-content" v-if="currentScene">
+      <div class="scene-header">
+        <div class="scene-actions">
+          <button class="upload-btn">
+            <input 
+              type="file" 
+              accept=".txt"
+              @change="(e) => handleBookUpload(e, currentScene)"
+              ref="fileInput"
+            >
+            <i class="fas fa-book"></i> 上传小说
+          </button>
+          <button 
+            @click="exportResults(currentScene)"
+            :disabled="!currentScene.resultCards.length"
+            class="export-btn"
           >
-            <div class="card-header">
-              <span class="chapter-number">#{{ card.chapterNumber }}</span>
-              <input v-model="card.title" placeholder="章节标题" />
-            </div>
-            <textarea 
-              v-model="card.content" 
-              placeholder="章节内容"
-              readonly
-            ></textarea>
-          </div>
+            <i class="fas fa-file-export"></i> 导出结果
+          </button>
         </div>
       </div>
 
-      <!-- 提示词处理区 -->
-      <div class="prompt-panel">
-        <h3>提示词处理</h3>
-        <div class="prompt-selector">
-          <select v-model="selectedPromptId">
-            <option value="">选择提示词</option>
-            <option 
-              v-for="prompt in prompts" 
-              :key="prompt.id"
-              :value="prompt.id"
+      <!-- 原有的场景内容 -->
+      <div class="main-content">
+        <!-- 原文场景 -->
+        <div class="scene original-scene">
+          <h3>原文章节 ({{ currentScene.originalCards.length }}章)</h3>
+          <div class="cards-container">
+            <div 
+              v-for="card in currentScene.originalCards" 
+              :key="card.id"
+              class="text-card"
             >
-              #{{ prompt.sequence }} - {{ prompt.title }}
-            </option>
-          </select>
-          
-          <!-- 只保留模型选择 -->
-          <div class="model-select" v-if="selectedPrompt">
-            <select v-model="selectedPrompt.selectedModel">
-              <option value="">选择模型</option>
+              <div class="card-header">
+                <span class="chapter-number">#{{ card.chapterNumber }}</span>
+                <input 
+                  v-model="card.title" 
+                  placeholder="章节标题"
+                  @input="saveScenes"
+                />
+              </div>
+              <textarea 
+                v-model="card.content" 
+                placeholder="章节内容"
+                readonly
+              ></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- 提示词处理区 -->
+        <div class="prompt-panel">
+          <h3>提示词处理</h3>
+          <div class="prompt-selector">
+            <select 
+              v-model="currentScene.selectedPromptId"
+              @change="saveScenes"
+            >
+              <option value="">选择提示词</option>
               <option 
-                v-for="model in models" 
-                :key="model.id" 
-                :value="model.id"
+                v-for="prompt in prompts" 
+                :key="prompt.id"
+                :value="prompt.id"
               >
-                {{ model.name }}
+                #{{ prompt.sequence }} - {{ prompt.title }}
               </option>
             </select>
-          </div>
+            
+            <div class="model-select" v-if="getSelectedPrompt(currentScene)">
+              <select 
+                v-model="getSelectedPrompt(currentScene).selectedModel"
+                @change="saveScenes"
+              >
+                <option value="">选择模型</option>
+                <option 
+                  v-for="model in models" 
+                  :key="model.id" 
+                  :value="model.id"
+                >
+                  {{ model.name }}
+                </option>
+              </select>
+            </div>
 
-          <div class="process-buttons">
-            <button 
-              @click="processWithPrompt"
-              :disabled="!canProcess"
-              v-if="!processing"
-            >
-              <i class="fas fa-play"></i> 开始处理
-            </button>
-            <button 
-              @click="toggleProcessing"
-              class="process-control"
-              v-else
-            >
-              <i :class="isPaused ? 'fas fa-play' : 'fas fa-pause'"></i>
-              {{ isPaused ? '继续处理' : '暂停处理' }}
-            </button>
+            <div class="process-buttons">
+              <button 
+                @click="() => processWithPrompt(currentScene)"
+                :disabled="!canProcess(currentScene)"
+                v-if="!currentScene.processing"
+              >
+                <i class="fas fa-play"></i> 开始处理
+              </button>
+              <button 
+                @click="() => toggleProcessing(currentScene)"
+                class="process-control"
+                v-else
+              >
+                <i :class="currentScene.isPaused ? 'fas fa-play' : 'fas fa-pause'"></i>
+                {{ currentScene.isPaused ? '继续处理' : '暂停处理' }}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- 处理结果场景 -->
-      <div class="scene result-scene">
-        <h3>处理结果 ({{ resultCards.length }}章)</h3>
-        <div class="cards-container">
-          <div 
-            v-for="card in resultCards" 
-            :key="card.id"
-            class="text-card"
-          >
-            <div class="card-header">
-              <span class="chapter-number">{{ card.originalNumber }}</span>
-              <span class="prompt-info">
-                提示词 {{ card.promptSequence }}
-              </span>
+        <!-- 结果场景 -->
+        <div class="scene result-scene">
+          <h3>处理结果 ({{ currentScene.resultCards.length }}章)</h3>
+          <div class="cards-container">
+            <div 
+              v-for="card in currentScene.resultCards" 
+              :key="card.id"
+              class="text-card"
+            >
+              <div class="card-header">
+                <span class="chapter-number">#{{ card.originalNumber }}</span>
+                <span class="prompt-info">提示词 #{{ card.promptSequence }}</span>
+              </div>
+              <textarea 
+                v-model="card.content"
+                readonly
+              ></textarea>
             </div>
-            <textarea 
-              v-model="card.content" 
-              placeholder="处理结果"
-              readonly
-            ></textarea>
           </div>
         </div>
       </div>
@@ -122,40 +163,204 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
-// 状态
-const originalCards = ref([])
-const resultCards = ref([])
-const selectedPromptId = ref('')
-const processing = ref(false)
-const isPaused = ref(false)
-const currentIndex = ref(0)
-
-// 从父组件接收提示词列表和模型列表
+// 定义 props
 const props = defineProps({
   prompts: {
     type: Array,
     required: true
   },
-  models: {  // 添加模型列表属性
+  models: {
     type: Array,
     required: true
   }
 })
 
-// 计算属性
-const hasResults = computed(() => resultCards.value.length > 0)
+const currentSceneId = ref(null)
+const scenes = ref([])
+const PROVIDERS = {
+  OPENAI: 'openai',
+  GEMINI: 'gemini'
+}
 
-const selectedPrompt = computed(() => {
-  return props.prompts.find(p => p.id === selectedPromptId.value)
+// 延迟函数
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+// 计算当前场景
+const currentScene = computed(() => {
+  return scenes.value.find(s => s.id === currentSceneId.value)
 })
 
-const canProcess = computed(() => {
-  return selectedPrompt.value && 
-         selectedPrompt.value.selectedModel && 
-         !processing.value
+// 初始化时加载保存的场景
+onMounted(() => {
+  const savedScenes = localStorage.getItem('bookSplitterScenes')
+  if (savedScenes) {
+    scenes.value = JSON.parse(savedScenes)
+    if (scenes.value.length > 0) {
+      currentSceneId.value = scenes.value[0].id
+    }
+  }
+  // 如果没有场景，创建一个默认场景
+  if (scenes.value.length === 0) {
+    addScene()
+  }
 })
+
+// 保存场景到本地存储
+const saveScenes = () => {
+  localStorage.setItem('bookSplitterScenes', JSON.stringify(scenes.value))
+}
+
+// 添加新场景
+const addScene = () => {
+  const newScene = {
+    id: Date.now(),
+    name: '新场景',
+    originalCards: [],
+    resultCards: [],
+    selectedPromptId: '',
+    processing: false,
+    isPaused: false,
+    currentIndex: 0
+  }
+  scenes.value.push(newScene)
+  currentSceneId.value = newScene.id
+  saveScenes()
+}
+
+// 删除场景
+const deleteScene = (sceneId) => {
+  if (confirm('确定要删除这个场景吗？')) {
+    scenes.value = scenes.value.filter(s => s.id !== sceneId)
+    saveScenes()
+  }
+}
+
+// 清空所有场景
+const clearAllScenes = () => {
+  if (confirm('确定要清空所有场景吗？')) {
+    scenes.value = []
+    localStorage.removeItem('bookSplitterScenes')
+    addScene() // 添加一个新的空场景
+  }
+}
+
+// 获取选中的提示词
+const getSelectedPrompt = (scene) => {
+  return props.prompts.find(p => p.id === scene.selectedPromptId)
+}
+
+// 检查是否可以处理
+const canProcess = (scene) => {
+  const prompt = getSelectedPrompt(scene)
+  return prompt && 
+         prompt.selectedModel && 
+         scene.originalCards.length > 0 && 
+         !scene.processing
+}
+
+// 修改文件上传处理函数
+const handleBookUpload = async (event, scene) => {
+  const file = event.target.files[0]
+  if (!file) return
+
+  try {
+    const content = await file.text()
+    const chapters = splitIntoChapters(content)
+    
+    scene.originalCards = chapters.map((chapter, index) => ({
+      id: Date.now() + index,
+      chapterNumber: index + 1,
+      title: chapter.title,
+      content: chapter.content
+    }))
+
+    event.target.value = ''
+    saveScenes()
+  } catch (error) {
+    console.error('文件处理错误:', error)
+    alert('文件处理失败: ' + error.message)
+  }
+}
+
+// 修改处理函数以支持多场景
+const processWithPrompt = async (scene) => {
+  if (!scene.selectedPromptId || scene.processing) return
+
+  const prompt = props.prompts.find(p => p.id === scene.selectedPromptId)
+  if (!prompt) {
+    alert('未找到选中的提示词')
+    return
+  }
+
+  scene.processing = true
+  scene.isPaused = false
+  scene.currentIndex = 0
+  scene.resultCards = [] // 清空之前的结果
+
+  await continueProcessing(scene)
+  saveScenes()
+}
+
+// 修改继续处理函数
+const continueProcessing = async (scene) => {
+  const prompt = props.prompts.find(p => p.id === scene.selectedPromptId)
+  
+  try {
+    while (scene.currentIndex < scene.originalCards.length && !scene.isPaused) {
+      const card = scene.originalCards[scene.currentIndex]
+      try {
+        const result = await processChapter(card, prompt)
+        
+        scene.resultCards.push({
+          id: Date.now() + Math.random(),
+          originalNumber: card.chapterNumber,
+          promptSequence: prompt.sequence,
+          content: result,
+          promptId: prompt.id,
+          title: card.title
+        })
+
+        scene.currentIndex++
+        saveScenes()
+        
+        if (scene.currentIndex < scene.originalCards.length && !scene.isPaused) {
+          await delay(3000)
+        }
+      } catch (error) {
+        console.error(`处理章节 ${card.title} 失败:`, error)
+        alert(`处理章节 "${card.title}" 失败: ${error.message}`)
+        if (!confirm('是否继续处理下一章节？')) {
+          scene.isPaused = true
+          break
+        }
+        scene.currentIndex++
+      }
+    }
+
+    if (scene.currentIndex >= scene.originalCards.length) {
+      scene.processing = false
+      scene.isPaused = false
+      scene.currentIndex = 0
+    }
+    saveScenes()
+  } catch (error) {
+    console.error('处理错误:', error)
+    alert('处理失败: ' + error.message)
+    scene.processing = false
+    saveScenes()
+  }
+}
+
+// 修改暂停/继续功能
+const toggleProcessing = (scene) => {
+  scene.isPaused = !scene.isPaused
+  if (!scene.isPaused) {
+    continueProcessing(scene)
+  }
+  saveScenes()
+}
 
 // 将文本分割成章节
 const splitIntoChapters = (text) => {
@@ -210,114 +415,6 @@ const splitIntoChapters = (text) => {
   }
 
   return chapters
-}
-
-// 处理小说上传
-const handleBookUpload = async (event) => {
-  const file = event.target.files[0]
-  if (!file) return
-
-  try {
-    const content = await file.text()
-    const chapters = splitIntoChapters(content)
-    
-    originalCards.value = chapters.map((chapter, index) => ({
-      id: Date.now() + index,
-      chapterNumber: index + 1,
-      title: chapter.title,
-      content: chapter.content
-    }))
-
-    event.target.value = ''
-  } catch (error) {
-    console.error('文件处理错误:', error)
-    alert('文件处理失败: ' + error.message)
-  }
-}
-
-// 延迟函数
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
-
-const PROVIDERS = {
-  OPENAI: 'openai',
-  GEMINI: 'gemini'
-}
-
-// 切换暂停/继续状态
-const toggleProcessing = () => {
-  isPaused.value = !isPaused.value
-  if (!isPaused.value) {
-    // 继续处理
-    continueProcessing()
-  }
-}
-
-// 处理提示词
-const processWithPrompt = async () => {
-  if (!selectedPromptId.value || processing.value) return
-
-  const prompt = props.prompts.find(p => p.id === selectedPromptId.value)
-  if (!prompt) {
-    alert('未找到选中的提示词')
-    return
-  }
-
-  processing.value = true
-  isPaused.value = false
-  currentIndex.value = 0
-  resultCards.value = [] // 清空之前的结果
-
-  await continueProcessing()
-}
-
-// 继续处理函数
-const continueProcessing = async () => {
-  const prompt = props.prompts.find(p => p.id === selectedPromptId.value)
-  
-  try {
-    while (currentIndex.value < originalCards.value.length && !isPaused.value) {
-      const card = originalCards.value[currentIndex.value]
-      try {
-        const result = await processChapter(card, prompt)
-        
-        resultCards.value.push({
-          id: Date.now() + Math.random(),
-          originalNumber: card.chapterNumber,
-          promptSequence: prompt.sequence,
-          content: result,
-          promptId: prompt.id,
-          title: card.title
-        })
-
-        currentIndex.value++
-        
-        // 如果不是最后一章且未暂停，等待3秒
-        if (currentIndex.value < originalCards.value.length && !isPaused.value) {
-          await delay(3000)
-        }
-      } catch (error) {
-        console.error(`处理章节 ${card.title} 失败:`, error)
-        alert(`处理章节 "${card.title}" 失败: ${error.message}`)
-        // 是否继续处理下一章节
-        if (!confirm('是否继续处理下一章节？')) {
-          isPaused.value = true
-          break
-        }
-        currentIndex.value++
-      }
-    }
-
-    // 如果全部处理完成
-    if (currentIndex.value >= originalCards.value.length) {
-      processing.value = false
-      isPaused.value = false
-      currentIndex.value = 0
-    }
-  } catch (error) {
-    console.error('处理错误:', error)
-    alert('处理失败: ' + error.message)
-    processing.value = false
-  }
 }
 
 // 处理单个章节
@@ -398,14 +495,14 @@ const processChapter = async (card, prompt) => {
 }
 
 // 导出结果
-const exportResults = () => {
+const exportResults = (scene) => {
   const exportData = {
-    original: originalCards.value.map(card => ({
+    original: scene.originalCards.map(card => ({
       chapterNumber: card.chapterNumber,
       title: card.title,
       content: card.content
     })),
-    results: resultCards.value.map(card => ({
+    results: scene.resultCards.map(card => ({
       originalNumber: card.originalNumber,
       promptSequence: card.promptSequence,
       content: card.content,
@@ -431,75 +528,158 @@ const exportResults = () => {
 .book-splitter {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 40px); /* 减去顶部导航栏的高度 */
-  margin: 70px;
-  gap: 20px;
-  width: 85vw;
+  height: 100%;
   background: #f5f5f5;
-  border-radius: 8px;
   overflow: hidden;
 }
 
 .header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 16px 24px;
+  padding: 8px 16px;
   background: white;
   border-bottom: 1px solid #eee;
+  min-height: 60px;
+  gap: 16px;
+  flex-shrink: 0;
 }
 
-.header h2 {
-  margin: 0;
-  font-size: 20px;
-  color: #333;
-}
-
-.actions {
+.left-actions {
   display: flex;
-  gap: 12px;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-.upload-btn, .export-btn {
-  position: relative;
-  display: inline-flex;
+.scene-tabs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  overflow-x: auto;
+  flex: 1;
+  padding: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #ddd transparent;
+  margin-right: 16px;
+}
+
+.scene-tabs::-webkit-scrollbar {
+  height: 6px;
+}
+
+.scene-tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scene-tabs::-webkit-scrollbar-thumb {
+  background-color: #ddd;
+  border-radius: 3px;
+}
+
+.scene-tabs::-webkit-scrollbar-thumb:hover {
+  background-color: #ccc;
+}
+
+.scene-tab {
+  display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
+  background: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  min-width: 120px;
+  max-width: 200px;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.scene-tab.active {
   background: #646cff;
+  border-color: #646cff;
+  color: white;
+}
+
+.scene-tab input {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  width: 100%;
+  padding: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scene-tab.active input {
+  color: white;
+}
+
+.delete-tab-btn {
+  padding: 4px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delete-tab-btn:hover {
+  opacity: 1;
+}
+
+.add-tab-btn {
+  padding: 8px 16px;
+  background: #28a745;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s ease;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
-.upload-btn:hover, .export-btn:hover {
-  background: #5058cc;
+.add-tab-btn:hover {
+  background: #218838;
 }
 
-.upload-btn input {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
+.clear-btn {
+  padding: 8px 16px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 4px;
   cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
-.export-btn:disabled {
-  background: #ccc;
-  cursor: not-allowed;
+.clear-btn:hover {
+  background: #c82333;
 }
 
-.content {
+.scene-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 20px;
+  min-height: 0;
+}
+
+.main-content {
   display: flex;
   gap: 20px;
-  flex: 1;
-  padding: 0 24px 24px;
-  min-height: 0; /* 重要：防止flex子元素溢出 */
+  height: 100%;
+  overflow: auto;
 }
 
 .scene {
@@ -510,7 +690,7 @@ const exportResults = () => {
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   overflow: hidden;
-  min-height: 0; /* 重要：防止flex子元素溢出 */
+  min-height: 0;
 }
 
 .scene h3 {
@@ -657,7 +837,6 @@ input, textarea {
   background: #f57c00 !important;
 }
 
-/* 添加进度显示 */
 .prompt-selector {
   position: relative;
 }
@@ -667,5 +846,79 @@ input, textarea {
   font-size: 14px;
   color: #666;
   text-align: center;
+}
+
+.scenes-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.scene-wrapper {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  overflow: hidden;
+}
+
+.scene-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #eee;
+}
+
+.scene-header input {
+  font-size: 18px;
+  border: none;
+  background: transparent;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.scene-header input:focus {
+  background: white;
+  outline: none;
+  border: 1px solid #ddd;
+}
+
+.scene-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.delete-btn {
+  padding: 8px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.delete-btn:hover {
+  background: #c82333;
+}
+
+.add-scene-btn {
+  background: #28a745;
+  color: white;
+}
+
+.add-scene-btn:hover {
+  background: #218838;
+}
+
+.clear-btn {
+  background: #dc3545;
+  color: white;
+}
+
+.clear-btn:hover {
+  background: #c82333;
 }
 </style> 

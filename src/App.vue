@@ -1586,7 +1586,7 @@ const currentView = ref('main')
 }
 
 .card-content textarea {
-  width: 100%;
+  width: 90%;
   height: 100%;
   min-height: 120px;
   max-height: 350px;

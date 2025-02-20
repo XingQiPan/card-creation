@@ -74,13 +74,23 @@
             </select>
           </div>
 
-          <button 
-            @click="processWithPrompt"
-            :disabled="!canProcess"
-          >
-            <i class="fas fa-play"></i> 
-            {{ processing ? '处理中...' : '开始处理' }}
-          </button>
+          <div class="process-buttons">
+            <button 
+              @click="processWithPrompt"
+              :disabled="!canProcess"
+              v-if="!processing"
+            >
+              <i class="fas fa-play"></i> 开始处理
+            </button>
+            <button 
+              @click="toggleProcessing"
+              class="process-control"
+              v-else
+            >
+              <i :class="isPaused ? 'fas fa-play' : 'fas fa-pause'"></i>
+              {{ isPaused ? '继续处理' : '暂停处理' }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -119,6 +129,8 @@ const originalCards = ref([])
 const resultCards = ref([])
 const selectedPromptId = ref('')
 const processing = ref(false)
+const isPaused = ref(false)
+const currentIndex = ref(0)
 
 // 从父组件接收提示词列表和模型列表
 const props = defineProps({
@@ -231,7 +243,16 @@ const PROVIDERS = {
   GEMINI: 'gemini'
 }
 
-// 使用提示词处理章节
+// 切换暂停/继续状态
+const toggleProcessing = () => {
+  isPaused.value = !isPaused.value
+  if (!isPaused.value) {
+    // 继续处理
+    continueProcessing()
+  }
+}
+
+// 处理提示词
 const processWithPrompt = async () => {
   if (!selectedPromptId.value || processing.value) return
 
@@ -242,39 +263,59 @@ const processWithPrompt = async () => {
   }
 
   processing.value = true
+  isPaused.value = false
+  currentIndex.value = 0
   resultCards.value = [] // 清空之前的结果
 
+  await continueProcessing()
+}
+
+// 继续处理函数
+const continueProcessing = async () => {
+  const prompt = props.prompts.find(p => p.id === selectedPromptId.value)
+  
   try {
-    for (const card of originalCards.value) {
+    while (currentIndex.value < originalCards.value.length && !isPaused.value) {
+      const card = originalCards.value[currentIndex.value]
       try {
-        // 处理单个章节
         const result = await processChapter(card, prompt)
         
-        // 添加到结果列表
         resultCards.value.push({
           id: Date.now() + Math.random(),
           originalNumber: card.chapterNumber,
           promptSequence: prompt.sequence,
           content: result,
           promptId: prompt.id,
-          title: card.title // 使用原章节标题
+          title: card.title
         })
 
-        // 等待3秒后继续下一个请求
-        await delay(3000)
+        currentIndex.value++
+        
+        // 如果不是最后一章且未暂停，等待3秒
+        if (currentIndex.value < originalCards.value.length && !isPaused.value) {
+          await delay(3000)
+        }
       } catch (error) {
         console.error(`处理章节 ${card.title} 失败:`, error)
         alert(`处理章节 "${card.title}" 失败: ${error.message}`)
         // 是否继续处理下一章节
         if (!confirm('是否继续处理下一章节？')) {
+          isPaused.value = true
           break
         }
+        currentIndex.value++
       }
+    }
+
+    // 如果全部处理完成
+    if (currentIndex.value >= originalCards.value.length) {
+      processing.value = false
+      isPaused.value = false
+      currentIndex.value = 0
     }
   } catch (error) {
     console.error('处理错误:', error)
     alert('处理失败: ' + error.message)
-  } finally {
     processing.value = false
   }
 }
@@ -391,9 +432,9 @@ const exportResults = () => {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 40px); /* 减去顶部导航栏的高度 */
-  margin: 20px;
+  margin: 70px;
   gap: 20px;
-  width: 75vw;
+  width: 85vw;
   background: #f5f5f5;
   border-radius: 8px;
   overflow: hidden;
@@ -488,7 +529,7 @@ const exportResults = () => {
 }
 
 .prompt-panel {
-  width: 300px;
+  width: 200px;
   background: white;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -601,5 +642,30 @@ input, textarea {
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 14px;
+}
+
+.process-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.process-control {
+  background: #ff9800 !important;
+}
+
+.process-control:hover {
+  background: #f57c00 !important;
+}
+
+/* 添加进度显示 */
+.prompt-selector {
+  position: relative;
+}
+
+.progress-info {
+  margin-top: 8px;
+  font-size: 14px;
+  color: #666;
+  text-align: center;
 }
 </style> 

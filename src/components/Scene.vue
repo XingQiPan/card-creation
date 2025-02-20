@@ -71,7 +71,7 @@
                 class="card-tag"
                 :class="{ 
                   active: card.tags?.includes(tag.id),
-                  'is-keyword': tag.isKeyword
+                  'is-keyword': tag.isKeyword && card.tags?.includes(tag.id)
                 }"
                 @click.stop="toggleCardTag(card, tag.id)"
               >
@@ -707,14 +707,15 @@ const closeTagSelector = () => {
 }
 
 .card-tag.is-keyword {
-  background: rgba(100, 108, 255, 0.1);
-  color: #646cff;
-  border: 1px solid #646cff;
+  background: #fff3e0;
+  color: #f57c00;
+  border: 1px solid #f57c00;
 }
 
 .card-tag.is-keyword i {
   font-size: 12px;
   margin-right: 4px;
+  color: #f57c00;
 }
 
 .add-tag-btn {

@@ -8,6 +8,15 @@
         <button @click="clearAllScenes" class="clear-btn">
           <i class="fas fa-trash"></i> 清空所有
         </button>
+        <label class="import-btn">
+          <input 
+            type="file" 
+            accept=".json"
+            @change="importResults"
+            ref="importFileInput"
+          >
+          <i class="fas fa-file-import"></i> 导入结果
+        </label>
       </div>
       <div class="scene-tabs">
         <div 
@@ -522,6 +531,52 @@ const exportResults = (scene) => {
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+// 添加导入结果的方法
+const importResults = async (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+
+  try {
+    const content = await file.text()
+    const importData = JSON.parse(content)
+    
+    // 创建新场景
+    const newScene = {
+      id: Date.now(),
+      name: '导入场景',
+      originalCards: importData.original.map(card => ({
+        id: Date.now() + Math.random(),
+        chapterNumber: card.chapterNumber,
+        title: card.title,
+        content: card.content
+      })),
+      resultCards: importData.results.map(card => ({
+        id: Date.now() + Math.random(),
+        originalNumber: card.originalNumber,
+        promptSequence: card.promptSequence,
+        content: card.content,
+        promptId: card.promptId
+      })),
+      selectedPromptId: '',
+      processing: false,
+      isPaused: false,
+      currentIndex: importData.results.length // 设置为已处理的章节数
+    }
+
+    // 添加到场景列表
+    scenes.value.push(newScene)
+    currentSceneId.value = newScene.id
+    saveScenes()
+
+    // 清空文件输入
+    event.target.value = ''
+    
+  } catch (error) {
+    console.error('导入错误:', error)
+    alert('导入失败: ' + error.message)
+  }
+}
 </script>
 
 <style scoped>
@@ -920,5 +975,26 @@ input, textarea {
 
 .clear-btn:hover {
   background: #c82333;
+}
+
+.import-btn {
+  padding: 8px 16px;
+  background: #0d6efd;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.import-btn:hover {
+  background: #0b5ed7;
+}
+
+.import-btn input {
+  display: none;
 }
 </style> 

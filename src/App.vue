@@ -740,43 +740,49 @@ const sendPromptRequest = async (prompt) => {
 
   try {
     let processedTemplate = prompt.template
-    let keywordsList = [] // 存储检测到的关键词
 
-    // 检查插入内容中的关键词
+    // 先处理插入内容的替换
     if (prompt.insertedContents?.length > 0) {
-      // 获取所有关键词标签
-      const keywordTags = tags.value.filter(tag => tag.isKeyword)
-      
-      // 遍历所有插入的内容
-      prompt.insertedContents.forEach(content => {
-        // 查找对应的卡片
-        const card = currentScene.value.cards.find(c => c.content === content)
-        if (card && card.tags) {
-          // 只有当卡片包含关键词标签时，才将其标题作为关键词
-          keywordTags.forEach(tag => {
-            if (card.tags.includes(tag.id)) {
-              keywordsList.push(card.title)
-            }
-          })
-        }
-      })
-
-      // 替换模板中的占位符
       prompt.insertedContents.forEach(content => {
         processedTemplate = processedTemplate.replace('{{text}}', content)
       })
     }
 
-    // 去重关键词
-    keywordsList = [...new Set(keywordsList)]
+    // 然后再检查关键词
+    let keywordContexts = [] // 存储检测到的关键词上下文
 
-    // 如果有关键词，添加到提示词开头
-    if (keywordsList.length > 0) {
-      processedTemplate = `关键词：${keywordsList.join('、')}\n\n${processedTemplate}`
+    // 获取所有关键词标签
+    const keywordTags = tags.value.filter(tag => tag.isKeyword)
+    
+    // 获取当前场景中所有带有关键词标签的卡片
+    const keywordCards = currentScene.value.cards.filter(card => 
+      card.tags?.some(tagId => keywordTags.some(tag => tag.id === tagId)) && card.title
+    )
+
+    // 检查处理后的提示词中是否包含关键词卡片的标题
+    keywordCards.forEach(card => {
+      if (card.title && processedTemplate.includes(card.title)) {
+        console.log('找到关键词:', card.title)
+        keywordContexts.push({
+          keyword: card.title,
+          content: card.content
+        })
+      }
+    })
+
+    // 如果找到关键词,添加上下文到提示词开头
+    if (keywordContexts.length > 0) {
+      console.log('添加关键词上下文:', keywordContexts)
+      const contextSection = keywordContexts.map(ctx => 
+        `关键词「${ctx.keyword}」的上下文:\n${ctx.content}`
+      ).join('\n\n')
+      processedTemplate = `${contextSection}\n\n---\n\n${processedTemplate}`
     }
 
     let response
     let content
+    console.log('最终处理的提示词:', processedTemplate)
+    showToast('发送成功')
 
     if (model.provider === PROVIDERS.OPENAI) {
       response = await fetch(`${model.apiUrl}/chat/completions`, {
@@ -832,7 +838,8 @@ const sendPromptRequest = async (prompt) => {
     if (!content) {
       throw new Error('响应格式错误')
     }
-
+    showToast('数据返回成功')
+    
     // 创建新卡片
     const newCard = {
       id: Date.now(),
@@ -846,7 +853,6 @@ const sendPromptRequest = async (prompt) => {
       currentScene.value.cards.push(newCard)
     }
 
-    showToast('发送成功')
     
     // 清理状态
     prompt.insertedContents = []

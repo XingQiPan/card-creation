@@ -186,8 +186,12 @@
       </div>
 
       <BookSplitter 
-        v-else-if="currentView === 'bookSplitter'"
+        v-else-if="currentView === 'book'"
         :prompts="prompts"
+        :models="models"
+      />
+      <ChatView
+        v-else-if="currentView === 'chat'"
         :models="models"
       />
     </div>
@@ -195,18 +199,22 @@
     <!-- 视图切换按钮 -->
     <div class="view-switcher">
       <button 
-        @click="currentView = 'main'"
         :class="{ active: currentView === 'main' }"
-        title="主界面"
+        @click="currentView = 'main'"
       >
-        <i class="fas fa-columns"></i>
+        <i class="fas fa-home"></i>
       </button>
       <button 
-        @click="currentView = 'bookSplitter'"
-        :class="{ active: currentView === 'bookSplitter' }"
-        title="拆书工具"
+        :class="{ active: currentView === 'book' }"
+        @click="currentView = 'book'"
       >
-        <i class="fas fa-book-open"></i>
+        <i class="fas fa-book"></i>
+      </button>
+      <button 
+        :class="{ active: currentView === 'chat' }"
+        @click="currentView = 'chat'"
+      >
+        <i class="fas fa-comments"></i>
       </button>
     </div>
   </div>
@@ -480,6 +488,7 @@ import Scene from './components/Scene.vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import BookSplitter from './components/BookSplitter.vue'
+import ChatView from './components/ChatView.vue'
 
 // 状态管理
 const prompts = ref([])

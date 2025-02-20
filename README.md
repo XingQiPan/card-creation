@@ -131,6 +131,7 @@ npm run build
 - **多模型支持**
   - OpenAI API 集成
   - Google Gemini API 集成
+  - Ollama API 集成
   - 自定义 API 支持
 
 - **参数配置**
@@ -153,6 +154,8 @@ npm run build
 - API 地址配置：
   - Gemini API: `https://generativelanguage.googleapis.com/v1beta/models/{模型名称}:generateContent`
   - OpenAI API: 自动附加 `/chat/completions`
+  - Ollama API: `http://localhost:11434/api/chat`
+  - 请确保 Ollama 服务已正确启动
 - 关键词标签：使用关键词标签的卡片内容会在提示词中被检测并自动注入相关上下文
 - 拆书功能：支持断点续传，可以导入之前的进度继续处理
 

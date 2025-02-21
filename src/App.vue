@@ -288,6 +288,19 @@
             </option>
           </select>
         </div>
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input 
+              type="checkbox" 
+              v-model="promptForm.detectKeywords"
+              class="custom-checkbox"
+            />
+            <span class="checkbox-text">检测关键词</span>
+            <span class="checkbox-description">
+              启用后将自动检测提示词中的关键词并添加相关上下文
+            </span>
+          </label>
+        </div>
         <div class="modal-actions">
           <button @click="showPromptModal = false">取消</button>
           <button @click="savePrompt">保存</button>
@@ -693,7 +706,8 @@ const createNewPrompt = () => {
     template: '',
     defaultModel: '',
     insertedContents: [],
-    selectedModel: ''
+    selectedModel: '',
+    detectKeywords: true  // 默认启用关键词检测
   }
 }
 
@@ -715,7 +729,8 @@ const savePrompt = () => {
     template: promptForm.value.template,
     defaultModel: promptForm.value.defaultModel,
     insertedContents: [],
-    selectedModel: promptForm.value.defaultModel
+    selectedModel: promptForm.value.defaultModel,
+    detectKeywords: promptForm.value.detectKeywords  // 保存检测关键词设置
   }
 
   if (editingPrompt.value) {
@@ -771,42 +786,37 @@ const sendPromptRequest = async (prompt) => {
   try {
     let processedTemplate = prompt.template
 
-    // 先处理插入内容的替换
-    if (prompt.insertedContents?.length > 0) {
-      prompt.insertedContents.forEach(content => {
-        processedTemplate = processedTemplate.replace('{{text}}', content)
-      })
-    }
-
-    // 然后再检查关键词
-    let keywordContexts = [] // 存储检测到的关键词上下文
-
-    // 获取所有关键词标签
-    const keywordTags = tags.value.filter(tag => tag.isKeyword)
-    
-    // 获取当前场景中所有带有关键词标签的卡片
-    const keywordCards = currentScene.value.cards.filter(card => 
-      card.tags?.some(tagId => keywordTags.some(tag => tag.id === tagId)) && card.title
-    )
-
-    // 检查处理后的提示词中是否包含关键词卡片的标题
-    keywordCards.forEach(card => {
-      if (card.title && processedTemplate.includes(card.title)) {
-        console.log('找到关键词:', card.title)
-        keywordContexts.push({
-          keyword: card.title,
-          content: card.content
+    // 只在启用关键词检测时执行关键词处理
+    if (prompt.detectKeywords) {
+      // 处理插入内容的替换
+      if (prompt.insertedContents?.length > 0) {
+        prompt.insertedContents.forEach(content => {
+          processedTemplate = processedTemplate.replace('{{text}}', content)
         })
       }
-    })
 
-    // 如果找到关键词,添加上下文到提示词开头
-    if (keywordContexts.length > 0) {
-      console.log('添加关键词上下文:', keywordContexts)
-      const contextSection = keywordContexts.map(ctx => 
-        `关键词「${ctx.keyword}」的上下文:\n${ctx.content}`
-      ).join('\n\n')
-      processedTemplate = `${contextSection}\n\n---\n\n${processedTemplate}`
+      // 检查关键词
+      let keywordContexts = []
+      const keywordTags = tags.value.filter(tag => tag.isKeyword)
+      const keywordCards = currentScene.value.cards.filter(card => 
+        card.tags?.some(tagId => keywordTags.some(tag => tag.id === tagId)) && card.title
+      )
+
+      keywordCards.forEach(card => {
+        if (card.title && processedTemplate.includes(card.title)) {
+          keywordContexts.push({
+            keyword: card.title,
+            content: card.content
+          })
+        }
+      })
+
+      if (keywordContexts.length > 0) {
+        const contextSection = keywordContexts.map(ctx => 
+          `关键词「${ctx.keyword}」的上下文:\n${ctx.content}`
+        ).join('\n\n')
+        processedTemplate = `${contextSection}\n\n---\n\n${processedTemplate}`
+      }
     }
 
     let response
@@ -3005,5 +3015,74 @@ textarea.template-input {
   height: 100vh;
   width: 100vw;
   overflow: hidden;
+}
+
+/* 自定义复选框样式 */
+.checkbox-group {
+  margin: 16px 0;
+}
+
+.checkbox-label {
+  display: flex;
+  gap: 8px;
+  user-select: none;
+}
+
+.checkbox-text {
+  font-weight: 500;
+  color: #333;
+}
+
+.checkbox-description {
+  font-size: 0.9em;
+  color: #666;
+  margin-left: 4px;
+}
+
+
+
+.custom-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #ddd;
+  border-radius: 4px;
+  margin: 2px 0;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.custom-checkbox:checked {
+  background-color: #646cff;
+  border-color: #646cff;
+}
+
+.custom-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.custom-checkbox:hover {
+  border-color: #646cff;
+}
+
+/* 确保复选框在禁用状态下的样式 */
+.custom-checkbox:disabled {
+  background-color: #f5f5f5;
+  border-color: #ddd;
+  cursor: not-allowed;
+}
+
+.custom-checkbox:disabled + .checkbox-text {
+  color: #999;
 }
 </style> 

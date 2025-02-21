@@ -183,6 +183,7 @@
             @update-card="updateCard"
             @insert-prompt-at-cursor="insertPromptAtCursor"
             @move-card="handleMoveCard"
+            @merge-cards="handleMergeCards"
           />
         </div>
       </div>
@@ -1590,6 +1591,40 @@ const handleAddCardsToScene = ({ sceneId, cards }) => {
   
   // 保存到本地存储
   saveScenes()
+}
+
+// 添加合并卡片的方法
+const handleMergeCards = (cards) => {
+  // 合并卡片的逻辑
+  console.log('Merging cards:', cards)
+  // 这里可以添加合并卡片的逻辑
+}
+
+// 修改创建新卡片的逻辑
+const createNewCard = () => {
+  const newCard = {
+    id: Date.now(),
+    content: '',
+    title: '新建卡片',
+    height: '200px',
+    tags: [],
+    insertedContents: [] // 添加插入内容数组
+  }
+  
+  if (currentScene.value) {
+    currentScene.value.cards.push(newCard)
+  }
+}
+
+// 修改更新卡片的方法
+const updateCard = (card) => {
+  if (!currentScene.value) return
+  
+  const index = currentScene.value.cards.findIndex(c => c.id === card.id)
+  if (index !== -1) {
+    currentScene.value.cards[index] = { ...card }
+    saveScenes() // 保存更新
+  }
 }
 
 </script>

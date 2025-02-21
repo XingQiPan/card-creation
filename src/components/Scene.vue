@@ -43,7 +43,12 @@
           <div 
             v-if="!selectedTags.length || (card.tags && selectedTags.some(tagId => card.tags.includes(tagId)))"
             class="text-card"
-            :class="{ 'is-dragging': drag }"
+            :class="{ 
+              'is-dragging': drag,
+              'is-linked': hasLinks(card),
+              'is-selected': selectedForLink.includes(card.id)
+            }"
+            @click.ctrl="toggleCardSelection(card)"
           >
             <div class="card-header">
               <input 
@@ -81,6 +86,9 @@
               </button>
             </div>
             <div class="card-actions">
+              <button @click.stop="toggleLinkMode(card)" :class="{ active: isLinkMode }">
+                <i class="fas fa-link"></i>
+              </button>
               <button @click.stop="$emit('insert-prompt-at-cursor', card)">
                 <i class="fas fa-pencil-alt"></i>
               </button>
@@ -103,6 +111,31 @@
                         class="remove-prompt-btn">
                   <i class="fas fa-times"></i>
                 </button>
+              </div>
+            </div>
+            <div v-if="hasLinks(card)" class="linked-cards">
+              <div class="linked-count">
+                已关联 {{ getLinkedCards(card).length }} 张卡片
+                <button class="unlink-all-btn" @click.stop="unlinkAllCards(card)">
+                  <i class="fas fa-unlink"></i> 取消所有关联
+                </button>
+              </div>
+              <div class="linked-preview">
+                <div 
+                  v-for="linkedCard in getLinkedCards(card)" 
+                  :key="linkedCard.id"
+                  class="linked-card-item"
+                >
+                  <span @click.stop="viewCardDetail(linkedCard)">
+                    {{ truncateText(linkedCard.title || '未命名卡片', 15) }}
+                  </span>
+                  <button 
+                    class="unlink-btn" 
+                    @click.stop="unlinkCards(card, linkedCard)"
+                  >
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -152,11 +185,25 @@
         </div>
       </div>
     </div>
+
+    <!-- Add link mode indicator -->
+    <div v-if="isLinkMode" class="link-mode-indicator">
+      <div class="indicator-content">
+        <i class="fas fa-link"></i>
+        选择要关联的卡片 (已选择 {{ selectedForLink.length }} 张)
+        <button @click="confirmLink" :disabled="selectedForLink.length < 2">
+          确认关联
+        </button>
+        <button @click="cancelLink" class="cancel-btn">
+          取消
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, defineProps, defineEmits, computed, watch } from 'vue'
+import { ref, defineProps, defineEmits, computed, watch, onUnmounted } from 'vue'
 import draggable from 'vuedraggable'
 
 const props = defineProps({
@@ -213,6 +260,9 @@ const showTagModal = ref(false)
 const currentCard = ref(null)
 const showMoveModal = ref(false)
 const cardToMove = ref(null)
+const isLinkMode = ref(false)
+const selectedForLink = ref([])
+const sourceCard = ref(null)
 
 // 添加计算属性来过滤卡片
 const filteredCards = computed(() => {
@@ -263,19 +313,23 @@ const insertPromptContent = (card, prompt) => {
     card.insertedContents = []
   }
   
-  // 获取卡片内容
-  const cardContent = card.content || ''
-  
-  // 检查提示词模板中的 {{text}} 数量
-  const textPlaceholders = (prompt.template.match(/{{text}}/g) || []).length
-  
-  if (textPlaceholders > 0) {
-    // 将卡片内容添加到提示词的插入内容中
-    card.insertedContents.push(cardContent)
-    
-    // 更新卡片
-    emit('update-card', card)
+  // Get content from the card and its linked cards
+  const contents = [card.content]
+  if (card.links) {
+    const linkedContents = getLinkedCards(card)
+      .map(linkedCard => linkedCard.content)
+      .filter(Boolean)
+    contents.push(...linkedContents)
   }
+  
+  // Add all contents to the prompt
+  contents.forEach(content => {
+    if (content) {
+      card.insertedContents.push(content)
+    }
+  })
+  
+  emit('update-card', card)
 }
 
 // 修改现有的 removeInsertedPrompt 方法
@@ -460,6 +514,123 @@ const moveCardToScene = (card, targetScene) => {
   })
   closeMoveModal()
 }
+
+// Add new methods for card linking
+const toggleLinkMode = (card) => {
+  if (!isLinkMode.value) {
+    isLinkMode.value = true
+    sourceCard.value = card
+    selectedForLink.value = [card.id]
+  }
+}
+
+const toggleCardSelection = (card) => {
+  if (!isLinkMode.value) return
+  
+  const index = selectedForLink.value.indexOf(card.id)
+  if (index === -1) {
+    selectedForLink.value.push(card.id)
+  } else {
+    selectedForLink.value.splice(index, 1)
+  }
+}
+
+const confirmLink = () => {
+  if (selectedForLink.value.length < 2) return
+  
+  // Create or update links for all selected cards
+  selectedForLink.value.forEach(cardId => {
+    const card = props.scene.cards.find(c => c.id === cardId)
+    if (card) {
+      if (!card.links) card.links = []
+      // Add all other selected cards as links
+      selectedForLink.value.forEach(linkId => {
+        if (linkId !== cardId && !card.links.includes(linkId)) {
+          card.links.push(linkId)
+        }
+      })
+    }
+  })
+  
+  emit('update:scene', {...props.scene})
+  cancelLink()
+}
+
+const cancelLink = () => {
+  isLinkMode.value = false
+  selectedForLink.value = []
+  sourceCard.value = null
+}
+
+const hasLinks = (card) => {
+  return card.links?.length > 0
+}
+
+const getLinkedCards = (card) => {
+  if (!card.links) return []
+  return props.scene.cards.filter(c => card.links.includes(c.id))
+}
+
+const viewCardDetail = (card) => {
+  emit('view-card', card)
+}
+
+const truncateText = (text, maxLength) => {
+  if (text.length > maxLength) {
+    return text.slice(0, maxLength) + '...'
+  }
+  return text
+}
+
+// Add new methods for unlinking cards
+const unlinkCards = (card1, card2) => {
+  // Remove link from card1
+  if (card1.links) {
+    card1.links = card1.links.filter(id => id !== card2.id)
+  }
+  
+  // Remove link from card2
+  if (card2.links) {
+    card2.links = card2.links.filter(id => id !== card1.id)
+  }
+  
+  emit('update:scene', {...props.scene})
+}
+
+const unlinkAllCards = (card) => {
+  if (!card.links) return
+  
+  // Get all linked cards
+  const linkedCards = getLinkedCards(card)
+  
+  // Remove this card's ID from all linked cards
+  linkedCards.forEach(linkedCard => {
+    if (linkedCard.links) {
+      linkedCard.links = linkedCard.links.filter(id => id !== card.id)
+    }
+  })
+  
+  // Clear all links from this card
+  card.links = []
+  
+  emit('update:scene', {...props.scene})
+}
+
+// Add new method to prevent text selection during drag
+const preventTextSelection = (prevent) => {
+  document.body.style.userSelect = prevent ? 'none' : ''
+  document.body.style.webkitUserSelect = prevent ? 'none' : ''
+}
+
+// Modify draggable events
+watch(drag, (isDragging) => {
+  preventTextSelection(isDragging)
+})
+
+// Clean up when component is unmounted
+onUnmounted(() => {
+  preventTextSelection(false)
+})
 </script>
 
 <style scoped>
@@ -559,6 +730,7 @@ const moveCardToScene = (card, targetScene) => {
   display: flex;
   flex-direction: column;
   font-size: var(--font-size-normal);
+  user-select: none; /* Prevent text selection on card headers and actions */
 }
 
 .card-header {
@@ -573,6 +745,7 @@ const moveCardToScene = (card, targetScene) => {
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
+  user-select: text; /* Allow text selection in title */
 }
 
 .card-title:hover,
@@ -585,6 +758,7 @@ const moveCardToScene = (card, targetScene) => {
   position: relative;
   flex: 1;
   padding: 0;
+  user-select: text; /* Allow text selection in textarea */
 }
 
 .card-content textarea {
@@ -596,7 +770,6 @@ const moveCardToScene = (card, targetScene) => {
   resize: none;
   font-family: inherit;
   line-height: 1.5;
-  font-size: var(--font-size-normal);
 }
 
 .card-actions {
@@ -920,5 +1093,122 @@ const moveCardToScene = (card, targetScene) => {
 
 .modal-actions button:hover {
   background: #e0e0e0;
+}
+
+.text-card.is-linked {
+  border: 1px solid #646cff;
+}
+
+.text-card.is-selected {
+  background: #f0f2ff;
+  border: 2px solid #646cff;
+}
+
+.linked-cards {
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-top: 1px solid #eee;
+}
+
+.linked-count {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.unlink-all-btn {
+  padding: 2px 8px;
+  background: none;
+  border: none;
+  color: #dc3545;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.unlink-all-btn:hover {
+  color: #c82333;
+}
+
+.linked-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.linked-card-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.unlink-btn {
+  padding: 2px;
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.linked-card-item:hover .unlink-btn {
+  opacity: 1;
+}
+
+.unlink-btn:hover {
+  color: #dc3545;
+}
+
+.link-mode-indicator {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #646cff;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 1000;
+}
+
+.indicator-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.indicator-content button {
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: none;
+  background: white;
+  color: #646cff;
+  cursor: pointer;
+}
+
+.indicator-content button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.indicator-content .cancel-btn {
+  background: transparent;
+  color: white;
+  border: 1px solid white;
+}
+
+.card-actions button.active {
+  background: #646cff;
+  color: white;
 }
 </style>

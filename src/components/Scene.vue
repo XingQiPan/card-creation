@@ -739,7 +739,7 @@ onUnmounted(() => {
 }
 
 .card-title {
-  width: 100%;
+  width: 90%;
   padding: 4px 8px;
   font-size: var(--font-size-medium);
   border: 1px solid transparent;

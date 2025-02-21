@@ -1627,6 +1627,21 @@ const updateCard = (card) => {
   }
 }
 
+// Add new method to prevent text selection during scene drag
+const preventTextSelection = (prevent) => {
+  document.body.style.userSelect = prevent ? 'none' : ''
+  document.body.style.webkitUserSelect = prevent ? 'none' : ''
+}
+
+// Watch scene drag state
+watch(dragScene, (isDragging) => {
+  preventTextSelection(isDragging)
+})
+
+// Clean up when component is unmounted
+onUnmounted(() => {
+  preventTextSelection(false)
+})
 </script>
 
 <style scoped>
@@ -1734,6 +1749,7 @@ const updateCard = (card) => {
   overflow-x: auto;
   flex: 1;
   padding-bottom: 4px;
+  user-select: none; /* Prevent text selection in scene tabs */
 }
 
 .scene-tab {
@@ -1771,6 +1787,7 @@ const updateCard = (card) => {
   align-items: center;
   gap: 8px;
   cursor: move; /* 指示可拖拽 */
+  user-select: none; /* Prevent text selection in scene names */
 }
 
 .scene-name i {

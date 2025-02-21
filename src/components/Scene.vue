@@ -1,6 +1,10 @@
 <template>
   <div class="scene">
-    <div class="content-panel">
+    <div 
+      class="content-panel"
+      @dragover="handleDragOver"
+      @drop="handleDrop"
+    >
       <div class="panel-header">
         <h2>{{ scene.name }}</h2>
         <div class="header-actions">
@@ -37,6 +41,7 @@
       >
         <template #item="{ element: card }">
           <div 
+            v-if="!selectedTags.length || (card.tags && selectedTags.some(tagId => card.tags.includes(tagId)))"
             class="text-card"
             :class="{ 'is-dragging': drag }"
           >
@@ -82,11 +87,7 @@
               <button @click.stop="$emit('view-card', card)">
                 <i class="fas fa-expand"></i>
               </button>
-              <button 
-                class="icon-btn"
-                @click.stop="showMoveModal(card)"
-                title="移动到其他场景"
-              >
+              <button @click.stop="showMoveCardModal(card)">
                 <i class="fas fa-exchange-alt"></i>
               </button>
               <button @click.stop="$emit('delete-card', card.id)" class="delete-btn">
@@ -131,23 +132,23 @@
       </div>
     </div>
 
-    <!-- 场景选择弹窗 -->
-    <div v-if="showModal" class="modal-overlay" @click="closeModal">
+    <!-- 添加移动卡片的模态框 -->
+    <div v-if="showMoveModal" class="modal" @click="closeMoveModal">
       <div class="modal-content" @click.stop>
-        <h3>选择目标场景</h3>
+        <h3>移动卡片到其他场景</h3>
         <div class="scene-list">
           <div 
-            v-for="scene in scenes" 
+            v-for="scene in availableScenes"
             :key="scene.id"
             class="scene-item"
-            @click="moveCardToScene(currentCard, scene.id)"
-            :class="{ disabled: scene.id === props.scene.id }"
+            @click="moveCardToScene(cardToMove, scene)"
           >
-            {{ scene.name }}
+            <span>{{ scene.name }}</span>
+            <i class="fas fa-chevron-right"></i>
           </div>
         </div>
-        <div class="modal-footer">
-          <button @click="closeModal">取消</button>
+        <div class="modal-actions">
+          <button @click="closeMoveModal">取消</button>
         </div>
       </div>
     </div>
@@ -155,7 +156,7 @@
 </template>
 
 <script setup>
-import { ref, defineProps, defineEmits, computed, onMounted, onUnmounted } from 'vue'
+import { ref, defineProps, defineEmits, computed, watch } from 'vue'
 import draggable from 'vuedraggable'
 
 const props = defineProps({
@@ -204,13 +205,14 @@ const emit = defineEmits([
   'update-card',
   'insert-prompt-at-cursor',
   'update-card-tags',
-  'move-card-to-scene'
+  'move-card'
 ])
 
 const drag = ref(false)
 const showTagModal = ref(false)
 const currentCard = ref(null)
-const showModal = ref(false)
+const showMoveModal = ref(false)
+const cardToMove = ref(null)
 
 // 添加计算属性来过滤卡片
 const filteredCards = computed(() => {
@@ -224,16 +226,35 @@ const filteredCards = computed(() => {
   })
 })
 
-// 卡片操作方法
+// 添加对场景变化的监听
+watch(() => props.scene, (newScene) => {
+  if (newScene) {
+    // 确保场景中的cards属性存在
+    if (!newScene.cards) {
+      newScene.cards = []
+    }
+    // 发出更新事件
+    emit('update:scene', newScene)
+  }
+}, { deep: true })
+
+// 修改卡片创建方法
 const createNewCard = () => {
+  if (!props.scene.cards) {
+    props.scene.cards = []
+  }
+  
   const newCard = {
     id: Date.now(),
+    title: '新建卡片',
     content: '',
     height: '120px',
-    insertedContents: [] // Initialize inserted contents
+    tags: [],
+    insertedContents: []
   }
+  
   props.scene.cards.push(newCard)
-  emit('update:scene', props.scene)
+  emit('update:scene', {...props.scene})
 }
 
 // 添加新的方法来处理提示词插入
@@ -274,55 +295,24 @@ const handleFilesImport = async (event) => {
   if (!files.length) return
 
   try {
-    for (const file of files) {
-      if (file.name.endsWith('.jsonl')) {
-        // 处理 JSONL 文件
-        const content = await file.text()
-        const lines = content.trim().split('\n')
-        
-        for (const line of lines) {
-          try {
-            const cardData = JSON.parse(line)
-            // 确保导入的卡片有新的 ID
-            cardData.id = Date.now() + Math.random()
-            props.scene.cards.push(cardData)
-          } catch (e) {
-            console.error('解析 JSONL 行失败:', e)
-          }
-        }
-      } else if (file.name.endsWith('.json')) {
-        // 处理 JSON 文件
-        const content = await file.text()
-        const cardData = JSON.parse(content)
-        
-        // 如果是数组,添加多个卡片
-        if (Array.isArray(cardData)) {
-          cardData.forEach(card => {
-            card.id = Date.now() + Math.random()
-            props.scene.cards.push(card)
-          })
-        } else {
-          // 单个卡片
-          cardData.id = Date.now() + Math.random()
-          props.scene.cards.push(cardData)
-        }
-      } else {
-        // 处理文本文件 (.txt, .md)
-        const content = await file.text()
-        const newCard = {
-          id: Date.now() + Math.random(),
-          title: file.name.replace(/\.(txt|md)$/, ''),
-          content: content,
-          tags: [],
-          height: '120px'
-        }
-        props.scene.cards.push(newCard)
-      }
+    if (!props.scene.cards) {
+      props.scene.cards = []
     }
 
-    // 更新场景
-    emit('update:scene', props.scene)
-    // 清空文件输入
+    for (const file of files) {
+      const content = await file.text()
+      const newCard = {
+        id: Date.now() + Math.random(),
+        title: file.name,
+        content: content.trim(),
+        height: '200px',
+        tags: [],
+        insertedContents: []
+      }
+      props.scene.cards.push(newCard)
+    }
+
+    emit('update:scene', {...props.scene})
     event.target.value = ''
 
   } catch (error) {
@@ -343,59 +333,24 @@ const handleDrop = async (event) => {
   const files = event.dataTransfer.files
   if (files.length > 0) {
     try {
-      for (const file of files) {
-        let content = await file.text()
-        
-        if (file.name.endsWith('.jsonl')) {
-          // 处理JSONL格式
-          const lines = content.trim().split('\n')
-          for (const line of lines) {
-            try {
-              const cardData = JSON.parse(line)
-              props.scene.cards.push({
-                id: Date.now() + Math.random(),
-                title: cardData.title || '未命名',
-                content: cardData.content || '',
-                tags: cardData.tags || [],
-                height: '200px',
-                insertedContents: []
-              })
-            } catch (e) {
-              console.warn('JSONL行解析失败，跳过:', e)
-            }
-          }
-        } else if (file.name.endsWith('.json')) {
-          try {
-            const jsonData = JSON.parse(content)
-            content = JSON.stringify(jsonData, null, 2)
-            props.scene.cards.push({
-              id: Date.now() + Math.random(),
-              content: content.trim(),
-              title: file.name,
-              height: '200px',
-              insertedContents: []
-            })
-          } catch (e) {
-            console.warn('JSON解析失败，作为普通文本处理')
-            props.scene.cards.push({
-              id: Date.now() + Math.random(),
-              content: content.trim(),
-              title: file.name,
-              height: '200px',
-              insertedContents: []
-            })
-          }
-        } else {
-          props.scene.cards.push({
-            id: Date.now() + Math.random(),
-            content: content.trim(),
-            title: file.name,
-            height: '200px',
-            insertedContents: []
-          })
-        }
+      if (!props.scene.cards) {
+        props.scene.cards = []
       }
-      emit('update:scene', props.scene)
+
+      for (const file of files) {
+        const content = await file.text()
+        const newCard = {
+          id: Date.now() + Math.random(),
+          title: file.name,
+          content: content.trim(),
+          height: '200px',
+          tags: [],
+          insertedContents: []
+        }
+        props.scene.cards.push(newCard)
+      }
+      
+      emit('update:scene', {...props.scene})
     } catch (error) {
       console.error('文件导入错误:', error)
       alert('文件导入失败: ' + error.message)
@@ -477,40 +432,33 @@ const closeTagSelector = () => {
   currentCard.value = null
 }
 
-// 点击其他地方关闭菜单
-onMounted(() => {
-  document.addEventListener('click', closeMenu)
+// 计算可用的目标场景（排除当前场景）
+const availableScenes = computed(() => {
+  return props.scenes.filter(s => s.id !== props.scene.id)
 })
 
-onUnmounted(() => {
-  document.removeEventListener('click', closeMenu)
-})
-
-// 移动卡片到其他场景
-const showMoveModal = (card) => {
-  currentCard.value = card
-  showModal.value = true
+// 显示移动卡片模态框
+const showMoveCardModal = (card) => {
+  console.log('Opening move modal for card:', card)
+  cardToMove.value = card
+  showMoveModal.value = true
 }
 
-const closeModal = () => {
-  showModal.value = false
-  currentCard.value = null
+// 关闭移动卡片模态框
+const closeMoveModal = () => {
+  showMoveModal.value = false
+  cardToMove.value = null
 }
 
-const moveCardToScene = (card, targetSceneId) => {
-  if (targetSceneId === props.scene.id) return
-  
-  emit('move-card-to-scene', {
+// 移动卡片到选定场景
+const moveCardToScene = (card, targetScene) => {
+  console.log('Moving card to scene:', targetScene)
+  emit('move-card', {
     card,
-    fromSceneId: props.scene.id,
-    toSceneId: targetSceneId
+    sourceSceneId: props.scene.id,
+    targetSceneId: targetScene.id
   })
-  closeModal()
-}
-
-// 点击其他地方关闭菜单
-const closeMenu = () => {
-  showModal.value = false
+  closeMoveModal()
 }
 </script>
 
@@ -619,7 +567,7 @@ const closeMenu = () => {
 }
 
 .card-title {
-  width: 90%;
+  width: 100%;
   padding: 4px 8px;
   font-size: var(--font-size-medium);
   border: 1px solid transparent;
@@ -906,62 +854,8 @@ const closeMenu = () => {
   line-height: 1.5;
 }
 
-/* 添加移动菜单样式 */
-.move-card-dropdown {
-  position: relative;
-  display: inline-block;
-}
-
-.move-menu {
-  position: absolute;
-  right: 0;
-  top: 100%;
-  background: white;
-  border: 1px solid #eee;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  z-index: 1000;
-  min-width: 120px;
-}
-
-.move-menu-item {
-  padding: 8px 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.move-menu-item:hover {
-  background: #f5f5f5;
-}
-
-.move-menu-item.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: #f5f5f5;
-}
-
-.card-actions {
-  display: flex;
-  gap: 4px;
-  padding: 8px;
-  border-top: 1px solid #eee;
-}
-
-.icon-btn {
-  padding: 4px 8px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.icon-btn:hover {
-  background: #f5f5f5;
-}
-
-.modal-overlay {
+/* 添加移动卡片模态框的样式 */
+.modal {
   position: fixed;
   top: 0;
   left: 0;
@@ -976,42 +870,55 @@ const closeMenu = () => {
 
 .modal-content {
   background: white;
-  border-radius: 8px;
-  padding: 20px;
-  min-width: 300px;
-  max-width: 90%;
-  max-height: 90vh;
+  border-radius: 12px;
+  padding: 24px;
+  width: 400px;
+  max-width: 90vw;
+  max-height: 80vh;
   overflow-y: auto;
 }
 
 .scene-list {
   margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .scene-item {
-  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
   cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
 }
 
 .scene-item:hover {
-  background: #f5f5f5;
+  background: #e9ecef;
 }
 
-.scene-item.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: #f5f5f5;
+.scene-item i {
+  color: #666;
 }
 
-.modal-footer {
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
   margin-top: 16px;
-  text-align: right;
 }
 
-h3 {
-  margin: 0;
-  color: #333;
+.modal-actions button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #f0f0f0;
+  cursor: pointer;
+}
+
+.modal-actions button:hover {
+  background: #e0e0e0;
 }
 </style>

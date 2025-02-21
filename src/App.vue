@@ -169,18 +169,20 @@
           
           <Scene
             v-if="currentScene"
-            :scene="currentScene"
+            v-model:scene="currentScene"
             :scenes="scenes"
+            :text-cards="textCards"
             :selected-cards="selectedCards"
             :prompts="prompts"
+            :insertable-prompts="insertablePrompts"
             :models="models"
             :tags="tags"
             :selected-tags="selectedTags"
-            @move-card-to-scene="handleMoveCardToScene"
             @view-card="viewCardDetail"
             @delete-card="deleteCard"
             @update-card="updateCard"
             @insert-prompt-at-cursor="insertPromptAtCursor"
+            @move-card="handleMoveCard"
           />
         </div>
       </div>
@@ -197,6 +199,8 @@
       />
       <NotePad
         v-else-if="currentView === 'note'"
+        :scenes="scenes"
+        @move-card="handleMoveCard"
       />
     </div>
 
@@ -492,7 +496,7 @@
 
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, provide } from 'vue'
 import draggable from 'vuedraggable'
 import Scene from './components/Scene.vue'
 import { marked } from 'marked'
@@ -671,6 +675,15 @@ const canSendRequest = (prompt) => {
   return prompt.template.trim().length > 0
 }
 
+const getRemainingInserts = () => {
+  if (!selectedPrompt.value) return 0
+  return getInsertCount(selectedPrompt.value.template) - selectedCards.value.length
+}
+
+const canInsertSelected = () => {
+  if (!selectedPrompt.value) return false
+  return selectedCards.value.length === getInsertCount(selectedPrompt.value.template)
+}
 // 提示词相关方法
 const createNewPrompt = () => {
   showPromptModal.value = true
@@ -1272,6 +1285,11 @@ const createNewScene = () => {
 
 const switchScene = (scene) => {
   currentScene.value = scene
+  // 确保引用更新
+  const index = scenes.value.findIndex(s => s.id === scene.id)
+  if (index !== -1) {
+    scenes.value[index] = scene
+  }
 }
 
 const deleteScene = (sceneId) => {
@@ -1293,9 +1311,14 @@ const saveScenes = () => {
 }
 
 // 监听场景变化并保存
-watch([() => scenes.value, () => currentScene.value], () => {
-  saveScenes()
-}, { deep: true })
+watch(
+  [scenes, currentScene],
+  () => {
+    // 深度保存场景数据
+    localStorage.setItem('scenes', JSON.stringify(scenes.value))
+  },
+  { deep: true }
+)
 
 // 添加场景名称编辑功能
 const editSceneName = (scene) => {
@@ -1461,34 +1484,85 @@ const deletePrompt = (promptId) => {
 // 添加视图切换状态
 const currentView = ref('main')
 
-// 加载场景数据
+// 修改场景加载方法
 const loadScenes = () => {
   const savedScenes = localStorage.getItem('scenes')
   if (savedScenes) {
     scenes.value = JSON.parse(savedScenes)
+    if (scenes.value.length > 0) {
+      currentScene.value = scenes.value[0]
+    }
+  } else {
+    // 创建默认场景
+    const defaultScene = {
+      id: Date.now(),
+      name: '默认场景',
+      cards: []
+    }
+    scenes.value = [defaultScene]
+    currentScene.value = defaultScene
+    // 立即保存默认场景
+    localStorage.setItem('scenes', JSON.stringify(scenes.value))
   }
 }
 
-// 处理卡片移动到其他场景
-const handleMoveCardToScene = ({ card, fromSceneId, toSceneId }) => {
+// 修改处理移动卡片的方法
+const handleMoveCard = ({ card, sourceSceneId, targetSceneId }) => {
+  console.log('Moving card:', { card, sourceSceneId, targetSceneId }) // 调试日志
+
   // 找到源场景和目标场景
-  const fromScene = scenes.value.find(s => s.id === fromSceneId)
-  const toScene = scenes.value.find(s => s.id === toSceneId)
+  const sourceSceneIndex = scenes.value.findIndex(s => s.id === sourceSceneId)
+  const targetSceneIndex = scenes.value.findIndex(s => s.id === targetSceneId)
   
-  if (fromScene && toScene && fromSceneId !== toSceneId) {
-    // 从源场景移除卡片
-    fromScene.cards = fromScene.cards.filter(c => c.id !== card.id)
-    
-    // 添加到目标场景
-    toScene.cards.push({
-      ...card,
-      id: Date.now() // 生成新的ID避免冲突
-    })
-    
-    // 保存场景更新
-    saveScenes()
+  if (sourceSceneIndex === -1 || targetSceneIndex === -1) {
+    console.error('Scene not found')
+    return
   }
+  
+  // 创建新的场景数组以保持响应性
+  const newScenes = [...scenes.value]
+  
+  // 从源场景移除卡片
+  newScenes[sourceSceneIndex].cards = newScenes[sourceSceneIndex].cards.filter(c => c.id !== card.id)
+  
+  // 添加到目标场景
+  newScenes[targetSceneIndex].cards.push({ ...card })
+  
+  // 更新场景数组
+  scenes.value = newScenes
+  
+  // 如果当前场景是源场景，更新 currentScene
+  if (currentScene.value?.id === sourceSceneId) {
+    currentScene.value = newScenes[sourceSceneIndex]
+  }
+  
+  // 保存到本地存储
+  localStorage.setItem('scenes', JSON.stringify(scenes.value))
+  
+  // 显示成功提示
+  showToast(`已将卡片移动到「${newScenes[targetSceneIndex].name}」`)
 }
+
+// 修改提供的移动到场景方法
+provide('moveToScene', (cardData, targetSceneId) => {
+  console.log('Moving to scene:', { cardData, targetSceneId }) // 添加调试日志
+  const targetScene = scenes.value.find(s => s.id === targetSceneId)
+  if (!targetScene) {
+    console.error('Target scene not found:', targetSceneId)
+    return
+  }
+  
+  const newCard = {
+    id: Date.now(),
+    ...cardData
+  }
+  
+  targetScene.cards.push(newCard)
+  scenes.value = [...scenes.value]
+  
+  showToast(`已添加到场景「${targetScene.name}」`)
+})
+
 </script>
 
 <style scoped>

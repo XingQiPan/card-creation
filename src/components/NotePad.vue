@@ -20,10 +20,19 @@
             <div class="note-title">{{ note.title || '无标题笔记' }}</div>
             <div class="note-preview">{{ getPreview(note.content) }}</div>
             <div class="note-time">{{ formatTime(note.updatedAt) }}</div>
+            <div class="note-actions">
+              <button 
+                @click.stop="moveNoteToScene(note)" 
+                class="icon-btn move"
+                type="button"
+              >
+                <i class="fas fa-share"></i>
+              </button>
+              <button @click.stop="deleteNote(note.id)" class="icon-btn delete">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
           </div>
-          <button @click.stop="deleteNote(note.id)" class="icon-btn delete">
-            <i class="fas fa-trash"></i>
-          </button>
         </div>
       </div>
     </div>
@@ -80,13 +89,51 @@
       <i class="fas fa-book"></i>
       <p>选择或创建一个笔记开始编辑</p>
     </div>
+
+    <!-- 添加场景选择模态框 -->
+    <div v-if="showMoveModal" class="modal" @click="closeMoveModal">
+      <div class="modal-content" @click.stop>
+        <h3>移动到场景</h3>
+        <div class="scene-list">
+          <div v-if="props.scenes && props.scenes.length > 0">
+            <div 
+              v-for="scene in props.scenes"
+              :key="scene.id"
+              class="scene-item"
+              @click="moveNoteToSelectedScene(noteToMove, scene)"
+            >
+              <span>{{ scene.name }}</span>
+              <i class="fas fa-chevron-right"></i>
+            </div>
+          </div>
+          <div v-else class="empty-scenes">
+            暂无可用场景
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button @click="closeMoveModal">取消</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, inject } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+
+// 正确定义 props
+const props = defineProps({
+  scenes: {
+    type: Array,
+    required: true,
+    default: () => []
+  }
+})
+
+// 添加调试日志
+console.log('Available scenes:', props.scenes)
 
 // 笔记列表
 const notes = ref([])
@@ -97,6 +144,9 @@ const isEditing = ref(true)
 const currentNote = computed(() => 
   notes.value.find(note => note.id === currentNoteId.value)
 )
+
+// 注入场景相关方法
+const moveToScene = inject('moveToScene')
 
 // 创建新笔记
 const createNewNote = () => {
@@ -170,6 +220,37 @@ const renderMarkdown = (content) => {
   if (!content) return ''
   const rawHtml = marked(content)
   return DOMPurify.sanitize(rawHtml)
+}
+
+// 移动相关状态
+const showMoveModal = ref(false)
+const noteToMove = ref(null)
+
+// 修改移动笔记方法，添加调试日志
+const moveNoteToScene = (note) => {
+  console.log('Moving note:', note)
+  console.log('Available scenes:', props.scenes)
+  noteToMove.value = note
+  showMoveModal.value = true
+}
+
+const moveNoteToSelectedScene = (note, targetScene) => {
+  console.log('Selected scene:', targetScene)
+  if (moveToScene) {
+    moveToScene({
+      title: note.title || '无标题笔记',
+      content: note.content,
+      height: '200px',
+      tags: [],
+      insertedContents: []
+    }, targetScene.id)
+  }
+  closeMoveModal()
+}
+
+const closeMoveModal = () => {
+  showMoveModal.value = false
+  noteToMove.value = null
 }
 </script>
 
@@ -504,5 +585,59 @@ const renderMarkdown = (content) => {
 .icon-btn.delete:hover {
   color: #dc3545;
   background: #ffebee;
+}
+
+.icon-btn.move:hover {
+  color: #646cff;
+  background: #f0f7ff;
+}
+
+/* 添加模态框样式 */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  width: 400px;
+  max-width: 90vw;
+}
+
+.scene-list {
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scene-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.scene-item:hover {
+  background: #e9ecef;
+}
+
+.empty-scenes {
+  text-align: center;
+  color: #999;
 }
 </style> 

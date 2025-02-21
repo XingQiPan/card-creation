@@ -195,6 +195,9 @@
         :models="models"
         :scenes="scenes"
       />
+      <NotePad
+        v-else-if="currentView === 'note'"
+      />
     </div>
 
     <!-- 视图切换按钮 -->
@@ -216,6 +219,12 @@
         @click="currentView = 'chat'"
       >
         <i class="fas fa-comments"></i>
+      </button>
+      <button 
+        :class="{ active: currentView === 'note' }"
+        @click="currentView = 'note'"
+      >
+        <i class="fas fa-sticky-note"></i>
       </button>
     </div>
   </div>
@@ -490,6 +499,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import BookSplitter from './components/BookSplitter.vue'
 import ChatView from './components/ChatView.vue'
+import NotePad from './components/NotePad.vue'
 
 // 状态管理
 const prompts = ref([])

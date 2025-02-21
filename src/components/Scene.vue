@@ -1,10 +1,6 @@
 <template>
   <div class="scene">
-    <div 
-      class="content-panel"
-      @dragover="handleDragOver"
-      @drop="handleDrop"
-    >
+    <div class="content-panel">
       <div class="panel-header">
         <h2>{{ scene.name }}</h2>
         <div class="header-actions">
@@ -41,11 +37,8 @@
       >
         <template #item="{ element: card }">
           <div 
-            v-if="!selectedTags.length || (card.tags && selectedTags.some(tagId => card.tags.includes(tagId)))"
             class="text-card"
-            :class="{ 
-              'is-dragging': drag
-            }"
+            :class="{ 'is-dragging': drag }"
           >
             <div class="card-header">
               <input 
@@ -83,12 +76,18 @@
               </button>
             </div>
             <div class="card-actions">
-              <!-- 插入提示词按钮 -->
               <button @click.stop="$emit('insert-prompt-at-cursor', card)">
                 <i class="fas fa-pencil-alt"></i>
               </button>
               <button @click.stop="$emit('view-card', card)">
                 <i class="fas fa-expand"></i>
+              </button>
+              <button 
+                class="icon-btn"
+                @click.stop="showMoveModal(card)"
+                title="移动到其他场景"
+              >
+                <i class="fas fa-exchange-alt"></i>
               </button>
               <button @click.stop="$emit('delete-card', card.id)" class="delete-btn">
                 <i class="fas fa-times"></i>
@@ -131,16 +130,41 @@
         </div>
       </div>
     </div>
+
+    <!-- 场景选择弹窗 -->
+    <div v-if="showModal" class="modal-overlay" @click="closeModal">
+      <div class="modal-content" @click.stop>
+        <h3>选择目标场景</h3>
+        <div class="scene-list">
+          <div 
+            v-for="scene in scenes" 
+            :key="scene.id"
+            class="scene-item"
+            @click="moveCardToScene(currentCard, scene.id)"
+            :class="{ disabled: scene.id === props.scene.id }"
+          >
+            {{ scene.name }}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeModal">取消</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, defineProps, defineEmits, computed } from 'vue'
+import { ref, defineProps, defineEmits, computed, onMounted, onUnmounted } from 'vue'
 import draggable from 'vuedraggable'
 
 const props = defineProps({
   scene: {
     type: Object,
+    required: true
+  },
+  scenes: {
+    type: Array,
     required: true
   },
   textCards: {
@@ -179,12 +203,14 @@ const emit = defineEmits([
   'delete-card',
   'update-card',
   'insert-prompt-at-cursor',
-  'update-card-tags'
+  'update-card-tags',
+  'move-card-to-scene'
 ])
 
 const drag = ref(false)
 const showTagModal = ref(false)
 const currentCard = ref(null)
+const showModal = ref(false)
 
 // 添加计算属性来过滤卡片
 const filteredCards = computed(() => {
@@ -450,6 +476,42 @@ const closeTagSelector = () => {
   showTagModal.value = false
   currentCard.value = null
 }
+
+// 点击其他地方关闭菜单
+onMounted(() => {
+  document.addEventListener('click', closeMenu)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', closeMenu)
+})
+
+// 移动卡片到其他场景
+const showMoveModal = (card) => {
+  currentCard.value = card
+  showModal.value = true
+}
+
+const closeModal = () => {
+  showModal.value = false
+  currentCard.value = null
+}
+
+const moveCardToScene = (card, targetSceneId) => {
+  if (targetSceneId === props.scene.id) return
+  
+  emit('move-card-to-scene', {
+    card,
+    fromSceneId: props.scene.id,
+    toSceneId: targetSceneId
+  })
+  closeModal()
+}
+
+// 点击其他地方关闭菜单
+const closeMenu = () => {
+  showModal.value = false
+}
 </script>
 
 <style scoped>
@@ -557,7 +619,7 @@ const closeTagSelector = () => {
 }
 
 .card-title {
-  width: 100%;
+  width: 90%;
   padding: 4px 8px;
   font-size: var(--font-size-medium);
   border: 1px solid transparent;
@@ -842,5 +904,114 @@ const closeTagSelector = () => {
   resize: none;
   font-family: inherit;
   line-height: 1.5;
+}
+
+/* 添加移动菜单样式 */
+.move-card-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.move-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: white;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  z-index: 1000;
+  min-width: 120px;
+}
+
+.move-menu-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.move-menu-item:hover {
+  background: #f5f5f5;
+}
+
+.move-menu-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f5f5f5;
+}
+
+.card-actions {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  border-top: 1px solid #eee;
+}
+
+.icon-btn {
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.icon-btn:hover {
+  background: #f5f5f5;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 300px;
+  max-width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.scene-list {
+  margin: 16px 0;
+}
+
+.scene-item {
+  padding: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.scene-item:hover {
+  background: #f5f5f5;
+}
+
+.scene-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f5f5f5;
+}
+
+.modal-footer {
+  margin-top: 16px;
+  text-align: right;
+}
+
+h3 {
+  margin: 0;
+  color: #333;
 }
 </style>

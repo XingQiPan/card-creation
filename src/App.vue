@@ -169,14 +169,14 @@
           
           <Scene
             v-if="currentScene"
-            v-model:scene="currentScene"
-            :text-cards="textCards"
+            :scene="currentScene"
+            :scenes="scenes"
             :selected-cards="selectedCards"
             :prompts="prompts"
-            :insertable-prompts="insertablePrompts"
             :models="models"
             :tags="tags"
             :selected-tags="selectedTags"
+            @move-card-to-scene="handleMoveCardToScene"
             @view-card="viewCardDetail"
             @delete-card="deleteCard"
             @update-card="updateCard"
@@ -671,15 +671,6 @@ const canSendRequest = (prompt) => {
   return prompt.template.trim().length > 0
 }
 
-const getRemainingInserts = () => {
-  if (!selectedPrompt.value) return 0
-  return getInsertCount(selectedPrompt.value.template) - selectedCards.value.length
-}
-
-const canInsertSelected = () => {
-  if (!selectedPrompt.value) return false
-  return selectedCards.value.length === getInsertCount(selectedPrompt.value.template)
-}
 // 提示词相关方法
 const createNewPrompt = () => {
   showPromptModal.value = true
@@ -1475,6 +1466,27 @@ const loadScenes = () => {
   const savedScenes = localStorage.getItem('scenes')
   if (savedScenes) {
     scenes.value = JSON.parse(savedScenes)
+  }
+}
+
+// 处理卡片移动到其他场景
+const handleMoveCardToScene = ({ card, fromSceneId, toSceneId }) => {
+  // 找到源场景和目标场景
+  const fromScene = scenes.value.find(s => s.id === fromSceneId)
+  const toScene = scenes.value.find(s => s.id === toSceneId)
+  
+  if (fromScene && toScene && fromSceneId !== toSceneId) {
+    // 从源场景移除卡片
+    fromScene.cards = fromScene.cards.filter(c => c.id !== card.id)
+    
+    // 添加到目标场景
+    toScene.cards.push({
+      ...card,
+      id: Date.now() // 生成新的ID避免冲突
+    })
+    
+    // 保存场景更新
+    saveScenes()
   }
 }
 </script>

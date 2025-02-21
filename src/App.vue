@@ -196,6 +196,7 @@
         v-else-if="currentView === 'chat'"
         :models="models"
         :scenes="scenes"
+        @add-cards-to-scene="handleAddCardsToScene"
       />
       <NotePad
         v-else-if="currentView === 'note'"
@@ -1562,6 +1563,24 @@ provide('moveToScene', (cardData, targetSceneId) => {
   
   showToast(`已添加到场景「${targetScene.name}」`)
 })
+
+// 添加处理添加卡片到场景的方法
+const handleAddCardsToScene = ({ sceneId, cards }) => {
+  const targetScene = scenes.value.find(scene => scene.id === sceneId)
+  if (!targetScene) {
+    console.error('Target scene not found:', sceneId)
+    return
+  }
+
+  // 添加卡片到目标场景
+  targetScene.cards.push(...cards)
+  
+  // 确保更新响应式
+  scenes.value = [...scenes.value]
+  
+  // 保存到本地存储
+  saveScenes()
+}
 
 </script>
 

@@ -96,6 +96,9 @@
               <button class="icon-btn delete" @click="deleteMessage(msg.id)">
                 <i class="fas fa-trash"></i>
               </button>
+              <button class="icon-btn" @click="splitMessage(msg)" v-if="msg.role === 'assistant'">
+                <i class="fas fa-cut"></i>
+              </button>
             </div>
           </div>
           <div 
@@ -134,6 +137,54 @@
         </button>
       </div>
     </div>
+
+    <!-- 添加拆分选择模态框 -->
+    <div v-if="showSplitModal" class="split-modal" @click="closeSplitModal">
+      <div class="split-modal-content" @click.stop>
+        <h3>选择要保存的片段</h3>
+        <div class="split-sections">
+          <div 
+            v-for="(section, index) in splitSections" 
+            :key="index"
+            class="split-section"
+          >
+            <div class="section-header">
+              <input 
+                type="checkbox" 
+                v-model="section.selected"
+                :id="'section-' + index"
+              >
+              <input 
+                v-model="section.title"
+                class="section-title-input"
+                placeholder="输入标题..."
+              >
+            </div>
+            <div class="section-preview" v-html="formatMessage(section.content)"></div>
+          </div>
+        </div>
+        <div class="scene-selector">
+          <label>选择目标场景：</label>
+          <select v-model="selectedSceneId">
+            <option v-for="scene in scenes" :key="scene.id" :value="scene.id">
+              {{ scene.name }}
+            </option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button @click="saveSplitSections" :disabled="!canSaveSections">保存选中片段</button>
+          <button @click="closeSplitModal">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加 Toast 提示 -->
+    <div 
+      v-if="showToast" 
+      :class="['toast', `toast-${toastType}`]"
+    >
+      {{ toastMessage }}
+    </div>
   </div>
 </template>
 
@@ -147,9 +198,9 @@ const props = defineProps({
     type: Array,
     required: true
   },
-  scenes: {  // 添加场景数据
+  scenes: {
     type: Array,
-    default: () => []
+    required: true
   }
 })
 
@@ -513,6 +564,200 @@ const toggleKeywordContent = (keyword) => {
     expandedKeywords.value.splice(index, 1)
   }
 }
+
+// 添加新的响应式变量
+const showSplitModal = ref(false)
+const splitSections = ref([])
+const selectedSceneId = ref('')
+
+// 添加计算属性
+const canSaveSections = computed(() => {
+  return splitSections.value.some(s => s.selected) && selectedSceneId.value
+})
+
+// 修改拆分消息方法
+const splitMessage = (msg) => {
+  // 使用正则表达式匹配 Markdown 标题和内容块
+  const sections = splitMarkdownContent(msg.content)
+  
+  // 初始化每个部分
+  splitSections.value = sections.map(section => ({
+    selected: false,
+    title: section.title || '',
+    content: section.content.trim()
+  }))
+  
+  // 如果有场景，默认选择第一个
+  if (props.scenes.length > 0) {
+    selectedSceneId.value = props.scenes[0].id
+  }
+  
+  showSplitModal.value = true
+}
+
+// 修改 Markdown 内容拆分函数
+const splitMarkdownContent = (content) => {
+  // 将内容按行分割
+  const lines = content.split('\n')
+  const sections = []
+  let currentSection = {
+    title: '',
+    content: []
+  }
+  
+  // 正则表达式定义
+  const headerRegex = /^(#{1,6}|\*\*\d+\.|\d+\.)\s+(.+?)[\*\#]*$/  // 匹配 Markdown 标题和加粗的数字标题
+  const listStartRegex = /^[-*+]\s+\*\*/   // 列表开始（带加粗）
+  const codeBlockRegex = /^```/            // 代码块
+  
+  let inCodeBlock = false
+  let inList = false
+  let hasContent = false
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trimEnd()
+    const headerMatch = line.match(headerRegex)
+    const isCodeBlockMarker = codeBlockRegex.test(line)
+    const isListStart = listStartRegex.test(line)
+    const isCurrentLineEmpty = !line.trim()
+    
+    // 处理代码块
+    if (isCodeBlockMarker) {
+      inCodeBlock = !inCodeBlock
+      currentSection.content.push(line)
+      continue
+    }
+    
+    if (inCodeBlock) {
+      currentSection.content.push(line)
+      continue
+    }
+    
+    // 处理新的标题段落
+    if (headerMatch && hasContent) {
+      // 保存当前段落
+      sections.push({
+        title: currentSection.title,
+        content: currentSection.content.join('\n').trim()
+      })
+      // 开始新段落
+      currentSection = {
+        title: headerMatch[2].replace(/\*\*/g, '').trim(),
+        content: []
+      }
+      hasContent = false
+      inList = false
+    }
+    // 处理段落的第一个标题
+    else if (headerMatch && !hasContent) {
+      currentSection.title = headerMatch[2].replace(/\*\*/g, '').trim()
+    }
+    // 处理列表开始
+    else if (isListStart) {
+      inList = true
+      currentSection.content.push(line)
+      hasContent = true
+    }
+    // 处理列表内容或普通内容
+    else {
+      if (line.trim()) {
+        hasContent = true
+      }
+      currentSection.content.push(line)
+    }
+  }
+  
+  // 添加最后一个段落
+  if (hasContent) {
+    sections.push({
+      title: currentSection.title,
+      content: currentSection.content.join('\n').trim()
+    })
+  }
+  
+  // 后处理：清理标题中的特殊字符
+  return sections.map(section => {
+    // 清理标题中的 Markdown 标记
+    section.title = section.title
+      .replace(/^\*\*|\*\*$/g, '')  // 移除首尾的加粗标记
+      .replace(/^#+\s*/, '')        // 移除开头的 # 号
+      .trim()
+    
+    // 如果没有标题，使用内容的第一行
+    if (!section.title && section.content) {
+      const firstLine = section.content.split('\n')[0].trim()
+      section.title = firstLine
+        .replace(/^[-*+]\s+/, '')  // 移除列表标记
+        .replace(/^\*\*|\*\*$/g, '') // 移除加粗标记
+        .slice(0, 30) + (firstLine.length > 30 ? '...' : '')
+    }
+    
+    return section
+  })
+}
+
+// 定义 emit
+const emit = defineEmits(['add-cards-to-scene'])
+
+// 添加 toast 相关的响应式变量
+const showToast = ref(false)
+const toastMessage = ref('')
+const toastType = ref('success')
+
+// 添加显示 toast 的方法
+const showToastMessage = (message, type = 'success') => {
+  toastMessage.value = message
+  toastType.value = type
+  showToast.value = true
+  setTimeout(() => {
+    showToast.value = false
+  }, 3000)
+}
+
+// 修改保存选中片段的方法
+const saveSplitSections = () => {
+  const selectedSections = splitSections.value.filter(s => s.selected)
+  
+  if (!selectedSceneId.value) {
+    showToastMessage('请选择目标场景', 'error')
+    return
+  }
+
+  // 创建新卡片，添加更多元数据
+  const cards = selectedSections.map(section => ({
+    id: Date.now() + Math.random(),
+    title: section.title || '未命名片段',
+    content: section.content,
+    tags: [],
+    height: '200px',
+    timestamp: new Date().toISOString(),
+    type: detectContentType(section.content)
+  }))
+  
+  // 发出事件，将卡片添加到选中的场景
+  emit('add-cards-to-scene', {
+    sceneId: selectedSceneId.value,
+    cards
+  })
+  
+  showToastMessage('已成功添加到场景')
+  closeSplitModal()
+}
+
+// 添加内容类型检测函数
+const detectContentType = (content) => {
+  if (content.startsWith('```')) return 'code'
+  if (/^[-*+]\s|^\d+\.\s/.test(content)) return 'list'
+  if (/^#{1,6}\s/.test(content)) return 'heading'
+  return 'text'
+}
+
+// 关闭模态框
+const closeSplitModal = () => {
+  showSplitModal.value = false
+  splitSections.value = []
+  selectedSceneId.value = ''
+}
 </script>
 
 <style scoped>
@@ -523,6 +768,9 @@ const toggleKeywordContent = (keyword) => {
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
   border-radius: 8px;
   overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
 }
 
 .chat-list {
@@ -544,7 +792,8 @@ const toggleKeywordContent = (keyword) => {
 .list-header h3 {
   margin: 0;
   color: #333;
-  font-size: 1.1em;
+  font-size: 1.2em;
+  font-weight: 600;
 }
 
 .chat-sessions {
@@ -577,7 +826,7 @@ const toggleKeywordContent = (keyword) => {
   background: transparent;
   flex: 1;
   margin-right: 8px;
-  font-size: 0.95em;
+  font-size: 1em;
   color: #333;
   padding: 4px;
 }
@@ -678,9 +927,9 @@ const toggleKeywordContent = (keyword) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-weight: 500;
+  font-weight: 600;
   color: #1976d2;
-  font-size: 0.9em;
+  font-size: 0.95em;
 }
 
 .keyword-title i {
@@ -691,9 +940,9 @@ const toggleKeywordContent = (keyword) => {
 .keyword-content {
   padding: 8px 12px;
   border-top: 1px solid #e0e0e0;
-  font-size: 0.85em;
+  font-size: 0.9em;
   color: #666;
-  line-height: 1.4;
+  line-height: 1.5;
   max-height: 200px;
   overflow-y: auto;
 }
@@ -754,7 +1003,8 @@ const toggleKeywordContent = (keyword) => {
   border-radius: 12px;
   background: #fff;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-  line-height: 1.5;
+  line-height: 1.6;
+  font-size: 1.2em;
 }
 
 .user .message-content {
@@ -776,8 +1026,9 @@ const toggleKeywordContent = (keyword) => {
   border: 1px solid #e0e0e0;
   border-radius: 8px;
   resize: none;
-  font-size: 0.95em;
-  line-height: 1.5;
+  font-size: 1em;
+  line-height: 1.6;
+  font-family: inherit;
   transition: border-color 0.3s ease;
 }
 
@@ -825,7 +1076,9 @@ const toggleKeywordContent = (keyword) => {
 
 .edit-textarea {
   width: 100%;
+  height: 500px;
   padding: 12px;
+  font-size: 1em;
   border: 1px solid #e0e0e0;
   border-radius: 8px;
   margin: 8px 0;
@@ -876,5 +1129,188 @@ const toggleKeywordContent = (keyword) => {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+.split-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.split-modal-content {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  width: 800px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.split-sections {
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.split-section {
+  border: 1px solid #eee;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.split-section:hover {
+  border-color: #646cff;
+  box-shadow: 0 2px 8px rgba(100, 108, 255, 0.1);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #eee;
+}
+
+.section-header input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.section-title-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.section-title-input:focus {
+  border-color: #646cff;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.1);
+}
+
+.section-preview {
+  padding: 16px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: white;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* 添加代码块样式 */
+.section-preview pre {
+  background: #f6f8fa;
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+/* 添加列表样式 */
+.section-preview ul,
+.section-preview ol {
+  padding-left: 20px;
+}
+
+/* 添加引用样式 */
+.section-preview blockquote {
+  border-left: 4px solid #ddd;
+  margin: 0;
+  padding-left: 16px;
+  color: #666;
+}
+
+.scene-selector {
+  margin: 16px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.scene-selector select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 200px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.modal-actions button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.modal-actions button:first-child {
+  background: #646cff;
+  color: white;
+}
+
+.modal-actions button:first-child:disabled {
+  background: #cccccc;
+  cursor: not-allowed;
+}
+
+.modal-actions button:last-child {
+  background: #f0f0f0;
+}
+
+.modal-actions button:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+/* 添加 Toast 样式 */
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 12px 24px;
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  z-index: 1100;
+  animation: slideIn 0.3s ease;
+}
+
+.toast-success {
+  background: #4caf50;
+}
+
+.toast-error {
+  background: #f44336;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 </style> 

@@ -184,6 +184,7 @@
             @insert-prompt-at-cursor="insertPromptAtCursor"
             @move-card="handleMoveCard"
             @merge-cards="handleMergeCards"
+            @add-to-notepad="handleAddToNotepad"
           />
         </div>
       </div>
@@ -200,10 +201,10 @@
         :prompts="prompts"
         @add-cards-to-scene="handleAddCardsToScene"
       />
-      <NotePad
-        v-else-if="currentView === 'note'"
+      <NotePad 
+        v-if="currentView === 'note'" 
         :scenes="scenes"
-        @move-card="handleMoveCard"
+        :initial-content="notepadInitialContent"
       />
     </div>
 
@@ -512,7 +513,7 @@
 
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, provide } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, provide } from 'vue'
 import draggable from 'vuedraggable'
 import Scene from './components/Scene.vue'
 import { marked } from 'marked'
@@ -1643,6 +1644,29 @@ watch(dragScene, (isDragging) => {
 onUnmounted(() => {
   preventTextSelection(false)
 })
+
+// 修改处理添加到笔记本的方法
+const handleAddToNotepad = (cardData) => {
+  console.log('Handling add to notepad:', cardData)
+  // 先切换到笔记本视图
+  
+  showToast('已添加到记事本')
+  currentView.value = 'note'
+  // 使用 nextTick 确保视图更新后再设置内容
+  nextTick(() => {
+    // 设置笔记本初始内容，包含标题和完整信息
+    const formattedContent = `# ${cardData.title}\n\n${cardData.content}`
+    console.log('Formatted content for notepad:', formattedContent)
+    
+    // 重置后设置新值
+    notepadInitialContent.value = ''
+    setTimeout(() => {
+      notepadInitialContent.value = formattedContent
+    }, 10)
+  })
+}
+
+const notepadInitialContent = ref('')
 </script>
 
 <style scoped>

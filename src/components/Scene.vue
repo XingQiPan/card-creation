@@ -98,6 +98,9 @@
               <button @click.stop="showMoveCardModal(card)">
                 <i class="fas fa-exchange-alt"></i>
               </button>
+              <button @click.stop="addToNotepad(card)" title="添加到记事本">
+                <i class="fas fa-book"></i>
+              </button>
               <button @click.stop="$emit('delete-card', card.id)" class="delete-btn">
                 <i class="fas fa-times"></i>
               </button>
@@ -252,7 +255,8 @@ const emit = defineEmits([
   'update-card',
   'insert-prompt-at-cursor',
   'update-card-tags',
-  'move-card'
+  'move-card',
+  'add-to-notepad'
 ])
 
 const drag = ref(false)
@@ -631,6 +635,19 @@ watch(drag, (isDragging) => {
 onUnmounted(() => {
   preventTextSelection(false)
 })
+
+// 修改卡片传输到笔记本的方法，添加调试日志
+const addToNotepad = (card) => {
+  console.log('Adding card to notepad:', card)
+  // 确保发送完整的卡片内容
+  emit('add-to-notepad', {
+    title: card.title || '无标题',
+    content: card.content || '',
+    height: card.height || '200px',
+    tags: card.tags || [],
+    insertedContents: card.insertedContents || []
+  })
+}
 </script>
 
 <style scoped>

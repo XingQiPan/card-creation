@@ -44,7 +44,7 @@
           v-model="currentNote.title" 
           placeholder="输入标题..."
           class="title-input"
-          @input="saveNotes"
+          @input="handleTitleChange"
         />
         <div class="editor-toolbar">
           <button 
@@ -139,7 +139,7 @@ const props = defineProps({
 // 添加调试日志
 console.log('Available scenes:', props.scenes)
 
-// 笔记列表
+// 基础状态
 const notes = ref([])
 const currentNoteId = ref(null)
 const isEditing = ref(true)
@@ -152,25 +152,32 @@ const currentNote = computed(() =>
 // 注入场景相关方法
 const moveToScene = inject('moveToScene')
 
-// 监听 initialContent 的变化
-watch(() => props.initialContent, (newContent) => {
-  if (newContent) {
-    // 创建新笔记并添加内容
-    const newNote = {
-      id: Date.now(),
-      title: '从卡片导入的笔记',
-      content: newContent,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }
-    notes.value.unshift(newNote)
-    currentNoteId.value = newNote.id
-    isEditing.value = false // 默认显示预览模式
+// 添加一个 ref 来跟踪上一次的内容
+const lastContent = ref('')
+
+// 修改保存笔记的方法
+const saveNotes = () => {
+  console.log('Saving notes:', notes.value) // 添加日志
+  localStorage.setItem('notes', JSON.stringify(notes.value))
+}
+
+// 修改标题输入的处理
+const handleTitleChange = () => {
+  if (currentNote.value) {
+    currentNote.value.updatedAt = new Date()
     saveNotes()
   }
-}, { immediate: true })
+}
 
-// 创建新笔记
+// 修改内容变化的处理方法
+const handleContentChange = () => {
+  if (currentNote.value) {
+    currentNote.value.updatedAt = new Date()
+    saveNotes()
+  }
+}
+
+// 修改创建新笔记的方法
 const createNewNote = () => {
   const newNote = {
     id: Date.now(),
@@ -179,7 +186,7 @@ const createNewNote = () => {
     createdAt: new Date(),
     updatedAt: new Date()
   }
-  notes.value.unshift(newNote)
+  notes.value.unshift(newNote)  // 手动创建的笔记添加到顶部
   currentNoteId.value = newNote.id
   isEditing.value = true
   saveNotes()
@@ -196,6 +203,85 @@ const deleteNote = (id) => {
   saveNotes()
 }
 
+// 添加对笔记数组的监听
+watch(notes, () => {
+  saveNotes()
+}, { deep: true })
+
+// 加载笔记
+const loadNotes = () => {
+  const savedNotes = localStorage.getItem('notes')
+  if (savedNotes) {
+    try {
+      notes.value = JSON.parse(savedNotes)
+      // 如果有笔记，默认选中第一个
+      if (notes.value.length > 0) {
+        currentNoteId.value = notes.value[0].id
+      }
+    } catch (error) {
+      console.error('Failed to parse saved notes:', error)
+      notes.value = []
+    }
+  }
+}
+
+// 组件挂载时加载笔记
+onMounted(() => {
+  loadNotes()
+  showToast("加载成功！")
+})
+
+// 监听卡片传输的内容，添加更多调试日志
+watch(() => props.initialContent, (newContent, oldContent) => {
+  console.log('Watch triggered:', { newContent, oldContent })
+  
+  // 确保笔记已加载
+  if (!notes.value) {
+    loadNotes()
+  }
+  
+  // 只有当新内容不为空且与上一次的内容不同时才创建新笔记
+  if (newContent && newContent.trim() && newContent !== oldContent) {
+    console.log('Creating new note with content:', newContent)
+    
+    // 从格式化内容中提取标题和内容
+    const lines = newContent.split('\n')
+    const title = lines[0].startsWith('# ') ? lines[0].slice(2) : ''
+    const content = lines.slice(2).join('\n')
+    
+    // 创建新笔记
+    const newNote = {
+      id: Date.now(),
+      title: title,
+      content: content,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+    
+    console.log('New note to be created:', newNote)
+    
+    // 使用 push 将新笔记添加到数组末尾
+    if (Array.isArray(notes.value)) {
+      notes.value.push(newNote)
+      currentNoteId.value = newNote.id
+      saveNotes()
+      console.log('New note created and saved:', newNote)
+      console.log('Current notes after save:', notes.value)
+    } else {
+      console.error('notes.value is not an array:', notes.value)
+      notes.value = [newNote]
+      currentNoteId.value = newNote.id
+      saveNotes()
+    }
+  } else {
+    console.log('Content not changed or empty:', {
+      newContent,
+      oldContent,
+      isEmpty: !newContent || !newContent.trim()
+    })
+  }
+}, { immediate: false })
+
 // 获取预览文本
 const getPreview = (content) => {
   return content?.slice(0, 50) || '空笔记'
@@ -206,36 +292,6 @@ const formatTime = (timestamp) => {
   if (!timestamp) return ''
   return new Date(timestamp).toLocaleString()
 }
-
-// 处理内容变化
-const handleContentChange = () => {
-  if (currentNote.value) {
-    currentNote.value.updatedAt = new Date()
-    saveNotes()
-  }
-}
-
-// 保存笔记到本地存储
-const saveNotes = () => {
-  localStorage.setItem('notes', JSON.stringify(notes.value))
-}
-
-// 加载笔记
-const loadNotes = () => {
-  const savedNotes = localStorage.getItem('notes')
-  if (savedNotes) {
-    notes.value = JSON.parse(savedNotes)
-    // 如果有笔记，默认选中第一个
-    if (notes.value.length > 0) {
-      currentNoteId.value = notes.value[0].id
-    }
-  }
-}
-
-// 组件挂载时加载笔记
-onMounted(() => {
-  loadNotes()
-})
 
 // Markdown 渲染
 const renderMarkdown = (content) => {
@@ -274,6 +330,74 @@ const closeMoveModal = () => {
   showMoveModal.value = false
   noteToMove.value = null
 }
+
+
+// 修改提示框实现
+const showToast = (message, type = 'success') => {
+  // 先移除可能存在的旧提示框
+  const existingToast = document.querySelector('.toast-notification')
+  if (existingToast) {
+    document.body.removeChild(existingToast)
+  }
+
+  // 创建提示框容器
+  const toastContainer = document.createElement('div')
+  toastContainer.className = 'toast-notification'
+  toastContainer.style.cssText = `
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-100%);
+    background: white;
+    border-radius: 4px;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    opacity: 0;
+    transition: all 0.3s ease;
+    min-width: 200px;
+    justify-content: center;
+    border-left: 4px solid ${type === 'success' ? '#10b981' : '#ef4444'};
+  `
+
+  // 创建图标
+  const icon = document.createElement('i')
+  icon.className = type === 'success' ? 'fas fa-check' : 'fas fa-exclamation-circle'
+  icon.style.color = type === 'success' ? '#10b981' : '#ef4444'
+
+  // 创建文本
+  const text = document.createElement('span')
+  text.textContent = message
+  text.style.fontSize = '14px'
+
+  // 组装提示框
+  toastContainer.appendChild(icon)
+  toastContainer.appendChild(text)
+  document.body.appendChild(toastContainer)
+
+  // 显示动画
+  requestAnimationFrame(() => {
+    toastContainer.style.transform = 'translateX(-50%) translateY(0)'
+    toastContainer.style.opacity = '1'
+  })
+
+  // 2秒后消失
+  setTimeout(() => {
+    toastContainer.style.transform = 'translateX(-50%) translateY(-100%)'
+    toastContainer.style.opacity = '0'
+    
+    // 动画结束后移除元素
+    setTimeout(() => {
+      if (toastContainer.parentNode) {
+        document.body.removeChild(toastContainer)
+      }
+    }, 300)
+  }, 2000)
+}
+
 </script>
 
 <style scoped>
@@ -351,7 +475,7 @@ const closeMoveModal = () => {
   color: #666;
   margin-bottom: 8px;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+/*   -webkit-line-clamp: 2; */
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -664,4 +788,7 @@ const closeMoveModal = () => {
   text-align: center;
   color: #999;
 }
+/* 传输过来的笔记直接覆盖掉了我之前写笔记，应该添加到最下面才对，并且不会丢失其他笔记或者卡片笔记的内容 */
 </style> 
+
+

@@ -280,7 +280,10 @@ const handleBookUpload = async (event, scene) => {
     
     // 检查是否成功分割出章节
     if (chapters.length === 0) {
-      throw new Error('未能识别到任何章节，请确保文件为 UTF-8 编码，并且包含类似"第X章"或"第X节"的章节标记。\n\n支持的章节格式示例：\n- 第一章 章节名\n- 第1章 章节名\n- 第一节 节名\n- 1. 章节名\n- 一、章节名')
+      showToast("未能识别到任何章节，请确保文件为 UTF-8 编码，并且包含类似 第X章 或 第X节 的章节标记。支持的章节格式示例：第一章 章节名、第1章 章节名、第一节 节名、 1. 章节名、 一、章节名"
+        ,
+        'error'
+      )
     }
     
     scene.originalCards = chapters.map((chapter, index) => ({
@@ -595,6 +598,73 @@ const importResults = async (event) => {
     console.error('导入错误:', error)
     alert('导入失败: ' + error.message)
   }
+}
+
+
+// 修改提示框实现
+const showToast = (message, type = 'success') => {
+  // 先移除可能存在的旧提示框
+  const existingToast = document.querySelector('.toast-notification')
+  if (existingToast) {
+    document.body.removeChild(existingToast)
+  }
+
+  // 创建提示框容器
+  const toastContainer = document.createElement('div')
+  toastContainer.className = 'toast-notification'
+  toastContainer.style.cssText = `
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-100%);
+    background: white;
+    border-radius: 4px;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    opacity: 0;
+    transition: all 0.3s ease;
+    min-width: 200px;
+    justify-content: center;
+    border-left: 4px solid ${type === 'success' ? '#10b981' : '#ef4444'};
+  `
+
+  // 创建图标
+  const icon = document.createElement('i')
+  icon.className = type === 'success' ? 'fas fa-check' : 'fas fa-exclamation-circle'
+  icon.style.color = type === 'success' ? '#10b981' : '#ef4444'
+
+  // 创建文本
+  const text = document.createElement('span')
+  text.textContent = message
+  text.style.fontSize = '14px'
+
+  // 组装提示框
+  toastContainer.appendChild(icon)
+  toastContainer.appendChild(text)
+  document.body.appendChild(toastContainer)
+
+  // 显示动画
+  requestAnimationFrame(() => {
+    toastContainer.style.transform = 'translateX(-50%) translateY(0)'
+    toastContainer.style.opacity = '1'
+  })
+
+  // 2秒后消失
+  setTimeout(() => {
+    toastContainer.style.transform = 'translateX(-50%) translateY(-100%)'
+    toastContainer.style.opacity = '0'
+    
+    // 动画结束后移除元素
+    setTimeout(() => {
+      if (toastContainer.parentNode) {
+        document.body.removeChild(toastContainer)
+      }
+    }, 300)
+  }, 2000)
 }
 </script>
 

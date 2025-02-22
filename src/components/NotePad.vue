@@ -129,6 +129,10 @@ const props = defineProps({
     type: Array,
     required: true,
     default: () => []
+  },
+  initialContent: {
+    type: String,
+    default: ''
   }
 })
 
@@ -147,6 +151,24 @@ const currentNote = computed(() =>
 
 // 注入场景相关方法
 const moveToScene = inject('moveToScene')
+
+// 监听 initialContent 的变化
+watch(() => props.initialContent, (newContent) => {
+  if (newContent) {
+    // 创建新笔记并添加内容
+    const newNote = {
+      id: Date.now(),
+      title: '从卡片导入的笔记',
+      content: newContent,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+    notes.value.unshift(newNote)
+    currentNoteId.value = newNote.id
+    isEditing.value = false // 默认显示预览模式
+    saveNotes()
+  }
+}, { immediate: true })
 
 // 创建新笔记
 const createNewNote = () => {
@@ -405,18 +427,18 @@ const closeMoveModal = () => {
 
 .editor-content {
   flex: 1;
-  overflow-y: auto;
+  overflow-y: hidden;
   position: relative;
 }
 
 .content-textarea {
-  width: 90%;
+  width: 95%;
   height: 100%;
   padding: 20px;
   border: none;
   resize: none;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
-  font-size: 1em;
+  font-size: 1.2em;
   line-height: 1.6;
   background: #fff;
 }
@@ -429,6 +451,8 @@ const closeMoveModal = () => {
   padding: 20px;
   line-height: 1.6;
   color: #24292e;
+  height: 100%;
+  overflow-y: auto;
 }
 
 /* Markdown 预览样式 */

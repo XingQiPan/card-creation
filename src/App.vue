@@ -197,6 +197,7 @@
         v-else-if="currentView === 'chat'"
         :models="models"
         :scenes="scenes"
+        :prompts="prompts"
         @add-cards-to-scene="handleAddCardsToScene"
       />
       <NotePad

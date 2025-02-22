@@ -34,22 +34,23 @@
         <div class="header-controls">
           <select v-model="currentChat.modelId" class="model-select">
             <option value="">选择模型</option>
-            <option 
-              v-for="model in models" 
-              :key="model.id" 
-              :value="model.id"
-            >
+            <option v-for="model in props.models" :key="model.id" :value="model.id">
               {{ model.name }}
             </option>
           </select>
-          
+          <select v-model="currentChat.promptId" class="prompt-select">
+            <option value="">选择提示词</option>
+            <option v-for="prompt in props.prompts" :key="prompt.id" :value="prompt.id">
+              {{ prompt.title }}
+            </option>
+          </select>
           <div class="keyword-toggle">
             <input 
               type="checkbox" 
               v-model="currentChat.enableKeywords"
               id="keywordToggle"
             >
-            <label for="keywordToggle">关联卡片</label>
+            <label for="keywordToggle">启用关键词检测</label>
           </div>
         </div>
 
@@ -204,6 +205,10 @@ const props = defineProps({
   scenes: {
     type: Array,
     required: true
+  },
+  prompts: {
+    type: Array,
+    required: true
   }
 })
 
@@ -278,7 +283,8 @@ const createNewChat = () => {
     title: '新对话',
     messages: [],
     modelId: '',
-    enableKeywords: false  // 添加关键词检测开关
+    promptId: '',
+    enableKeywords: false
   }
   
   chatSessions.value.push(newChat)
@@ -316,13 +322,27 @@ const sendMessage = async () => {
     if (!model) throw new Error('未找到选择的模型')
 
     // 获取对话历史
-    const context = currentChat.value.messages.map(msg => ({
+    const context = []
+    
+    // 如果选择了提示词，添加为 system 消息
+    if (currentChat.value.promptId) {
+      const prompt = props.prompts.find(p => p.id === currentChat.value.promptId)
+      if (prompt) {
+        context.push({
+          role: 'system',
+          content: prompt.template
+        })
+      }
+    }
+
+    // 添加历史消息
+    context.push(...currentChat.value.messages.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content
-    }))
-    context.pop()
+    })))
+    context.pop() // 移除最后一条消息，因为它会作为当前消息发送
 
-    // 如果启用了关键词检测，将检测到的关键词和关联内容添加到提示中
+    // 处理关键词检测
     let processedContent = userMessage.content
     console.log(processedContent)
     console.log(currentChat.value.enableKeywords)
@@ -783,11 +803,25 @@ const resendMessage = async (msg) => {
     if (!model) throw new Error('未找到选择的模型')
 
     // 获取对话历史
-    const context = currentChat.value.messages.map(m => ({
+    const context = []
+    
+    // 如果选择了提示词，添加为 system 消息
+    if (currentChat.value.promptId) {
+      const prompt = props.prompts.find(p => p.id === currentChat.value.promptId)
+      if (prompt) {
+        context.push({
+          role: 'system',
+          content: prompt.template
+        })
+      }
+    }
+
+    // 添加历史消息
+    context.push(...currentChat.value.messages.map(m => ({
       role: m.role === 'user' ? 'user' : 'assistant',
       content: m.content
-    }))
-    context.pop() // 移除最后一条消息，因为它会作为当前消息发送
+    })))
+    context.pop()
 
     // 处理关键词检测
     let processedContent = msg.content
@@ -933,6 +967,15 @@ const resendMessage = async (msg) => {
 }
 
 .model-select {
+  padding: 8px 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 0.95em;
+  color: #333;
+  min-width: 200px;
+}
+
+.prompt-select {
   padding: 8px 12px;
   border: 1px solid #e0e0e0;
   border-radius: 6px;

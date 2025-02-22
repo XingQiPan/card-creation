@@ -278,6 +278,11 @@ const handleBookUpload = async (event, scene) => {
     const content = await file.text()
     const chapters = splitIntoChapters(content)
     
+    // 检查是否成功分割出章节
+    if (chapters.length === 0) {
+      throw new Error('未能识别到任何章节，请确保文件为 UTF-8 编码，并且包含类似"第X章"或"第X节"的章节标记。\n\n支持的章节格式示例：\n- 第一章 章节名\n- 第1章 章节名\n- 第一节 节名\n- 1. 章节名\n- 一、章节名')
+    }
+    
     scene.originalCards = chapters.map((chapter, index) => ({
       id: Date.now() + index,
       chapterNumber: index + 1,
@@ -289,8 +294,77 @@ const handleBookUpload = async (event, scene) => {
     saveScenes()
   } catch (error) {
     console.error('文件处理错误:', error)
-    alert('文件处理失败: ' + error.message)
+    if (error instanceof Error) {
+      alert(error.message)
+    } else {
+      alert('文件处理失败，请确保文件为 UTF-8 编码格式')
+    }
   }
+}
+
+// 修改章节分割函数，增加更多章节标记的支持
+const splitIntoChapters = (text) => {
+  const chapters = []
+  const lines = text.split('\n')
+  let currentChapter = {
+    title: '',
+    content: [],
+    chapterNumber: 0
+  }
+  
+  // 扩展章节匹配模式
+  const chapterPatterns = [
+    /^第[一二三四五六七八九十百千]+[章节]/,  // 匹配"第一章"、"第二节"等
+    /^第\d+[章节]/,  // 匹配"第1章"、"第2节"等
+    /^[一二三四五六七八九十][、.．]/,  // 匹配"一、"、"二。"等
+    /^\d+[、.．]/,  // 匹配"1、"、"2。"等
+    /^[（(]\d+[)）]/  // 匹配"(1)"、"（2）"等
+  ]
+  
+  const isChapterTitle = (line) => {
+    // 检查行长度，避免匹配过长的段落
+    if (line.length > 100) return false
+    
+    // 检查是否匹配任一章节模式
+    return chapterPatterns.some(pattern => pattern.test(line))
+  }
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim()
+    if (!trimmedLine) continue
+
+    if (isChapterTitle(trimmedLine)) {
+      // 保存上一章节
+      if (currentChapter.title && currentChapter.content.length > 0) {
+        chapters.push({
+          ...currentChapter,
+          content: currentChapter.content.join('\n')
+        })
+      }
+
+      // 开始新章节
+      currentChapter = {
+        title: trimmedLine,
+        content: [],
+        chapterNumber: chapters.length + 1
+      }
+    } else {
+      // 添加到当前章节内容
+      if (currentChapter.title) {
+        currentChapter.content.push(trimmedLine)
+      }
+    }
+  }
+
+  // 保存最后一章
+  if (currentChapter.title && currentChapter.content.length > 0) {
+    chapters.push({
+      ...currentChapter,
+      content: currentChapter.content.join('\n')
+    })
+  }
+
+  return chapters
 }
 
 // 修改处理函数以支持多场景
@@ -369,61 +443,6 @@ const toggleProcessing = (scene) => {
     continueProcessing(scene)
   }
   saveScenes()
-}
-
-// 将文本分割成章节
-const splitIntoChapters = (text) => {
-  const chapters = []
-  const lines = text.split('\n')
-  let currentChapter = {
-    title: '',
-    content: [],
-    chapterNumber: 0
-  }
-  
-  const chapterPattern = /^(.*?)第(\d+|[一二三四五六七八九十百千]+)[章节段][：:]?\s+[\u4e00-\u9fa5]+.*$/
-  const alternativePattern = /^[0-9一二三四五六七八九十百千零]+[、，,  ：:].*$/
-  
-  for (const line of lines) {
-    const trimmedLine = line.trim()
-    if (!trimmedLine) continue
-
-    // 检查是否是章节标题
-    const isChapterTitle = (
-      chapterPattern.test(trimmedLine) || 
-      (alternativePattern.test(trimmedLine) && trimmedLine.length < 60)
-    )
-
-    if (isChapterTitle) {
-      // 保存上一章节
-      if (currentChapter.title && currentChapter.content.length > 0) {
-        chapters.push({
-          ...currentChapter,
-          content: currentChapter.content.join('\n')
-        })
-      }
-
-      // 开始新章节
-      currentChapter = {
-        title: trimmedLine,
-        content: [],
-        chapterNumber: chapters.length + 1
-      }
-    } else {
-      // 添加到当前章节内容
-      currentChapter.content.push(trimmedLine)
-    }
-  }
-
-  // 保存最后一章
-  if (currentChapter.title && currentChapter.content.length > 0) {
-    chapters.push({
-      ...currentChapter,
-      content: currentChapter.content.join('\n')
-    })
-  }
-
-  return chapters
 }
 
 // 处理单个章节

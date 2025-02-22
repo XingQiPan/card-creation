@@ -193,6 +193,7 @@
         v-else-if="currentView === 'book'"
         :prompts="prompts"
         :models="models"
+        :scenes="scenes"
       />
       <ChatView
         v-else-if="currentView === 'chat'"

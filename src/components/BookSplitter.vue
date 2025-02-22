@@ -156,8 +156,23 @@
               class="text-card"
             >
               <div class="card-header">
-                <span class="chapter-number">#{{ card.originalNumber }}</span>
-                <span class="prompt-info">提示词 #{{ card.promptSequence }}</span>
+                <span class="chapter-number">{{ card.originalNumber }}</span>
+                <span class="prompt-info">{{ card.title }}</span>
+                <div class="card-actions">
+                  <button 
+                    @click="reprocessChapter(card, currentScene)"
+                    class="action-btn"
+                    :disabled="currentScene.processing && !currentScene.isPaused"
+                  >
+                    <i class="fas fa-redo"></i> 重新处理
+                  </button>
+                  <button 
+                    @click="convertToCard(card)"
+                    class="action-btn"
+                  >
+                    <i class="fas fa-share-square"></i> 转为卡片
+                  </button>
+                </div>
               </div>
               <textarea 
                 v-model="card.content"
@@ -165,6 +180,32 @@
               ></textarea>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加场景选择模态框 -->
+    <div v-if="showMoveModal" class="modal" @click="closeMoveModal">
+      <div class="modal-content" @click.stop>
+        <h3>选择目标场景</h3>
+        <div class="scene-list">
+          <div v-if="props.scenes && props.scenes.length > 0">
+            <div 
+              v-for="scene in props.scenes"
+              :key="scene.id"
+              class="scene-item"
+              @click="moveCardToScene(scene)"
+            >
+              <span>{{ scene.name }}</span>
+              <i class="fas fa-chevron-right"></i>
+            </div>
+          </div>
+          <div v-else class="empty-scenes">
+            暂无可用场景
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button @click="closeMoveModal">取消</button>
         </div>
       </div>
     </div>
@@ -181,6 +222,10 @@ const props = defineProps({
     required: true
   },
   models: {
+    type: Array,
+    required: true
+  },
+  scenes: {
     type: Array,
     required: true
   }
@@ -666,6 +711,79 @@ const showToast = (message, type = 'success') => {
     }, 300)
   }, 2000)
 }
+
+// 添加重新处理单章的方法
+const reprocessChapter = async (card, scene) => {
+  const prompt = props.prompts.find(p => p.id === scene.selectedPromptId)
+  if (!prompt) {
+    alert('请先选择提示词')
+    return
+  }
+
+  try {
+    // 找到原始章节
+    const originalCard = scene.originalCards.find(
+      oc => oc.chapterNumber === card.originalNumber
+    )
+    if (!originalCard) {
+      throw new Error('未找到原始章节')
+    }
+
+    // 处理章节
+    const result = await processChapter(originalCard, prompt)
+    
+    // 更新结果
+    const index = scene.resultCards.findIndex(rc => rc.id === card.id)
+    if (index !== -1) {
+      scene.resultCards[index] = {
+        ...card,
+        content: result,
+        updatedAt: new Date()
+      }
+      saveScenes()
+    }
+
+    showToast('重新处理完成', 'success')
+  } catch (error) {
+    console.error('重新处理失败:', error)
+    showToast(`重新处理失败: ${error.message}`, 'error')
+  }
+}
+
+// 修改转换为卡片的方法
+const showMoveModal = ref(false)
+const cardToMove = ref(null)
+
+const convertToCard = (card) => {
+  cardToMove.value = {
+    id: Date.now(),
+    title: card.title || `第${card.originalNumber}章`, // 使用章节标题
+    content: card.content,
+    height: '200px',
+    tags: [],
+    insertedContents: []
+  }
+  showMoveModal.value = true
+}
+
+const moveCardToScene = (scene) => {
+  if (!cardToMove.value) return
+  
+  // 添加到选中的场景
+  scene.cards.push(cardToMove.value)
+  
+  // 关闭模态框
+  showMoveModal.value = false
+  cardToMove.value = null
+  
+  // 显示成功提示
+  showToast('已添加到场景：' + scene.name, 'success')
+}
+
+const closeMoveModal = () => {
+  showMoveModal.value = false
+  cardToMove.value = null
+}
 </script>
 
 <style scoped>
@@ -931,7 +1049,7 @@ const showToast = (message, type = 'success') => {
 }
 
 textarea {
-  width: 100%;
+  width: 90%;
   min-height: 200px;
   padding: 12px;
   border: none;
@@ -961,7 +1079,7 @@ textarea {
 }
 
 input, textarea {
-  width: 100%;
+  width: 97%;
   padding: 8px;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -1085,5 +1203,114 @@ input, textarea {
 
 .import-btn input {
   display: none;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.action-btn {
+  padding: 4px 8px;
+  background: #f0f7ff;
+  border: 1px solid #e1e4e8;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.9em;
+  color: #646cff;
+  transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+  background: #646cff;
+  color: white;
+  border-color: #646cff;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e1e4e8;
+}
+
+/* 添加模态框样式 */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  width: 400px;
+  max-width: 90vw;
+}
+
+.scene-list {
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scene-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.scene-item:hover {
+  background: #e9ecef;
+}
+
+.empty-scenes {
+  text-align: center;
+  color: #999;
+  padding: 16px;
+}
+
+.modal-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.modal-actions button {
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.modal-actions button:hover {
+  background: #f5f5f5;
 }
 </style> 

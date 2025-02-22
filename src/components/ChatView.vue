@@ -224,14 +224,14 @@ const currentChat = computed(() =>
 
 // 获取所有卡片标题作为关键词
 const allKeywords = computed(() => {
-  console.log("scenes:", props.scenes) // 打印整个 scenes 数据
+  //console.log("scenes:", props.scenes) // 打印整个 scenes 数据
   const keywords = new Set()
   props.scenes.forEach(scene => {
-    console.log("scene:", scene) // 打印每个场景
+    //console.log("scene:", scene) // 打印每个场景
     scene.cards?.forEach(card => {
-      console.log("card:", card) // 打印每个卡片
+      //console.log("card:", card) // 打印每个卡片
       if (card.title?.trim()) {
-        console.log("found title:", card.title.trim())
+        //console.log("found title:", card.title.trim())
         keywords.add(card.title.trim())
       }
     })
@@ -240,7 +240,7 @@ const allKeywords = computed(() => {
     id: title,
     name: title
   }))
-  console.log("all keywords:", result) // 打印最终的关键词列表
+  //console.log("all keywords:", result) // 打印最终的关键词列表
   return result
 })
 
@@ -344,20 +344,20 @@ const sendMessage = async () => {
 
     // 处理关键词检测
     let processedContent = userMessage.content
-    console.log(processedContent)
-    console.log(currentChat.value.enableKeywords)
+    //console.log(processedContent)
+    //console.log(currentChat.value.enableKeywords)
     if (currentChat.value.enableKeywords) {
-      console.log("message content:", userMessage.content) // 打印用户消息
-      console.log("all keywords available:", allKeywords.value) // 打印可用的关键词
+      //console.log("message content:", userMessage.content) // 打印用户消息
+      //console.log("all keywords available:", allKeywords.value) // 打印可用的关键词
 
       // 检测关键词
       const keywords = allKeywords.value.filter(keyword => {
         const found = userMessage.content.toLowerCase().includes(keyword.name.toLowerCase())
-        console.log(`checking keyword: ${keyword.name}, found: ${found}`) // 打印每个关键词的检测结果
+        //console.log(`checking keyword: ${keyword.name}, found: ${found}`) // 打印每个关键词的检测结果
         return found
       })
 
-      console.log(keywords)
+      //console.log(keywords)
 
       if (keywords.length > 0) {
         let keywordsContext = '检测到以下相关内容:\n\n'

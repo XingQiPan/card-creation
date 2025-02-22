@@ -19,7 +19,10 @@
           <div class="note-card-content">
             <div class="note-title">{{ note.title || '无标题笔记' }}</div>
             <div class="note-preview">{{ getPreview(note.content) }}</div>
-            <div class="note-time">{{ formatTime(note.updatedAt) }}</div>
+            <div class="note-info">
+              <span class="note-time">{{ formatTime(note.updatedAt) }}</span>
+              <span class="word-count">{{ getWordCount(note.content) }} 字</span>
+            </div>
             <div class="note-actions">
               <button 
                 @click.stop="moveNoteToScene(note)" 
@@ -59,8 +62,9 @@
           >
             <i class="fas fa-edit"></i> 编辑
           </button>
-          <div class="last-updated">
-            最后更新: {{ formatTime(currentNote.updatedAt) }}
+          <div class="editor-info">
+            <span class="word-count">{{ getWordCount(currentNote.content) }} 字</span>
+            <span class="last-updated">最后更新: {{ formatTime(currentNote.updatedAt) }}</span>
           </div>
         </div>
       </div>
@@ -398,6 +402,13 @@ const showToast = (message, type = 'success') => {
   }, 2000)
 }
 
+// 添加字数统计函数
+const getWordCount = (text) => {
+  if (!text) return 0
+  // 移除空格和换行符，然后计算字符数
+  return text.replace(/\s+/g, '').length
+}
+
 </script>
 
 <style scoped>
@@ -480,9 +491,23 @@ const showToast = (message, type = 'success') => {
   overflow: hidden;
 }
 
-.note-time {
+.note-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   font-size: 0.8em;
   color: #999;
+  margin-top: 8px;
+}
+
+.note-time {
+  color: #646cff;
+  font-weight: 500;
+}
+
+.word-count {
+  color: #646cff;
+  font-weight: 500;
 }
 
 .note-editor {
@@ -543,10 +568,19 @@ const showToast = (message, type = 'success') => {
   border-color: #646cff;
 }
 
-.last-updated {
+.editor-info {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
   color: #999;
   font-size: 0.9em;
+}
+
+.editor-info .word-count {
+  padding: 4px 8px;
+  background: #f0f7ff;
+  border-radius: 4px;
 }
 
 .editor-content {

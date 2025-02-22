@@ -93,6 +93,9 @@
               <button class="icon-btn" @click="editMessage(msg)">
                 <i class="fas fa-edit"></i>
               </button>
+              <button class="icon-btn" @click="resendMessage(msg)" v-if="msg.role === 'user'">
+                <i class="fas fa-redo"></i>
+              </button>
               <button class="icon-btn delete" @click="deleteMessage(msg.id)">
                 <i class="fas fa-trash"></i>
               </button>
@@ -758,6 +761,78 @@ const closeSplitModal = () => {
   splitSections.value = []
   selectedSceneId.value = ''
 }
+
+// 修改重新发送消息方法
+const resendMessage = async (msg) => {
+  // 删除这条消息之后的所有消息
+  const msgIndex = currentChat.value.messages.findIndex(m => m.id === msg.id)
+  currentChat.value.messages = currentChat.value.messages.slice(0, msgIndex)
+  
+  // 添加用户消息
+  const userMessage = {
+    id: Date.now(),
+    role: 'user',
+    content: msg.content,
+    timestamp: new Date()
+  }
+  currentChat.value.messages.push(userMessage)
+  
+  // 重新发送消息
+  try {
+    const model = props.models.find(m => m.id === currentChat.value.modelId)
+    if (!model) throw new Error('未找到选择的模型')
+
+    // 获取对话历史
+    const context = currentChat.value.messages.map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.content
+    }))
+    context.pop() // 移除最后一条消息，因为它会作为当前消息发送
+
+    // 处理关键词检测
+    let processedContent = msg.content
+    if (currentChat.value.enableKeywords) {
+      const keywords = allKeywords.value.filter(keyword => 
+        msg.content.toLowerCase().includes(keyword.name.toLowerCase())
+      )
+
+      if (keywords.length > 0) {
+        let keywordsContext = '检测到以下相关内容:\n\n'
+        for (const keyword of keywords) {
+          const content = getKeywordContent(keyword)
+          if (content) {
+            keywordsContext += `【${keyword.name}】:\n${content}\n\n`
+          }
+        }
+        processedContent = keywordsContext + '用户问题:\n' + msg.content
+      }
+    }
+
+    // 调用 API 获取回复
+    const response = await sendToModel(model, processedContent, context)
+    
+    const assistantMessage = {
+      id: Date.now(),
+      role: 'assistant',
+      content: response,
+      timestamp: new Date()
+    }
+
+    currentChat.value.messages.push(assistantMessage)
+    saveSessions()
+
+    await nextTick()
+    scrollToBottom()
+    
+    showToastMessage('消息已重新发送')
+  } catch (error) {
+    console.error('重新发送失败:', error)
+    showToastMessage(error.message, 'error')
+    // 发送失败时移除刚才添加的用户消息
+    currentChat.value.messages.pop()
+    saveSessions()
+  }
+}
 </script>
 
 <style scoped>
@@ -1312,5 +1387,10 @@ const closeSplitModal = () => {
     transform: translateX(0);
     opacity: 1;
   }
+}
+
+/* 添加重新发送按钮的悬停样式 */
+.icon-btn:hover i.fa-redo {
+  color: #4caf50;
 }
 </style> 

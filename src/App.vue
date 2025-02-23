@@ -574,10 +574,10 @@ const models = ref([
     id: 'gemini',
     name: 'Gemini',
     provider: 'gemini',
-    apiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
+    apiUrl: '', // 用户自己填写 API 地址
     apiKey: '',
-    modelId: 'gemini-1.5-flash',
-    maxTokens: 512,
+    modelId: '', // 用户自己填写模型 ID
+    maxTokens: 2048,
     temperature: 0.7
   },
   {
@@ -1295,10 +1295,10 @@ const defaultGeminiModel = {
   id: 'gemini',
   name: 'Gemini',
   provider: PROVIDERS.GEMINI,
-  apiUrl: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent', // 修正 URL
-  modelId: 'gemini-1.5-pro',
+  apiUrl: '', // 用户自己填写 API 地址
+  modelId: '', // 用户自己填写模型 ID
   apiKey: '',
-  maxTokens: 512,
+  maxTokens: 2048,
   temperature: 0.7
 }
 

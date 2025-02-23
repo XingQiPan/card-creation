@@ -11,7 +11,7 @@ if %errorlevel% neq 0 (
     exit
 )
 
-:: 检查 package.json 是否存在
+:: 检查前端 package.json 是否存在
 if not exist "package.json" (
     echo [错误] 未找到 package.json 文件
     echo 请确保您在正确的项目目录中运行此脚本
@@ -19,9 +19,28 @@ if not exist "package.json" (
     exit
 )
 
-:: 检查是否存在 node_modules 目录
+:: 检查后端目录是否存在
+if not exist "backend\" (
+    echo 正在创建后端目录...
+    mkdir backend
+    cd backend
+    echo 正在初始化后端项目...
+    call npm init -y
+    call npm install express multer cors
+    cd ..
+)
+
+:: 检查后端依赖
+cd backend
 if not exist "node_modules\" (
-    echo 正在安装依赖...
+    echo 正在安装后端依赖...
+    call npm install
+)
+cd ..
+
+:: 检查前端依赖
+if not exist "node_modules\" (
+    echo 正在安装前端依赖...
     call npm install --registry=https://registry.npmmirror.com
     if %errorlevel% neq 0 (
         echo [错误] 依赖安装失败
@@ -34,9 +53,13 @@ if not exist "node_modules\" (
     )
 )
 
-:: 启动开发服务器
-echo 正在启动开发服务器...
-npm run dev
-::start http://localhost:8888
+:: 启动前端和后端服务
+echo 正在启动服务...
+start cmd /k "cd backend && node server.js"
+start cmd /k "npm run dev"
+
+echo 服务已启动！
+echo 前端地址: http://localhost:5173
+echo 后端地址: http://localhost:3000
 
 pause 

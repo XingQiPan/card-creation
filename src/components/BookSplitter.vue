@@ -582,91 +582,11 @@ const splitIntoChapters = (text) => {
   return chapters
 }
 
-// 修改处理函数以支持多场景
-const processWithPrompt = async (scene) => {
-  if (!scene.selectedPromptId || scene.processing) return
-
-  const prompt = props.prompts.find(p => p.id === scene.selectedPromptId)
-  if (!prompt) {
-    alert('未找到选中的提示词')
-    return
-  }
-
-  scene.processing = true
-  scene.isPaused = false
-  scene.currentIndex = 0
-  scene.resultCards = [] // 清空之前的结果
-
-  await continueProcessing(scene)
-  saveScenes()
-}
-
-// 修改继续处理函数
-const continueProcessing = async (scene) => {
-  const prompt = props.prompts.find(p => p.id === scene.selectedPromptId)
-  scene.shouldStop = false // 重置终止标记
-  
-  try {
-    while (scene.currentIndex < scene.originalCards.length && !scene.isPaused && !scene.shouldStop) {
-      const card = scene.originalCards[scene.currentIndex]
-      try {
-        if (scene.shouldStop) {
-          break
-        }
-        
-        const result = await processChapter(card, prompt)
-        
-        if (scene.shouldStop) {
-          break
-        }
-        
-        scene.resultCards.push({
-          id: Date.now() + Math.random(),
-          originalNumber: card.chapterNumber,
-          promptSequence: prompt.sequence,
-          content: result,
-          promptId: prompt.id,
-          title: card.title
-        })
-
-        scene.currentIndex++
-        saveScenes()
-        
-        if (scene.currentIndex < scene.originalCards.length && !scene.isPaused && !scene.shouldStop) {
-          await delay(1500)
-        }
-      } catch (error) {
-        console.error(`处理章节 ${card.title} 失败:`, error)
-        alert(`处理章节 "${card.title}" 失败: ${error.message}`)
-        if (!confirm('是否继续处理下一章节？')) {
-          scene.isPaused = true
-          break
-        }
-        scene.currentIndex++
-      }
-    }
-
-    if (scene.currentIndex >= scene.originalCards.length || scene.shouldStop) {
-      scene.processing = false
-      scene.isPaused = false
-      scene.currentIndex = 0
-      scene.shouldStop = false
-    }
-    saveScenes()
-  } catch (error) {
-    console.error('处理错误:', error)
-    alert('处理失败: ' + error.message)
-    scene.processing = false
-    scene.shouldStop = false
-    saveScenes()
-  }
-}
-
 // 修改暂停/继续功能
 const toggleProcessing = (scene) => {
   scene.isPaused = !scene.isPaused
   if (!scene.isPaused) {
-    continueProcessing(scene)
+    processWithPrompt(scene) // 改用 processWithPrompt 替代 continueProcessing
   }
   saveScenes()
 }
@@ -679,6 +599,28 @@ const processChapter = async (card, scene) => {
   }
 
   const prompt = getSelectedPrompt(scene)
+  if (!prompt) {
+    showToast('未找到选中的提示词主人~', 'error')
+    return
+  }
+
+  const model = props.models.find(m => m.id === prompt.selectedModel)
+  if (!model) {
+    showToast('未找到选中的模型主人~', 'error')
+    return
+  }
+
+  console.log('开始处理章节:', {
+    chapterTitle: card.title,
+    modelInfo: {
+      provider: model.provider,
+      modelId: model.modelId
+    },
+    promptInfo: {
+      title: prompt.title,
+      template: prompt.template
+    }
+  })
   
   try {
     scene.processing = true
@@ -703,11 +645,109 @@ const processChapter = async (card, scene) => {
 
     await saveScenes()
     showToast(`第${card.chapterNumber}章处理完成主人~`, 'success')
+    return result
   } catch (error) {
     console.error('处理章节失败:', error)
-    showToast(`处理失败: ${error.message}`, 'error')
+    showToast(`处理失败主人~: ${error.message}`, 'error')
+    throw error
   } finally {
     scene.processing = false
+  }
+}
+
+// 修改处理函数以支持多场景
+const processWithPrompt = async (scene) => {
+  if (!scene.selectedPromptId || scene.processing) return
+
+  const prompt = props.prompts.find(p => p.id === scene.selectedPromptId)
+  if (!prompt) {
+    showToast('未找到选中的提示词主人~', 'error')
+    return
+  }
+
+  // 如果已经在处理中，先重置状态
+  if (scene.processing) {
+    scene.processing = false
+    scene.isPaused = false
+    scene.shouldStop = false
+    scene.currentIndex = 0
+    await saveScenes()
+    return
+  }
+
+  scene.processing = true
+  scene.isPaused = false
+  scene.shouldStop = false
+  scene.currentIndex = 0
+
+  // 获取选中的模型
+  const model = props.models.find(m => m.id === prompt.selectedModel)
+  if (!model) {
+    showToast('未找到选中的模型主人~', 'error')
+    scene.processing = false
+    return
+  }
+
+  try {
+    // 清空之前的结果
+    scene.resultCards = []
+    
+    // 如果是阶跃星辰或Mistral模型，先等待2秒
+    if (model.provider === 'stepfun' || model.provider === 'mistral') {
+      await delay(2000)
+    }
+
+    // 开始处理所有章节
+    for (let i = 0; i < scene.originalCards.length; i++) {
+      if (scene.shouldStop || scene.isPaused) {
+        break
+      }
+
+      const card = scene.originalCards[i]
+      try {
+        const result = await processWithAPI(card, prompt, scene)
+        
+        if (scene.shouldStop || scene.isPaused) {
+          break
+        }
+
+        scene.resultCards.push({
+          id: Date.now() + Math.random(),
+          originalNumber: card.chapterNumber,
+          promptSequence: prompt.sequence,
+          content: result,
+          promptId: prompt.id,
+          title: card.title,
+          updatedAt: new Date()
+        })
+
+        scene.currentIndex = i + 1
+        await saveScenes()
+        
+        if (i < scene.originalCards.length - 1 && !scene.isPaused && !scene.shouldStop) {
+          await delay(1500) // 添加延迟避免请求过快
+        }
+
+        showToast(`已完成第 ${i + 1}/${scene.originalCards.length} 章处理主人~`, 'success')
+      } catch (error) {
+        console.error(`处理章节 ${card.title} 失败:`, error)
+        showToast(`处理章节 "${card.title}" 失败主人~: ${error.message}`, 'error')
+        
+        if (!confirm('是否继续处理下一章节主人~？')) {
+          scene.shouldStop = true
+          break
+        }
+      }
+    }
+  } catch (error) {
+    console.error('处理过程发生错误:', error)
+    showToast('处理过程发生错误主人~: ' + error.message, 'error')
+  } finally {
+    scene.processing = false
+    scene.isPaused = false
+    scene.shouldStop = false
+    scene.currentIndex = 0
+    await saveScenes()
   }
 }
 
@@ -748,7 +788,15 @@ const processWithAPI = async (card, prompt, scene) => {
     content = result.choices?.[0]?.message?.content
     
   } else if (model.provider === 'gemini') {
+    console.log('准备调用 Gemini API:', {
+      modelId: model.modelId,
+      template: processedTemplate
+    })
+
+    // 构建 Gemini 格式的消息
     const url = `${model.apiUrl}?key=${model.apiKey}`
+    console.log('请求 URL:', url)
+    
     response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -761,14 +809,29 @@ const processWithAPI = async (card, prompt, scene) => {
           }]
         }],
         generationConfig: {
-          maxOutputTokens: Number(model.maxTokens),
-          temperature: Number(model.temperature)
+          temperature: Number(model.temperature),
+          maxOutputTokens: Number(model.maxTokens)
         }
       })
     })
-    
+
+    console.log('API 响应状态:', response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Gemini API 错误响应:', errorText)
+      throw new Error(`请求失败主人~: ${response.status} - ${errorText}`)
+    }
+
     const result = await response.json()
-    content = result.candidates?.[0]?.content?.parts?.[0]?.text
+    console.log('API 响应结果:', result)
+    
+    if (!result.candidates || !result.candidates[0]?.content?.parts?.[0]?.text) {
+      console.error('Gemini API 响应格式异常:', result)
+      throw new Error('响应格式错误主人~')
+    }
+
+    content = result.candidates[0].content.parts[0].text
   } else if (model.provider === 'stepfun') {
     response = await fetch(`${model.apiUrl}/chat/completions`, {
       method: 'POST',

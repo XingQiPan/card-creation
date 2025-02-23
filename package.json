@@ -11,10 +11,13 @@
   "dependencies": {
     "@fortawesome/fontawesome-free": "^6.7.2",
     "@vueuse/core": "^12.7.0",
+    "cors": "^2.8.5",
     "dompurify": "^3.2.4",
+    "express": "^4.21.2",
     "idb": "^8.0.2",
     "marked": "^15.0.7",
     "mitt": "^3.0.1",
+    "multer": "^1.4.5-lts.1",
     "pinia": "^3.0.1",
     "vue": "^3.5.13",
     "vuedraggable": "^4.1.0"
@@ -22,5 +25,10 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
     "vite": "^6.1.0"
-  }
+  },
+  "description": "一个现代化的、功能丰富的提示词编辑和管理系统，基于 Vue 3 + Vite 构建。该系统允许用户创建、编辑和管理 AI 提示词，支持场景管理、文本卡片和标签系统。",
+  "main": "vite.config.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }

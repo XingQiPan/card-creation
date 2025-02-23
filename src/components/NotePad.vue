@@ -526,6 +526,11 @@ const startAutoWriting = () => {
       return
     }
     if (!isGenerating.value) {
+      const model = props.models.find(m => m.id === selectedPrompt.value.selectedModel)
+      if (model && (model.provider === 'stepfun' || model.provider === 'mistral')) {
+        // 对于阶跃星辰和Mistral模型，每次续写前等待一段时间
+        await delay(2000) // 等待2秒
+      }
       generateCompletion(currentNote.value.content)
     }
   }, 10000)

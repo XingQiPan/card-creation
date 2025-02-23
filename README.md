@@ -47,6 +47,49 @@ npm run dev
 
 4. 打开浏览器访问 http://localhost:8888
 
+## 🛠️ 技术栈
+
+- [Vue 3](https://vuejs.org/) - 渐进式 JavaScript 框架
+- [Vite](https://vitejs.dev/) - 下一代前端构建工具
+- [Vuedraggable](https://github.com/SortableJS/Vue.Draggable) - 拖拽组件
+- [Font Awesome](https://fontawesome.com/) - 图标库
+- [Marked](https://marked.js.org/) - Markdown 解析器
+- [DOMPurify](https://github.com/cure53/DOMPurify) - XSS 防护
+- [Pinia](https://pinia.vuejs.org/) - 状态管理
+
+## ⚠️ 注意事项
+
+- API 地址配置：
+  - Gemini API: `https://generativelanguage.googleapis.com/v1beta/models/{模型名称}:generateContent`
+  - OpenAI API: 自动附加 `/chat/completions`
+  - Ollama API: `http://localhost:11434/api/chat`
+  - 请确保 Ollama 服务已正确启动
+- 关键词标签：使用关键词标签的卡片内容会在提示词中被检测并自动注入相关上下文
+- 卡片关联：关联的卡片内容会在插入提示词时自动合并
+- 拖拽优化：场景和卡片拖拽时不会干扰文本选择
+- 拆书功能：支持断点续传，可以导入之前的进度继续处理
+
+## 🤝 贡献指南
+
+欢迎提交 Issue 和 Pull Request 来帮助改进这个项目！
+
+1. Fork 这个项目
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交改动 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启 Pull Request
+
+## 📧 联系方式
+
+如果你有任何问题或建议，欢迎通过以下方式联系：
+
+- QQ群：1028368820
+- 教程：【逆天，一步操作，写作10倍效率——《星卡基础教程》】 https://www.bilibili.com/video/BV1WdPFegEpt/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1
+
+---
+
+如果这个项目对你有帮助，欢迎给一个 ⭐️ Star！
+
 ## 📖 功能详细说明
 
 ### 1. 场景管理
@@ -237,45 +280,3 @@ npm run dev
    - 支持切换不同会话
    - 可删除整个会话
    - 自动滚动到最新消息
-
-## 🛠️ 技术栈
-
-- [Vue 3](https://vuejs.org/) - 渐进式 JavaScript 框架
-- [Vite](https://vitejs.dev/) - 下一代前端构建工具
-- [Vuedraggable](https://github.com/SortableJS/Vue.Draggable) - 拖拽组件
-- [Font Awesome](https://fontawesome.com/) - 图标库
-- [Marked](https://marked.js.org/) - Markdown 解析器
-- [DOMPurify](https://github.com/cure53/DOMPurify) - XSS 防护
-- [Pinia](https://pinia.vuejs.org/) - 状态管理
-
-## ⚠️ 注意事项
-
-- API 地址配置：
-  - Gemini API: `https://generativelanguage.googleapis.com/v1beta/models/{模型名称}:generateContent`
-  - OpenAI API: 自动附加 `/chat/completions`
-  - Ollama API: `http://localhost:11434/api/chat`
-  - 请确保 Ollama 服务已正确启动
-- 关键词标签：使用关键词标签的卡片内容会在提示词中被检测并自动注入相关上下文
-- 卡片关联：关联的卡片内容会在插入提示词时自动合并
-- 拖拽优化：场景和卡片拖拽时不会干扰文本选择
-- 拆书功能：支持断点续传，可以导入之前的进度继续处理
-
-## 🤝 贡献指南
-
-欢迎提交 Issue 和 Pull Request 来帮助改进这个项目！
-
-1. Fork 这个项目
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交改动 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
-
-## 📧 联系方式
-
-如果你有任何问题或建议，欢迎通过以下方式联系：
-
-- QQ群：待建立
-
----
-
-如果这个项目对你有帮助，欢迎给一个 ⭐️ Star！

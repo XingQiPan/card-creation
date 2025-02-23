@@ -185,6 +185,7 @@
             @move-card="handleMoveCard"
             @merge-cards="handleMergeCards"
             @add-to-notepad="handleAddToNotepad"
+            @delete-scene="handleDeleteScene"
           />
         </div>
       </div>
@@ -340,6 +341,8 @@
                   <select v-model="model.provider">
                     <option value="openai">OpenAI</option>
                     <option value="gemini">Gemini</option>
+                    <option value="stepfun">阶跃星辰</option>
+                    <option value="mistral">Mistral AI</option>
                     <option value="ollama">Ollama</option>
                   </select>
                 </div>
@@ -348,12 +351,27 @@
                   <input v-model="model.apiUrl" placeholder="API 地址"/>
                 </div>
                 <div class="form-group">
-                  <label>模型标识</label>
-                  <input v-model="model.modelId" placeholder="如：deepseek-ai/DeepSeek-V3"/>
-                </div>
-                <div class="form-group">
                   <label>API Key</label>
                   <input v-model="model.apiKey" type="password" placeholder="API Key"/>
+                </div>
+                <div class="form-group">
+                  <label>模型选择</label>
+                  <div class="model-actions">
+                    <select v-model="model.modelId" class="model-select">
+                      <option value="">选择模型</option>
+                      <option v-for="m in model.availableModels" :key="m.id" :value="m.id">
+                        {{ m.name || m.id }}
+                      </option>
+                    </select>
+                    <button 
+                      @click="refreshModelList(model)"
+                      class="refresh-btn"
+                      :disabled="!model.apiUrl || !model.apiKey"
+                    >
+                      <i class="fas fa-sync-alt"></i>
+                      刷新
+                    </button>
+                  </div>
                 </div>
                 <div class="form-group">
                   <label>最大 Tokens</label>
@@ -546,7 +564,7 @@ const models = ref([
     id: 'default',
     name: 'OpenAI',
     provider: 'openai',
-    apiUrl: 'https://api.openai.com/v1/chat/completions',
+    apiUrl: 'https://api.openai.com/v1',
     apiKey: '',
     modelId: 'gpt-3.5-turbo',
     maxTokens: 512,
@@ -561,6 +579,32 @@ const models = ref([
     modelId: 'gemini-1.5-flash',
     maxTokens: 512,
     temperature: 0.7
+  },
+  {
+    id: 'stepfun',
+    name: '阶跃星辰',
+    provider: 'stepfun',
+    apiUrl: 'https://platform.stepfun.com/v1',
+    apiKey: '',
+    modelId: 'step-1',
+    maxTokens: 512,
+    temperature: 0.7
+  },
+  {
+    id: 'mistral',
+    name: 'Mistral AI',
+    provider: 'mistral',
+    apiUrl: 'https://api.mistral.ai',
+    apiKey: '',
+    modelId: 'mistral-small',
+    maxTokens: 512,
+    temperature: 0.7,
+    availableModels: [
+      { id: 'mistral-tiny', name: 'Mistral Tiny' },
+      { id: 'mistral-small', name: 'Mistral Small' },
+      { id: 'mistral-medium', name: 'Mistral Medium' },
+      { id: 'mistral-large', name: 'Mistral Large' }
+    ]
   }
 ])
 const promptPanelWidth = ref(300) // 默认宽度
@@ -1118,7 +1162,74 @@ const deleteModel = (id) => {
   saveModels()
 }
 
-const saveModels = () => {
+// 添加获取模型列表的方法
+const fetchModelList = async (model) => {
+  try {
+    let response
+    let modelList = []
+    
+    if (model.provider === 'stepfun') {
+      // 阶跃星辰获取模型列表
+      response = await fetch(`${model.apiUrl}/models`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${model.apiKey}`
+        }
+      })
+      
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result.message || `请求失败: ${response.status}`)
+      }
+      
+      // 处理返回的模型列表
+      modelList = result.data?.map(m => ({
+        id: m.id,
+        name: m.name || m.id
+      })) || []
+      
+      console.log('获取到的模型列表:', modelList)
+    } else if (model.provider === 'mistral') {
+      // Mistral 获取模型列表
+      response = await fetch(`${model.apiUrl}/v1/models`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${model.apiKey}`
+        }
+      })
+      
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result.message || `请求失败: ${response.status}`)
+      }
+      
+      // 处理返回的模型列表
+      modelList = result.data?.map(m => ({
+        id: m.id,
+        name: m.id
+      })) || []
+      
+      // 过滤掉 moderation 模型
+      modelList = modelList.filter(m => !m.id.includes('moderation'))
+      
+      console.log('获取到的 Mistral 模型列表:', modelList)
+    } else if (model.provider === 'openai') {
+      // OpenAI获取模型列表保持不变
+      // ... existing code ...
+    }
+    
+    return modelList
+  } catch (error) {
+    console.error('获取模型列表失败:', error)
+    showToast('获取模型列表失败主人~: ' + error.message, 'error')
+    return []
+  }
+}
+
+// 修改保存模型的方法
+const saveModels = async () => {
   // 验证所有模型的基础 URL
   const invalidModels = models.value.filter(model => !validateApiUrl(model.apiUrl))
   if (invalidModels.length > 0) {
@@ -1126,26 +1237,58 @@ const saveModels = () => {
     return
   }
   
-  localStorage.setItem('aiModels', JSON.stringify(models.value))
-  alert('保存成功')
-}
-
-// 添加 API URL 验证
-const validateApiUrl = (url) => {
-  return url.startsWith('https://') || url.startsWith('http://')
+  try {
+    // 获取每个模型的可用模型列表
+    for (const model of models.value) {
+      if (model.provider === 'stepfun' || model.provider === 'openai') {
+        const modelList = await fetchModelList(model)
+        if (modelList.length > 0) {
+          // 如果当前选择的模型不在列表中，使用第一个可用模型
+          const isValidModel = modelList.some(m => m.id === model.modelId)
+          if (!isValidModel) {
+            model.modelId = modelList[0].id
+          }
+        }
+      }
+    }
+    
+    localStorage.setItem('aiModels', JSON.stringify(models.value))
+    showToast('保存成功主人~')
+  } catch (error) {
+    console.error('保存失败:', error)
+    showToast('保存失败主人~: ' + error.message, 'error')
+  }
 }
 
 // 修改创建默认模型的方法
 const createDefaultModel = () => ({
   id: Date.now(),
   name: '',
-  apiUrl: 'https://api.siliconflow.cn/v1',
-  modelId: 'deepseek-ai/DeepSeek-V3',
+  apiUrl: 'https://platform.stepfun.com/v1',  // 设置默认API地址
+  modelId: '',
   apiKey: '',
   maxTokens: 512,
   temperature: 0.7,
-  provider: PROVIDERS.OPENAI  // 添加默认提供商类型
+  provider: 'stepfun',
+  availableModels: []
 })
+
+// 添加获取模型列表的按钮事件处理
+const refreshModelList = async (model) => {
+  try {
+    const modelList = await fetchModelList(model)
+    model.availableModels = modelList
+    showToast('获取模型列表成功主人~')
+  } catch (error) {
+    console.error('获取模型列表失败:', error)
+    showToast('获取模型列表失败主人~: ' + error.message, 'error')
+  }
+}
+
+// 添加 API URL 验证
+const validateApiUrl = (url) => {
+  return url.startsWith('https://') || url.startsWith('http://')
+}
 
 // 修改默认的 Gemini 模型配置
 const defaultGeminiModel = {
@@ -1171,6 +1314,19 @@ const defaultOllamaModel = {
   temperature: 0.7
 }
 
+// 修改默认的 Mistral 模型配置
+const defaultMistralModel = {
+  id: 'mistral',
+  name: 'Mistral AI',
+  provider: 'mistral',
+  apiUrl: 'https://api.mistral.ai',
+  apiKey: '',
+  modelId: '',
+  maxTokens: 512,
+  temperature: 0.7,
+  availableModels: []
+}
+
 // 在 onMounted 中初始化模型
 onMounted(() => {
   // 加载保存的模型
@@ -1179,7 +1335,12 @@ onMounted(() => {
     models.value = JSON.parse(savedModels)
   } else {
     // 如果没有保存的模型，添加所有默认模型
-    models.value = [createDefaultModel(), defaultGeminiModel, defaultOllamaModel]
+    models.value = [
+      createDefaultModel(), 
+      defaultGeminiModel, 
+      defaultOllamaModel,
+      defaultMistralModel
+    ]
   }
   
   // 确保所有提示词都有必要的属性
@@ -1588,6 +1749,11 @@ const handleAddCardsToScene = ({ sceneId, cards }) => {
     return
   }
 
+  // 确保场景有 cards 属性
+  if (!targetScene.cards) {
+    targetScene.cards = []
+  }
+
   // 添加卡片到目标场景
   targetScene.cards.push(...cards)
   
@@ -1670,6 +1836,41 @@ const handleAddToNotepad = (cardData) => {
 }
 
 const notepadInitialContent = ref('')
+
+// 修改删除场景的方法
+const handleDeleteScene = async (sceneId) => {
+  try {
+    // 找到要删除的场景索引
+    const index = scenes.value.findIndex(s => s.id === sceneId)
+    if (index === -1) {
+      throw new Error('场景不存在')
+    }
+
+    // 如果只剩一个场景，不允许删除
+    if (scenes.value.length <= 1) {
+      throw new Error('至少需要保留一个场景')
+    }
+
+    // 如果要删除的是当前场景，先切换到其他场景
+    if (currentScene.value.id === sceneId) {
+      // 如果有下一个场景就切换到下一个，否则切换到上一个
+      const nextScene = scenes.value[index + 1] || scenes.value[index - 1]
+      currentScene.value = nextScene
+    }
+
+    // 从数组中移除场景
+    scenes.value.splice(index, 1)
+
+    // 保存更改到本地存储
+    saveScenes()
+
+    // 显示成功提示
+    showToast('场景已删除')
+  } catch (error) {
+    console.error('删除场景失败:', error)
+    showToast(error.message, 'error')
+  }
+}
 </script>
 
 <style scoped>
@@ -2333,6 +2534,42 @@ textarea.template-input {
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 14px;
+}
+
+.model-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.refresh-btn {
+  padding: 4px 8px;
+  background: #f0f7ff;
+  border: 1px solid #646cff;
+  color: #646cff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.refresh-btn:hover {
+  background: #e3f2fd;
+}
+
+.refresh-btn i {
+  font-size: 12px;
+}
+
+.model-select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #333;
 }
 
 .delete-model-btn {

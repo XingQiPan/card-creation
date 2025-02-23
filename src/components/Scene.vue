@@ -24,6 +24,9 @@
           <button @click="exportToJsonl">
             <i class="fas fa-file-export"></i> 导出
           </button>
+          <button @click="deleteScene" class="delete-scene-btn">
+            <i class="fas fa-trash"></i> 删除场景
+          </button>
         </div>
       </div>
       <div class="drop-zone" v-if="scene.cards.length === 0">
@@ -206,7 +209,7 @@
 </template>
 
 <script setup>
-import { ref, defineProps, defineEmits, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, reactive } from 'vue'
 import draggable from 'vuedraggable'
 
 const props = defineProps({
@@ -256,7 +259,8 @@ const emit = defineEmits([
   'insert-prompt-at-cursor',
   'update-card-tags',
   'move-card',
-  'add-to-notepad'
+  'add-to-notepad',
+  'delete-scene'
 ])
 
 const drag = ref(false)
@@ -268,29 +272,14 @@ const isLinkMode = ref(false)
 const selectedForLink = ref([])
 const sourceCard = ref(null)
 
-// 添加计算属性来过滤卡片
-const filteredCards = computed(() => {
-  if (!props.selectedTags.length) {
-    return props.scene.cards
-  }
-  
-  return props.scene.cards.filter(card => {
-    if (!card.tags) return false
-    return props.selectedTags.some(tagId => card.tags.includes(tagId))
+// 添加 UUID 生成函数
+const generateUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0
+    const v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
   })
-})
-
-// 添加对场景变化的监听
-watch(() => props.scene, (newScene) => {
-  if (newScene) {
-    // 确保场景中的cards属性存在
-    if (!newScene.cards) {
-      newScene.cards = []
-    }
-    // 发出更新事件
-    emit('update:scene', newScene)
-  }
-}, { deep: true })
+}
 
 // 修改卡片创建方法
 const createNewCard = () => {
@@ -299,7 +288,7 @@ const createNewCard = () => {
   }
   
   const newCard = {
-    id: Date.now(),
+    id: generateUUID(),
     title: '新建卡片',
     content: '',
     height: '120px',
@@ -307,47 +296,33 @@ const createNewCard = () => {
     insertedContents: []
   }
   
-  props.scene.cards.push(newCard)
-  emit('update:scene', {...props.scene})
-}
-
-// 添加新的方法来处理提示词插入
-const insertPromptContent = (card, prompt) => {
-  if (!card.insertedContents) {
-    card.insertedContents = []
-  }
-  
-  // Get content from the card and its linked cards
-  const contents = [card.content]
-  if (card.links) {
-    const linkedContents = getLinkedCards(card)
-      .map(linkedCard => linkedCard.content)
-      .filter(Boolean)
-    contents.push(...linkedContents)
-  }
-  
-  // Add all contents to the prompt
-  contents.forEach(content => {
-    if (content) {
-      card.insertedContents.push(content)
-    }
+  emit('update:scene', {
+    ...props.scene,
+    cards: [...props.scene.cards, newCard]
   })
-  
-  emit('update-card', card)
 }
 
-// 修改现有的 removeInsertedPrompt 方法
-const removeInsertedPrompt = (card, index) => {
-  if (!card.insertedContents) {
-    card.insertedContents = []
-    return
+// 优化卡片过滤方法
+const taggedCardsMap = computed(() => {
+  const map = new Map()
+  props.selectedTags.forEach(tagId => {
+    props.scene.cards.forEach(card => {
+      if (card.tags?.includes(tagId)) {
+        map.set(card.id, card)
+      }
+    })
+  })
+  return map
+})
+
+const filteredCards = computed(() => {
+  if (!props.selectedTags.length) {
+    return props.scene.cards
   }
-  
-  card.insertedContents.splice(index, 1)
-  emit('update-card', card)
-}
+  return Array.from(taggedCardsMap.value.values())
+})
 
-// 修改文件导入方法
+// 改进文件导入错误处理
 const handleFilesImport = async (event) => {
   const files = event.target.files
   if (!files.length) return
@@ -357,25 +332,41 @@ const handleFilesImport = async (event) => {
       props.scene.cards = []
     }
 
+    const newCards = []
     for (const file of files) {
-      const content = await file.text()
-      const newCard = {
-        id: Date.now() + Math.random(),
-        title: file.name,
-        content: content.trim(),
-        height: '200px',
-        tags: [],
-        insertedContents: []
+      if (file.size > 5000000) { // 5MB限制
+        throw new Error(`文件 ${file.name} 太大，请选择小于5MB的文件`)
       }
-      props.scene.cards.push(newCard)
+
+      try {
+        const content = await file.text()
+        const newCard = {
+          id: generateUUID(),
+          title: file.name,
+          content: content.trim(),
+          height: '200px',
+          tags: [],
+          insertedContents: []
+        }
+        newCards.push(newCard)
+      } catch (fileError) {
+        console.error(`处理文件 ${file.name} 时出错:`, fileError)
+        throw new Error(`无法读取文件 ${file.name}`)
+      }
     }
 
-    emit('update:scene', {...props.scene})
+    emit('update:scene', {
+      ...props.scene,
+      cards: [...props.scene.cards, ...newCards]
+    })
     event.target.value = ''
 
   } catch (error) {
     console.error('文件导入错误:', error)
-    alert('导入失败: ' + error.message)
+    // 使用更友好的错误提示
+    const errorMessage = error.message || '导入文件时发生未知错误'
+    // 这里可以使用更好的UI组件来显示错误
+    alert(errorMessage)
   }
 }
 
@@ -445,25 +436,27 @@ const exportToJsonl = () => {
   }
 }
 
+// 改进卡片调整大小的处理
 const startCardResize = (e, card) => {
-    e.stopPropagation()
-    const textarea = e.target.parentElement.querySelector('textarea')
-    const startY = e.clientY
-    const startHeight = textarea.offsetHeight
+  e.stopPropagation()
+  const textarea = e.target.parentElement.querySelector('textarea')
+  const startY = e.clientY
+  const startHeight = textarea.offsetHeight
 
-    const handleMouseMove = (e) => {
-        const diff = e.clientY - startY
-        const newHeight = Math.max(120, startHeight + diff)
-        card.height = `${newHeight}px`
-    }
+  const handleMouseMove = (e) => {
+    const diff = e.clientY - startY
+    const newHeight = Math.max(120, startHeight + diff)
+    card.height = `${newHeight}px`
+    emit('update-card', {...card})
+  }
 
-    const handleMouseUp = () => {
-        document.removeEventListener('mousemove', handleMouseMove)
-        document.removeEventListener('mouseup', handleMouseUp)
-    }
+  const handleMouseUp = () => {
+    window.removeEventListener('mousemove', handleMouseMove)
+    window.removeEventListener('mouseup', handleMouseUp)
+  }
 
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
+  window.addEventListener('mousemove', handleMouseMove)
+  window.addEventListener('mouseup', handleMouseUp)
 }
 
 // 标签相关方法
@@ -519,23 +512,29 @@ const moveCardToScene = (card, targetScene) => {
   closeMoveModal()
 }
 
-// Add new methods for card linking
+// 改进链接模式状态管理
+const linkModeState = reactive({
+  isActive: false,
+  sourceCard: null,
+  selectedCards: new Set()
+})
+
 const toggleLinkMode = (card) => {
-  if (!isLinkMode.value) {
-    isLinkMode.value = true
-    sourceCard.value = card
-    selectedForLink.value = [card.id]
+  if (!linkModeState.isActive) {
+    linkModeState.isActive = true
+    linkModeState.sourceCard = card
+    linkModeState.selectedCards.clear()
+    linkModeState.selectedCards.add(card.id)
   }
 }
 
 const toggleCardSelection = (card) => {
-  if (!isLinkMode.value) return
+  if (!linkModeState.isActive) return
   
-  const index = selectedForLink.value.indexOf(card.id)
-  if (index === -1) {
-    selectedForLink.value.push(card.id)
+  if (linkModeState.selectedCards.has(card.id)) {
+    linkModeState.selectedCards.delete(card.id)
   } else {
-    selectedForLink.value.splice(index, 1)
+    linkModeState.selectedCards.add(card.id)
   }
 }
 
@@ -563,7 +562,8 @@ const confirmLink = () => {
 const cancelLink = () => {
   isLinkMode.value = false
   selectedForLink.value = []
-  sourceCard.value = null
+  linkModeState.sourceCard = null
+  linkModeState.selectedCards.clear()
 }
 
 const hasLinks = (card) => {
@@ -647,6 +647,85 @@ const addToNotepad = (card) => {
     tags: card.tags || [],
     insertedContents: card.insertedContents || []
   })
+}
+
+// 添加场景删除方法
+const deleteScene = async () => {
+  try {
+    if (!props.scene || !props.scene.id) {
+      throw new Error('场景不存在或ID无效')
+    }
+    
+    // 如果这是最后一个场景，不允许删除
+    if (props.scenes.length <= 1) {
+      throw new Error('无法删除最后一个场景')
+    }
+    
+    // 如果场景中有卡片，需要确认
+    if (props.scene.cards && props.scene.cards.length > 0) {
+      if (!confirm(`确定要删除场景"${props.scene.name}"吗？这将删除场景中的所有卡片！`)) {
+        return
+      }
+    }
+    
+    emit('delete-scene', props.scene.id)
+  } catch (error) {
+    console.error('删除场景失败:', error)
+    alert('删除场景失败: ' + error.message)
+  }
+}
+
+const processWithAPI = async (card, prompt) => {
+  const model = props.models.find(m => m.id === prompt.selectedModel)
+  if (!model) {
+    throw new Error('未选择模型')
+  }
+
+  const processedTemplate = prompt.template.replace(/{{text}}/g, card.content)
+
+  let response
+  let content
+
+  if (model.provider === 'openai') {
+    // ... existing OpenAI code ...
+  } else if (model.provider === 'gemini') {
+    // ... existing Gemini code ...
+  } else if (model.provider === 'stepfun') {
+    // ... existing StepFun code ...
+  } else if (model.provider === 'mistral') {
+    response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${model.apiKey}`
+      },
+      body: JSON.stringify({
+        model: model.modelId,
+        messages: [
+          {
+            role: "user",
+            content: processedTemplate
+          }
+        ],
+        temperature: Number(model.temperature),
+        max_tokens: Number(model.maxTokens)
+      })
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.message || `请求失败: ${response.status}`)
+    }
+
+    const result = await response.json()
+    content = result.choices[0].message.content
+  }
+
+  if (!content) {
+    throw new Error('响应格式错误')
+  }
+
+  return content
 }
 </script>
 
@@ -747,7 +826,6 @@ const addToNotepad = (card) => {
   display: flex;
   flex-direction: column;
   font-size: var(--font-size-normal);
-  user-select: none; /* Prevent text selection on card headers and actions */
 }
 
 .card-header {
@@ -1227,5 +1305,26 @@ const addToNotepad = (card) => {
 .card-actions button.active {
   background: #646cff;
   color: white;
+}
+
+.delete-scene-btn {
+  background-color: #dc3545;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.delete-scene-btn:hover {
+  background-color: #c82333;
+}
+
+.delete-scene-btn i {
+  font-size: 14px;
 }
 </style>

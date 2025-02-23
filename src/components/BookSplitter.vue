@@ -1,5 +1,9 @@
 <template>
   <div class="book-splitter">
+    <div v-if="isLoading" class="loading-overlay">
+      <div class="loading-spinner"></div>
+      <p>加载中，请稍候主人~</p>
+    </div>
     <div class="header">
       <div class="left-actions">
         <button @click="addScene" class="add-tab-btn">
@@ -82,6 +86,13 @@
                   placeholder="章节标题"
                   @input="saveScenes"
                 />
+                <button 
+                  @click="processChapter(card, currentScene)"
+                  class="process-btn"
+                  :disabled="!canProcessChapter(currentScene)"
+                >
+                  处理本章
+                </button>
               </div>
               <textarea 
                 v-model="card.content" 
@@ -126,21 +137,30 @@
               </select>
             </div>
 
-            <div class="process-buttons">
+            <div class="processing-status" v-if="currentScene.processing">
+              <div>正在处理 #{{ currentScene.originalCards[currentScene.currentIndex]?.chapterNumber }}/{{ currentScene.originalCards.length }} 章</div>
+              <div class="progress-bar">
+                <div 
+                  class="progress" 
+                  :style="{ width: `${(currentScene.currentIndex / currentScene.originalCards.length) * 100}%` }"
+                ></div>
+              </div>
+            </div>
+
+            <div class="prompt-actions">
               <button 
-                @click="() => processWithPrompt(currentScene)"
-                :disabled="!canProcess(currentScene)"
-                v-if="!currentScene.processing"
+                @click="cancelPromptSelection"
+                class="cancel-btn"
+                :disabled="!currentScene.processing"
               >
-                <i class="fas fa-play"></i> 开始处理
+                终止处理
               </button>
               <button 
-                @click="() => toggleProcessing(currentScene)"
-                class="process-control"
-                v-else
+                @click="() => processWithPrompt(currentScene)"
+                :disabled="!canProcess(currentScene) || currentScene.processing"
+                class="confirm-btn"
               >
-                <i :class="currentScene.isPaused ? 'fas fa-play' : 'fas fa-pause'"></i>
-                {{ currentScene.isPaused ? '继续处理' : '暂停处理' }}
+                {{ currentScene.processing ? '处理中...' : '开始处理' }}
               </button>
             </div>
           </div>
@@ -148,7 +168,26 @@
 
         <!-- 结果场景 -->
         <div class="scene result-scene">
-          <h3>处理结果 ({{ currentScene.resultCards.length }}章)</h3>
+          <h3>
+            处理结果 ({{ currentScene.resultCards.length }}章)
+            <div class="result-actions" v-if="currentScene.resultCards.length">
+              <label class="select-all">
+                <input 
+                  type="checkbox" 
+                  v-model="allResultsSelected"
+                  @change="toggleAllResults"
+                />
+                全选
+              </label>
+              <button 
+                @click="deleteSelectedResults"
+                class="delete-selected-btn"
+                :disabled="!hasSelectedResults"
+              >
+                <i class="fas fa-trash"></i> 删除选中
+              </button>
+            </div>
+          </h3>
           <div class="cards-container">
             <div 
               v-for="card in currentScene.resultCards" 
@@ -156,9 +195,20 @@
               class="text-card"
             >
               <div class="card-header">
+                <input 
+                  type="checkbox" 
+                  v-model="card.selected"
+                  @change="updateResultSelection"
+                />
                 <span class="chapter-number">{{ card.originalNumber }}</span>
                 <span class="prompt-info">{{ card.title }}</span>
                 <div class="card-actions">
+                  <button 
+                    @click="deleteResult(card)"
+                    class="action-btn delete-btn"
+                  >
+                    <i class="fas fa-trash"></i> 删除
+                  </button>
                   <button 
                     @click="reprocessChapter(card, currentScene)"
                     class="action-btn"
@@ -213,7 +263,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { openDB } from 'idb'
 
 // 定义 props
@@ -236,7 +286,9 @@ const currentSceneId = ref(null)
 const scenes = ref([])
 const PROVIDERS = {
   OPENAI: 'openai',
-  GEMINI: 'gemini'
+  GEMINI: 'gemini',
+  STEPFUN: 'stepfun',
+  MISTRAL: 'mistral'
 }
 
 // 添加 IndexedDB 相关常量
@@ -247,88 +299,148 @@ const STORE_NAME = 'scenes'
 // 添加 delay 函数
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
-// 初始化 IndexedDB
-const initDB = async () => {
-  const db = await openDB(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+const isLoading = ref(true)
+
+const allChaptersSelected = ref(false)
+const hasSelectedChapters = computed(() => {
+  return currentScene.value?.originalCards.some(card => card.selected)
+})
+
+// 添加新的响应式数据
+const allResultsSelected = ref(false)
+const hasSelectedResults = computed(() => {
+  return currentScene.value?.resultCards.some(card => card.selected)
+})
+
+// 修改 loadScenes 方法
+const loadScenes = async () => {
+  isLoading.value = true
+  try {
+    const db = await openDB(DB_NAME, DB_VERSION, {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+        }
       }
+    })
+    const tx = db.transaction(STORE_NAME, 'readonly')
+    const store = tx.objectStore(STORE_NAME)
+    const loadedScenes = await store.getAll()
+    
+    if (loadedScenes.length > 0) {
+      // 反序列化日期等数据
+      scenes.value = loadedScenes.map(scene => ({
+        ...scene,
+        resultCards: scene.resultCards.map(card => ({
+          ...card,
+          updatedAt: card.updatedAt ? new Date(card.updatedAt) : null
+        }))
+      }))
+      currentSceneId.value = loadedScenes[0].id
+      showToast('已恢复保存的场景数据主人~', 'success')
+    } else {
+      const defaultScene = createDefaultScene()
+      scenes.value = [defaultScene]
+      currentSceneId.value = defaultScene.id
+      await saveScenes()
     }
-  })
-  return db
+  } catch (error) {
+    console.error('加载场景失败:', error)
+    showToast('加载场景失败主人~，已创建新场景', 'error')
+    const defaultScene = createDefaultScene()
+    scenes.value = [defaultScene]
+    currentSceneId.value = defaultScene.id
+  } finally {
+    isLoading.value = false
+  }
 }
+
+// 修改创建默认场景的方法，确保新卡片包含 selected 属性
+const createDefaultScene = () => {
+  return {
+    id: Date.now(),
+    name: '默认场景',
+    originalCards: [],
+    resultCards: [],
+    selectedPromptId: null,
+    processing: false,
+    isPaused: false,
+    shouldStop: false
+  }
+}
+
+// 修改 onMounted 钩子
+onMounted(async () => {
+  await loadScenes()
+  // 确保视图更新
+  await nextTick()
+})
 
 // 计算当前场景
 const currentScene = computed(() => {
   return scenes.value.find(s => s.id === currentSceneId.value)
 })
 
-// 修改保存场景的方法，确保对象可以被克隆
+// 修改保存场景方法
 const saveScenes = async () => {
   try {
-    const db = await initDB()
+    const db = await openDB(DB_NAME, DB_VERSION, {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+        }
+      }
+    })
+
     const tx = db.transaction(STORE_NAME, 'readwrite')
     const store = tx.objectStore(STORE_NAME)
-    
-    // 清除所有现有数据
+
+    // 序列化场景数据
+    const serializedScenes = scenes.value.map(scene => ({
+      id: scene.id,
+      name: scene.name,
+      originalCards: scene.originalCards.map(card => ({
+        id: card.id,
+        chapterNumber: card.chapterNumber,
+        title: card.title,
+        content: card.content,
+        selected: card.selected,
+        uploadTime: card.uploadTime
+      })),
+      resultCards: scene.resultCards.map(card => ({
+        id: card.id,
+        originalNumber: card.originalNumber,
+        promptSequence: card.promptSequence,
+        content: card.content,
+        promptId: card.promptId,
+        title: card.title,
+        updatedAt: card.updatedAt ? card.updatedAt.toISOString() : null
+      })),
+      selectedPromptId: scene.selectedPromptId,
+      processing: false,
+      isPaused: false,
+      currentIndex: scene.currentIndex || 0
+    }))
+
+    // 清空存储并重新保存所有场景
     await store.clear()
-    
-    // 保存所有场景，确保对象可以被克隆
-    for (const scene of scenes.value) {
-      // 创建一个可以被克隆的场景对象
-      const cloneableScene = JSON.parse(JSON.stringify({
-        id: scene.id,
-        name: scene.name,
-        originalCards: scene.originalCards,
-        resultCards: scene.resultCards,
-        selectedPromptId: scene.selectedPromptId,
-        processing: scene.processing,
-        isPaused: scene.isPaused,
-        currentIndex: scene.currentIndex
-      }))
-      
-      await store.put(cloneableScene)
-    }
-    
+    await Promise.all(serializedScenes.map(scene => store.add(scene)))
     await tx.done
   } catch (error) {
     console.error('保存场景失败:', error)
+    showToast('保存场景失败主人~，请重试', 'error')
   }
 }
-
-// 修改加载场景的方法
-const loadScenes = async () => {
-  try {
-    const db = await initDB()
-    const tx = db.transaction(STORE_NAME, 'readonly')
-    const store = tx.objectStore(STORE_NAME)
-    
-    const allScenes = await store.getAll()
-    scenes.value = allScenes
-
-    if (scenes.value.length > 0) {
-      currentSceneId.value = scenes.value[0].id
-    } else {
-      addScene()
-    }
-  } catch (error) {
-    console.error('加载场景失败:', error)
-    // 如果加载失败，创建一个默认场景
-    addScene()
-  }
-}
-
-// 修改 onMounted 钩子
-onMounted(() => {
-  loadScenes()
-})
 
 // 修改清空所有场景的方法
 const clearAllScenes = async () => {
-  if (confirm('确定要清空所有场景吗？')) {
+  if (confirm('确定要清空所有场景吗主人~？这个操作不能撤销哦！')) {
     try {
-      const db = await initDB()
+      const db = await openDB(DB_NAME, DB_VERSION, {
+        upgrade(db) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+        }
+      })
       const tx = db.transaction(STORE_NAME, 'readwrite')
       const store = tx.objectStore(STORE_NAME)
       
@@ -337,8 +449,10 @@ const clearAllScenes = async () => {
       
       scenes.value = []
       addScene() // 添加一个新的空场景
+      showToast('已清空所有场景主人~', 'success')
     } catch (error) {
       console.error('清空场景失败:', error)
+      showToast('清空场景失败主人~', 'error')
     }
   }
 }
@@ -363,44 +477,50 @@ const handleBookUpload = async (event, scene) => {
   if (!file) return
 
   try {
+    isLoading.value = true
     const content = await file.text()
     const chapters = splitIntoChapters(content)
     
     // 检查是否成功分割出章节
     if (chapters.length === 0) {
-      showToast("未能识别到任何章节，请确保文件为 UTF-8 编码，并且包含类似 第X章 或 第X节 的章节标记。支持的章节格式示例：第一章 章节名、第1章 章节名、第一节 节名、 1. 章节名、 一、章节名"
-        ,
-        'error'
-      )
+      showToast("未能识别到任何章节，请确保文件格式正确主人~", 'error')
+      return
     }
     
-    scene.originalCards = chapters.map((chapter, index) => ({
+    // 更新场景的原始卡片
+    const originalCards = chapters.map((chapter, index) => ({
       id: Date.now() + index,
       chapterNumber: index + 1,
-      title: chapter.title,
-      content: chapter.content
+      title: chapter.title || `第${index + 1}章`,
+      content: chapter.content,
+      selected: false,
+      uploadTime: new Date().toISOString()
     }))
 
+    // 更新场景数据
+    scene.originalCards = originalCards
+
+    // 清空文件输入
     event.target.value = ''
-    saveScenes()
+    
+    // 保存场景数据
+    await saveScenes()
+    showToast(`成功导入 ${chapters.length} 个章节主人~`, 'success')
   } catch (error) {
     console.error('文件处理错误:', error)
-    if (error instanceof Error) {
-      alert(error.message)
-    } else {
-      alert('文件处理失败，请确保文件为 UTF-8 编码格式')
-    }
+    showToast('文件处理失败: ' + error.message, 'error')
+  } finally {
+    isLoading.value = false
   }
 }
 
-// 修改章节分割函数，增加更多章节标记的支持
+// 修改章节分割函数
 const splitIntoChapters = (text) => {
   const chapters = []
   const lines = text.split('\n')
   let currentChapter = {
     title: '',
-    content: [],
-    chapterNumber: 0
+    content: []
   }
   
   // 扩展章节匹配模式
@@ -409,22 +529,25 @@ const splitIntoChapters = (text) => {
     /^第\d+[章节]/,  // 匹配"第1章"、"第2节"等
     /^[一二三四五六七八九十][、.．]/,  // 匹配"一、"、"二。"等
     /^\d+[、.．]/,  // 匹配"1、"、"2。"等
-    /^[（(]\d+[)）]/  // 匹配"(1)"、"（2）"等
+    /^[（(]\d+[)）]/,  // 匹配"(1)"、"（2）"等
+    /^[【［][^】］]+[】］]/,  // 匹配"【章节名】"、"［章节名］"等
+    /^#+\s+/  // 匹配 Markdown 标题
   ]
   
   const isChapterTitle = (line) => {
+    const trimmedLine = line.trim()
     // 检查行长度，避免匹配过长的段落
-    if (line.length > 100) return false
+    if (trimmedLine.length > 100) return false
     
     // 检查是否匹配任一章节模式
-    return chapterPatterns.some(pattern => pattern.test(line))
+    return chapterPatterns.some(pattern => pattern.test(trimmedLine))
   }
   
-  for (const line of lines) {
-    const trimmedLine = line.trim()
-    if (!trimmedLine) continue
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
 
-    if (isChapterTitle(trimmedLine)) {
+    if (isChapterTitle(line)) {
       // 保存上一章节
       if (currentChapter.title && currentChapter.content.length > 0) {
         chapters.push({
@@ -435,15 +558,16 @@ const splitIntoChapters = (text) => {
 
       // 开始新章节
       currentChapter = {
-        title: trimmedLine,
-        content: [],
-        chapterNumber: chapters.length + 1
+        title: line,
+        content: []
       }
-    } else {
+    } else if (currentChapter.title) {
       // 添加到当前章节内容
-      if (currentChapter.title) {
-        currentChapter.content.push(trimmedLine)
-      }
+      currentChapter.content.push(line)
+    } else {
+      // 如果还没有遇到章节标题，创建一个默认章节
+      currentChapter.title = '引言'
+      currentChapter.content.push(line)
     }
   }
 
@@ -480,12 +604,21 @@ const processWithPrompt = async (scene) => {
 // 修改继续处理函数
 const continueProcessing = async (scene) => {
   const prompt = props.prompts.find(p => p.id === scene.selectedPromptId)
+  scene.shouldStop = false // 重置终止标记
   
   try {
-    while (scene.currentIndex < scene.originalCards.length && !scene.isPaused) {
+    while (scene.currentIndex < scene.originalCards.length && !scene.isPaused && !scene.shouldStop) {
       const card = scene.originalCards[scene.currentIndex]
       try {
+        if (scene.shouldStop) {
+          break
+        }
+        
         const result = await processChapter(card, prompt)
+        
+        if (scene.shouldStop) {
+          break
+        }
         
         scene.resultCards.push({
           id: Date.now() + Math.random(),
@@ -499,7 +632,7 @@ const continueProcessing = async (scene) => {
         scene.currentIndex++
         saveScenes()
         
-        if (scene.currentIndex < scene.originalCards.length && !scene.isPaused) {
+        if (scene.currentIndex < scene.originalCards.length && !scene.isPaused && !scene.shouldStop) {
           await delay(1500)
         }
       } catch (error) {
@@ -513,16 +646,18 @@ const continueProcessing = async (scene) => {
       }
     }
 
-    if (scene.currentIndex >= scene.originalCards.length) {
+    if (scene.currentIndex >= scene.originalCards.length || scene.shouldStop) {
       scene.processing = false
       scene.isPaused = false
       scene.currentIndex = 0
+      scene.shouldStop = false
     }
     saveScenes()
   } catch (error) {
     console.error('处理错误:', error)
     alert('处理失败: ' + error.message)
     scene.processing = false
+    scene.shouldStop = false
     saveScenes()
   }
 }
@@ -537,80 +672,155 @@ const toggleProcessing = (scene) => {
 }
 
 // 处理单个章节
-const processChapter = async (card, prompt) => {
+const processChapter = async (card, scene) => {
+  if (!canProcessChapter(scene)) {
+    showToast('请先选择提示词和模型主人~', 'error')
+    return
+  }
+
+  const prompt = getSelectedPrompt(scene)
+  
+  try {
+    scene.processing = true
+    const result = await processWithAPI(card, prompt, scene)
+    
+    // 更新或添加结果卡片
+    const existingResultCard = scene.resultCards.find(rc => rc.originalNumber === card.chapterNumber)
+    if (existingResultCard) {
+      existingResultCard.content = result
+      existingResultCard.updatedAt = new Date()
+    } else {
+      scene.resultCards.push({
+        id: Date.now(),
+        originalNumber: card.chapterNumber,
+        promptSequence: prompt.sequence,
+        content: result,
+        promptId: prompt.id,
+        title: card.title,
+        updatedAt: new Date()
+      })
+    }
+
+    await saveScenes()
+    showToast(`第${card.chapterNumber}章处理完成主人~`, 'success')
+  } catch (error) {
+    console.error('处理章节失败:', error)
+    showToast(`处理失败: ${error.message}`, 'error')
+  } finally {
+    scene.processing = false
+  }
+}
+
+// 添加 processWithAPI 方法
+const processWithAPI = async (card, prompt, scene) => {
   const model = props.models.find(m => m.id === prompt.selectedModel)
   if (!model) {
-    throw new Error('请选择模型')
+    throw new Error('未选择模型')
   }
 
-  // 替换提示词模板中的占位符
   const processedTemplate = prompt.template.replace(/{{text}}/g, card.content)
-
-  try {
-    let response
-    let content
-
-    if (model.provider === PROVIDERS.OPENAI) {
-      response = await fetch(`${model.apiUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${model.apiKey}`
-        },
-        body: JSON.stringify({
-          model: model.modelId,
-          messages: [
-            {
-              role: "user",
-              content: processedTemplate
-            }
-          ],
-          max_tokens: Number(model.maxTokens),
-          temperature: Number(model.temperature)
-        })
-      })
-      
-      const result = await response.json()
-      content = result.choices?.[0]?.message?.content
-      
-    } else if (model.provider === PROVIDERS.GEMINI) {
-      const url = `${model.apiUrl}?key=${model.apiKey}`
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: processedTemplate
-            }]
-          }],
-          generationConfig: {
-            maxOutputTokens: Number(model.maxTokens),
-            temperature: Number(model.temperature)
-          }
-        })
-      })
-      
-      const result = await response.json()
-      content = result.candidates?.[0]?.content?.parts?.[0]?.text
+  const messages = [
+    {
+      role: "user",
+      content: processedTemplate
     }
+  ]
+
+  let response
+  let content
+
+  if (model.provider === 'openai') {
+    response = await fetch(`${model.apiUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${model.apiKey}`
+      },
+      body: JSON.stringify({
+        model: model.modelId,
+        messages: messages,
+        max_tokens: Number(model.maxTokens),
+        temperature: Number(model.temperature)
+      })
+    })
+    
+    const result = await response.json()
+    content = result.choices?.[0]?.message?.content
+    
+  } else if (model.provider === 'gemini') {
+    const url = `${model.apiUrl}?key=${model.apiKey}`
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: processedTemplate
+          }]
+        }],
+        generationConfig: {
+          maxOutputTokens: Number(model.maxTokens),
+          temperature: Number(model.temperature)
+        }
+      })
+    })
+    
+    const result = await response.json()
+    content = result.candidates?.[0]?.content?.parts?.[0]?.text
+  } else if (model.provider === 'stepfun') {
+    response = await fetch(`${model.apiUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${model.apiKey}`
+      },
+      body: JSON.stringify({
+        model: model.modelId,
+        messages: messages,
+        temperature: Number(model.temperature),
+        max_tokens: Number(model.maxTokens),
+        stream: false
+      })
+    })
 
     if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`)
+      const errorData = await response.json()
+      throw new Error(errorData.message || `请求失败: ${response.status}`)
     }
 
-    if (!content) {
-      throw new Error('响应格式错误')
+    const result = await response.json()
+    content = result.choices[0].message.content
+  } else if (model.provider === 'mistral') {
+    response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${model.apiKey}`
+      },
+      body: JSON.stringify({
+        model: model.modelId,
+        messages: messages,
+        temperature: Number(model.temperature),
+        max_tokens: Number(model.maxTokens)
+      })
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.message || `请求失败: ${response.status}`)
     }
 
-    return content
-
-  } catch (error) {
-    console.error('API请求错误:', error)
-    throw new Error(`API请求失败: ${error.message}`)
+    const result = await response.json()
+    content = result.choices[0].message.content
   }
+
+  if (!content) {
+    throw new Error('响应格式错误')
+  }
+
+  return content
 }
 
 // 导出结果
@@ -688,8 +898,7 @@ const importResults = async (event) => {
   }
 }
 
-
-// 修改提示框实现
+// 添加显示提示消息的方法
 const showToast = (message, type = 'success') => {
   // 先移除可能存在的旧提示框
   const existingToast = document.querySelector('.toast-notification')
@@ -773,7 +982,7 @@ const reprocessChapter = async (card, scene) => {
     }
 
     // 处理章节
-    const result = await processChapter(originalCard, prompt)
+    const result = await processChapter(originalCard, scene)
     
     // 更新结果
     const index = scene.resultCards.findIndex(rc => rc.id === card.id)
@@ -815,7 +1024,7 @@ const moveCardToScene = (scene) => {
   // 添加到选中的场景
   scene.cards.push(cardToMove.value)
   
-  // 关闭模态框
+ // 关闭模态框
   showMoveModal.value = false
   cardToMove.value = null
   
@@ -828,28 +1037,128 @@ const closeMoveModal = () => {
   cardToMove.value = null
 }
 
-// 添加场景方法
+// 添加 addScene 方法
 const addScene = () => {
   const newScene = {
     id: Date.now(),
-    name: '新场景',
+    name: `新场景 ${scenes.value.length + 1}`,
     originalCards: [],
     resultCards: [],
-    selectedPromptId: '',
+    selectedPromptId: null,
     processing: false,
-    isPaused: false,
-    currentIndex: 0
+    isPaused: false
   }
-  
   scenes.value.push(newScene)
   currentSceneId.value = newScene.id
   saveScenes()
+}
+
+const deleteScene = async (sceneId) => {
+  try {
+    const index = scenes.value.findIndex(s => s.id === sceneId)
+    if (index === -1) {
+      throw new Error('场景不存在主人~')
+    }
+
+    // 如果只剩一个场景，不允许删除
+    if (scenes.value.length <= 1) {
+      throw new Error('至少需要保留一个场景主人~')
+    }
+
+    // 如果要删除的是当前场景，先切换到其他场景
+    if (currentSceneId.value === sceneId) {
+      const nextScene = scenes.value[index + 1] || scenes.value[index - 1]
+      currentSceneId.value = nextScene.id
+    }
+
+    // 从数组中移除场景
+    scenes.value.splice(index, 1)
+    await saveScenes()
+    showToast('场景已删除主人~', 'success')
+  } catch (error) {
+    console.error('删除场景失败:', error)
+    showToast(error.message, 'error')
+  }
 }
 
 // 添加场景切换方法
 const switchScene = (sceneId) => {
   currentSceneId.value = sceneId
   saveScenes()
+}
+
+// 修改 canProcess 方法为 canProcessChapter
+const canProcessChapter = (scene) => {
+  const prompt = getSelectedPrompt(scene)
+  return prompt && 
+         prompt.selectedModel && 
+         !scene.processing
+}
+
+// 添加终止处理的方法
+const stopProcessing = async (scene) => {
+  scene.processing = false
+  scene.isPaused = false
+  scene.currentIndex = 0
+  scene.shouldStop = true // 添加终止标记
+  await saveScenes()
+  showToast('已终止处理主人~', 'success')
+}
+
+// 添加全选/取消全选方法
+const toggleAllResults = () => {
+  if (!currentScene.value) return
+  currentScene.value.resultCards.forEach(card => {
+    card.selected = allResultsSelected.value
+  })
+  saveScenes()
+}
+
+// 更新选择状态
+const updateResultSelection = () => {
+  if (!currentScene.value) return
+  allResultsSelected.value = currentScene.value.resultCards.every(card => card.selected)
+  saveScenes()
+}
+
+// 删除单个结果
+const deleteResult = async (card) => {
+  if (!currentScene.value) return
+  if (confirm('确定要删除这个处理结果吗主人~？')) {
+    const index = currentScene.value.resultCards.findIndex(c => c.id === card.id)
+    if (index !== -1) {
+      currentScene.value.resultCards.splice(index, 1)
+      await saveScenes()
+      showToast('已删除处理结果主人~', 'success')
+    }
+  }
+}
+
+// 删除选中的结果
+const deleteSelectedResults = async () => {
+  if (!currentScene.value) return
+  if (!hasSelectedResults.value) return
+  
+  if (confirm('确定要删除选中的处理结果吗主人~？')) {
+    currentScene.value.resultCards = currentScene.value.resultCards.filter(card => !card.selected)
+    allResultsSelected.value = false
+    await saveScenes()
+    showToast('已删除选中的处理结果主人~', 'success')
+  }
+}
+
+// 修改取消选择的方法为终止处理
+const cancelPromptSelection = async () => {
+  if (!currentScene.value) return
+  
+  if (currentScene.value.processing) {
+    currentScene.value.shouldStop = true
+    currentScene.value.processing = false
+    currentScene.value.isPaused = false
+    currentScene.value.currentIndex = 0
+    await saveScenes()
+    showToast('已终止处理主人~', 'success')
+  }
 }
 </script>
 
@@ -1379,5 +1688,197 @@ input, textarea {
 
 .modal-actions button:hover {
   background: #f5f5f5;
+}
+
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.loading-spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #646cff;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.process-btn {
+  padding: 4px 8px;
+  background: #646cff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: all 0.2s ease;
+}
+
+.process-btn:hover {
+  background: #535bf2;
+}
+
+.process-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.stop-btn {
+  padding: 8px 16px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.stop-btn:hover {
+  background: #c82333;
+}
+
+.result-scene h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.select-all {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.delete-selected-btn {
+  padding: 4px 8px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.delete-selected-btn:hover {
+  background: #c82333;
+}
+
+.delete-selected-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.card-header input[type="checkbox"] {
+  width: auto;
+  margin-right: 8px;
+}
+
+.action-btn.delete-btn {
+  background: #dc3545;
+  color: white;
+  border-color: #dc3545;
+}
+
+.action-btn.delete-btn:hover {
+  background: #c82333;
+  border-color: #c82333;
+}
+
+.prompt-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cancel-btn {
+  padding: 8px 16px;
+  background: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 1;
+  font-size: 14px;
+  color: #666;
+  transition: all 0.2s ease;
+}
+
+.cancel-btn:hover {
+  background: #e9ecef;
+}
+
+.confirm-btn {
+  padding: 8px 16px;
+  background: #646cff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 1;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.confirm-btn:hover {
+  background: #535bf2;
+}
+
+.confirm-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.processing-status {
+  padding: 8px;
+  background: #f0f7ff;
+  border-radius: 4px;
+  color: #1976d2;
+  font-size: 14px;
+  text-align: center;
+  margin: 8px 0;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 4px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.progress {
+  height: 100%;
+  background: #1976d2;
+  transition: width 0.3s ease;
 }
 </style> 

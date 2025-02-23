@@ -91,16 +91,21 @@
             <span class="role-badge">{{ msg.role === 'user' ? '我' : 'AI' }}</span>
             <span class="message-time">{{ formatTime(msg.timestamp) }}</span>
             <div class="message-actions">
-              <button class="icon-btn" @click="editMessage(msg)">
+              <button class="icon-btn" @click="editMessage(msg)" title="编辑">
                 <i class="fas fa-edit"></i>
               </button>
-              <button class="icon-btn" @click="resendMessage(msg)" v-if="msg.role === 'user'">
+              <button class="icon-btn" @click="resendMessage(msg)" v-if="msg.role === 'user'" title="重新发送">
                 <i class="fas fa-redo"></i>
               </button>
-              <button class="icon-btn delete" @click="deleteMessage(msg.id)">
+              <button class="icon-btn delete" @click="deleteMessage(msg.id)" title="删除">
                 <i class="fas fa-trash"></i>
               </button>
-              <button class="icon-btn" @click="splitMessage(msg)" v-if="msg.role === 'assistant'">
+              <button 
+                class="icon-btn split-btn" 
+                @click="splitMessage(msg)" 
+                v-if="msg.role === 'assistant'"
+                title="拆分内容"
+              >
                 <i class="fas fa-cut"></i>
               </button>
             </div>
@@ -151,6 +156,7 @@
             v-for="(section, index) in splitSections" 
             :key="index"
             class="split-section"
+            :data-type="section.type"
           >
             <div class="section-header">
               <input 
@@ -171,20 +177,38 @@
               >
                 <i class="fas fa-link"></i>
               </button>
+              <button 
+                class="split-btn"
+                @click="splitSection(index)"
+                title="拆分段落"
+              >
+                <i class="fas fa-cut"></i>
+              </button>
+              <span class="section-type-badge" :data-type="section.type">
+                {{ section.type === 'code' ? '代码' : 
+                   section.type === 'heading' ? '标题' :
+                   section.type === 'list' ? '列表' : '文本' }}
+              </span>
             </div>
             <div class="section-preview" v-html="formatMessage(section.content)"></div>
           </div>
         </div>
         <div class="scene-selector">
           <label>选择目标场景：</label>
-          <select v-model="selectedSceneId">
+          <select v-model="selectedSceneId" required>
+            <option value="" disabled selected>请选择场景</option>
             <option v-for="scene in scenes" :key="scene.id" :value="scene.id">
               {{ scene.name }}
             </option>
           </select>
         </div>
         <div class="modal-actions">
-          <button @click="saveSplitSections" :disabled="!canSaveSections">保存选中片段</button>
+          <button 
+            @click="saveSplitSections" 
+            :disabled="!selectedSceneId || !splitSections.some(s => s.selected)"
+          >
+            保存选中片段
+          </button>
           <button @click="closeSplitModal">取消</button>
         </div>
       </div>
@@ -407,7 +431,7 @@ const sendMessage = async () => {
   }
 }
 
-// 调用模型 API
+// 修改调用模型 API
 const sendToModel = async (model, content, context = []) => {
   let response
   let result
@@ -468,31 +492,60 @@ const sendToModel = async (model, content, context = []) => {
       result = await response.json()
       return result.candidates[0].content.parts[0].text
 
-    } else if (model.provider === 'ollama') {
-      // 构建 Ollama 格式的消息历史
+    } else if (model.provider === 'stepfun') {
+      // 阶跃星辰API调用
       const messages = [
         ...context,
-        { role: "user", content }
+        { role: 'user', content }
       ]
 
-      response = await fetch(model.apiUrl, {
+      response = await fetch(`${model.apiUrl}/chat/completions`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${model.apiKey}`
         },
         body: JSON.stringify({
           model: model.modelId,
           messages,
-          stream: false,
-          options: {
-            temperature: Number(model.temperature),
-            num_predict: Number(model.maxTokens)
-          }
+          temperature: Number(model.temperature),
+          max_tokens: Number(model.maxTokens),
+          stream: false
         })
       })
       
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || `请求失败: ${response.status}`)
+      }
+      
       result = await response.json()
-      return result.message?.content
+      return result.choices[0].message.content
+    } else if (model.provider === 'mistral') {
+      response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${model.apiKey}`
+        },
+        body: JSON.stringify({
+          model: model.modelId,
+          messages: context.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          })),
+          temperature: Number(model.temperature),
+          max_tokens: Number(model.maxTokens)
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || `请求失败: ${response.status}`)
+      }
+
+      const result = await response.json()
+      return result.choices[0].message.content
     }
 
     if (!response.ok) {
@@ -601,21 +654,26 @@ const showSplitModal = ref(false)
 const splitSections = ref([])
 const selectedSceneId = ref('')
 
-// 添加计算属性
+// 修改计算属性
 const canSaveSections = computed(() => {
-  return splitSections.value.some(s => s.selected) && selectedSceneId.value
+  const hasSelectedSections = splitSections.value.some(s => s.selected)
+  const hasSelectedScene = Boolean(selectedSceneId.value)
+  return hasSelectedSections && hasSelectedScene
 })
 
 // 修改拆分消息方法
 const splitMessage = (msg) => {
-  // 使用正则表达式匹配 Markdown 标题和内容块
+  console.log('Splitting message:', msg.content)
+  
+  // 使用修改后的拆分函数
   const sections = splitMarkdownContent(msg.content)
   
   // 初始化每个部分
   splitSections.value = sections.map(section => ({
     selected: false,
     title: section.title || '',
-    content: section.content.trim()
+    content: section.content.trim(),
+    type: section.type
   }))
   
   // 如果有场景，默认选择第一个
@@ -628,186 +686,57 @@ const splitMessage = (msg) => {
 
 // 修改 Markdown 内容拆分函数
 const splitMarkdownContent = (content) => {
-  const lines = content.split('\n').map(line => line.trimStart())
   const sections = []
-  let currentSection = {
-    title: '',
-    content: []
-  }
   
-  // 按优先级定义标题匹配模式
-  const headerPatterns = [
-    // 1级优先级：Markdown 标准标题
-    {
-      pattern: /^#{1,6}\s+(.+?)$/,
-      priority: 1,
-      extract: (match) => match[1]
-    },
-    // 2级优先级：章节标题
-    {
-      pattern: /^第[零一二三四五六七八九十百千]+[章节卷篇]\s*[：:]?\s*(.+?)$/,
-      priority: 2,
-      extract: (match) => match[1] || match[0]
-    },
-    // 3级优先级：特定关键词标题
-    {
-      pattern: /^(人物设定|世界观|背景设定|故事大纲|主要情节|场景描述|系统设计|核心机制|关键特性|主要功能|技术架构|数据结构|接口设计|使用说明|注意事项)[:：]?$/,
-      priority: 3,
-      extract: (match) => match[1]
-    },
-    // 4级优先级：数字编号标题
-    {
-      pattern: /^(\d+[\.:、])\s*(.+?)$/,
-      priority: 4,
-      extract: (match) => `${match[1]} ${match[2]}`
-    },
-    // 5级优先级：特殊符号标题
-    {
-      pattern: /^[【［]\s*(.+?)\s*[】］]$/,
-      priority: 5,
-      extract: (match) => match[1]
-    },
-    // 6级优先级：粗体标题
-    {
-      pattern: /^\*\*(.+?)\*\*$/,
-      priority: 6,
-      extract: (match) => match[1]
-    },
-    // 7级优先级：冒号结尾标题
-    {
-      pattern: /^(.+?)[:：]$/,
-      priority: 7,
-      extract: (match) => match[1]
-    }
-  ]
+  // 按照空行分割段落
+  const paragraphs = content.split(/\n\s*\n/)
   
-  let inCodeBlock = false
-  let inList = false
-  let listContent = []
-  let hasContent = false
-  
-  const isHeader = (line) => {
-    for (const { pattern, priority, extract } of headerPatterns) {
-      const match = line.match(pattern)
-      if (match) {
-        return {
-          title: extract(match),
-          priority
-        }
-      }
-    }
-    return null
-  }
-  
-  const saveCurrentSection = () => {
-    if (hasContent) {
-      // 如果当前在处理列表，将列表内容合并
-      if (inList && listContent.length > 0) {
-        currentSection.content.push(...listContent)
-        listContent = []
-      }
-      
+  // 处理每个段落
+  paragraphs.forEach((paragraph, index) => {
+    const lines = paragraph.trim().split('\n')
+    if (lines.length === 0 || !paragraph.trim()) return
+    
+    // 检查是否是代码块
+    if (paragraph.startsWith('```')) {
       sections.push({
-        title: currentSection.title,
-        content: currentSection.content.join('\n').trim()
+        title: '代码片段',
+        content: paragraph.trim(),
+        type: 'code'
       })
-      hasContent = false
-    }
-  }
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trimEnd()
-    
-    // 处理代码块
-    if (line.startsWith('```')) {
-      inCodeBlock = !inCodeBlock
-      currentSection.content.push(line)
-      continue
+      return
     }
     
-    if (inCodeBlock) {
-      currentSection.content.push(line)
-      continue
+    // 检查是否以 Markdown 标题开始
+    if (lines[0].startsWith('#')) {
+      sections.push({
+        title: lines[0].replace(/^#+\s*/, ''),
+        content: lines.slice(1).join('\n').trim() || lines[0].replace(/^#+\s*/, ''),
+        type: 'heading'
+      })
+      return
     }
     
-    // 检查是否是标题
-    const headerInfo = isHeader(line)
-    
-    // 检查列表项
-    const isListItem = /^[-*+]\s+(.+)$/.test(line) || /^\d+[.、]\s+(.+)$/.test(line)
-    
-    if (headerInfo) {
-      // 保存当前段落
-      saveCurrentSection()
-      
-      // 开始新段落
-      currentSection = {
-        title: headerInfo.title.trim(),
-        content: [],
-        priority: headerInfo.priority
-      }
-      
-      inList = false
-    } else if (isListItem) {
-      if (!inList) {
-        // 新列表开始
-        inList = true
-        listContent = []
-      }
-      listContent.push(line)
-      hasContent = true
-    } else {
-      // 处理普通内容
-      if (line.trim()) {
-        if (inList) {
-          // 如果是空行且在列表中，检查是否需要结束列表
-          if (line.trim() === '') {
-            inList = false
-            currentSection.content.push(...listContent)
-            listContent = []
-          } else {
-            listContent.push(line)
-          }
-        } else {
-          currentSection.content.push(line)
-        }
-        hasContent = true
-      } else if (inList) {
-        // 空行，结束列表
-        inList = false
-        currentSection.content.push(...listContent)
-        listContent = []
-        currentSection.content.push(line)
-      } else {
-        currentSection.content.push(line)
-      }
+    // 检查是否是列表
+    if (lines[0].match(/^[-*+]\s|^\d+\.\s/)) {
+      sections.push({
+        title: `列表片段 ${index + 1}`,
+        content: paragraph.trim(),
+        type: 'list'
+      })
+      return
     }
-  }
-  
-  // 保存最后一个段落
-  saveCurrentSection()
-  
-  // 后处理：清理和优化段落
-  return sections
-    .filter(section => section.content.length > 0)
-    .map(section => {
-      // 清理标题
-      section.title = section.title
-        .replace(/^#+\s*/, '')
-        .replace(/^\*\*|\*\*$/g, '')
-        .replace(/^[【［]\s*|\s*[】］]$/g, '')
-        .replace(/[:：]$/, '')
-        .trim()
-      
-      // 处理没有标题的段落
-      if (!section.title && section.content) {
-        const firstLine = section.content.split('\n')[0].trim()
-        section.title = firstLine.slice(0, 30) + (firstLine.length > 30 ? '...' : '')
-      }
-      
-      return section
+    
+    // 普通段落
+    const title = lines[0].length > 30 ? lines[0].slice(0, 30) + '...' : lines[0]
+    sections.push({
+      title: `片段 ${index + 1}`,
+      content: paragraph.trim(),
+      type: 'text'
     })
-    .sort((a, b) => (a.priority || 999) - (b.priority || 999)) // 按优先级排序
+  })
+  
+  console.log('Split into sections:', sections)
+  return sections
 }
 
 // 定义 emit
@@ -828,34 +757,48 @@ const showToastMessage = (message, type = 'success') => {
   }, 3000)
 }
 
-// 修改保存选中片段的方法
+// 修改保存方法
 const saveSplitSections = () => {
+  console.log('Saving sections...') // 添加调试日志
   const selectedSections = splitSections.value.filter(s => s.selected)
   
+  if (selectedSections.length === 0) {
+    showToastMessage('请选择要保存的片段主人~', 'error')
+    return
+  }
+  
   if (!selectedSceneId.value) {
-    showToastMessage('请选择目标场景', 'error')
+    showToastMessage('请选择目标场景主人~', 'error')
     return
   }
 
-  // 创建新卡片，添加更多元数据
-  const cards = selectedSections.map(section => ({
-    id: Date.now() + Math.random(),
-    title: section.title || '未命名片段',
-    content: section.content,
-    tags: [],
-    height: '200px',
-    timestamp: new Date().toISOString(),
-    type: detectContentType(section.content)
-  }))
-  
-  // 发出事件，将卡片添加到选中的场景
-  emit('add-cards-to-scene', {
-    sceneId: selectedSceneId.value,
-    cards
-  })
-  
-  showToastMessage('已成功添加到场景')
-  closeSplitModal()
+  try {
+    console.log('Selected sections:', selectedSections) // 添加调试日志
+    console.log('Target scene:', selectedSceneId.value) // 添加调试日志
+    
+    // 创建新卡片
+    const cards = selectedSections.map(section => ({
+      id: Date.now() + Math.random(),
+      title: section.title || '未命名片段',
+      content: section.content,
+      tags: [],
+      height: '200px',
+      timestamp: new Date().toISOString(),
+      type: detectContentType(section.content)
+    }))
+    
+    // 发出事件，将卡片添加到选中的场景
+    emit('add-cards-to-scene', {
+      sceneId: selectedSceneId.value,
+      cards
+    })
+    
+    showToastMessage('已成功添加到场景主人~')
+    closeSplitModal()
+  } catch (error) {
+    console.error('保存片段失败:', error)
+    showToastMessage('保存片段失败主人~: ' + error.message, 'error')
+  }
 }
 
 // 添加内容类型检测函数
@@ -866,11 +809,39 @@ const detectContentType = (content) => {
   return 'text'
 }
 
-// 关闭模态框
+// 修改关闭模态框方法
 const closeSplitModal = () => {
   showSplitModal.value = false
   splitSections.value = []
   selectedSceneId.value = ''
+}
+
+// 添加监听器
+watch(selectedSceneId, (newValue) => {
+  console.log('Selected scene changed:', newValue)
+})
+
+watch(splitSections, (newValue) => {
+  console.log('Selected sections changed:', newValue.filter(s => s.selected).length)
+}, { deep: true })
+
+// 添加合并方法
+const mergeToPrevious = (index) => {
+  if (index <= 0 || index >= splitSections.value.length) return
+  
+  const currentSection = splitSections.value[index]
+  const previousSection = splitSections.value[index - 1]
+  
+  // 合并内容
+  previousSection.content = `${previousSection.content}\n\n${currentSection.content}`
+  
+  // 如果当前部分被选中,保持上一部分的选中状态
+  if (currentSection.selected) {
+    previousSection.selected = true
+  }
+  
+  // 从数组中移除当前部分
+  splitSections.value.splice(index, 1)
 }
 
 // 修改重新发送消息方法
@@ -959,23 +930,31 @@ const resendMessage = async (msg) => {
   }
 }
 
-// 添加合并方法
-const mergeToPrevious = (index) => {
-  if (index <= 0 || index >= splitSections.value.length) return
+// 添加拆分段落方法
+const splitSection = (index) => {
+  const section = splitSections.value[index]
+  const content = section.content
   
-  const currentSection = splitSections.value[index]
-  const previousSection = splitSections.value[index - 1]
+  // 按照空行分割内容
+  const parts = content.split(/\n\s*\n/).filter(part => part.trim())
   
-  // 合并内容
-  previousSection.content = `${previousSection.content}\n\n${currentSection.content}`
-  
-  // 如果当前部分被选中,保持上一部分的选中状态
-  if (currentSection.selected) {
-    previousSection.selected = true
+  if (parts.length <= 1) {
+    showToastMessage('当前段落无法拆分主人~', 'error')
+    return
   }
   
-  // 从数组中移除当前部分
-  splitSections.value.splice(index, 1)
+  // 创建新的段落
+  const newSections = parts.map((part, i) => ({
+    selected: section.selected,
+    title: `${section.title}_${i + 1}`,
+    content: part.trim(),
+    type: detectContentType(part)
+  }))
+  
+  // 替换原来的段落
+  splitSections.value.splice(index, 1, ...newSections)
+  
+  showToastMessage('段落已拆分主人~')
 }
 </script>
 
@@ -1201,6 +1180,10 @@ const mergeToPrevious = (index) => {
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
+  padding: 4px 8px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  min-height: 32px;
 }
 
 .role-badge {
@@ -1209,16 +1192,20 @@ const mergeToPrevious = (index) => {
   font-size: 0.85em;
   background: #e3f2fd;
   color: #1976d2;
+  flex-shrink: 0;
 }
 
 .message-time {
   font-size: 0.85em;
   color: #999;
+  flex-shrink: 0;
 }
 
 .message-actions {
   margin-left: auto;
-  opacity: 0;
+  display: flex;
+  gap: 8px;
+  opacity: 1;
   transition: opacity 0.2s ease;
 }
 
@@ -1291,15 +1278,25 @@ const mergeToPrevious = (index) => {
   border: none;
   cursor: pointer;
   color: #666;
-  transition: color 0.2s ease;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
 }
 
 .icon-btn:hover {
+  background: #f0f0f0;
   color: #2196f3;
 }
 
 .icon-btn.delete:hover {
+  background: #fee2e2;
   color: #f44336;
+}
+
+.icon-btn i {
+  font-size: 16px;
 }
 
 .edit-textarea {
@@ -1380,6 +1377,7 @@ const mergeToPrevious = (index) => {
   max-width: 90vw;
   max-height: 80vh;
   overflow-y: auto;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
 }
 
 .split-sections {
@@ -1394,11 +1392,24 @@ const mergeToPrevious = (index) => {
   border-radius: 8px;
   overflow: hidden;
   transition: all 0.2s ease;
+  background: white;
+  margin-bottom: 12px;
 }
 
-.split-section:hover {
-  border-color: #646cff;
-  box-shadow: 0 2px 8px rgba(100, 108, 255, 0.1);
+.split-section[data-type="code"] {
+  border-left: 4px solid #2196f3;
+}
+
+.split-section[data-type="heading"] {
+  border-left: 4px solid #4caf50;
+}
+
+.split-section[data-type="list"] {
+  border-left: 4px solid #ff9800;
+}
+
+.split-section[data-type="text"] {
+  border-left: 4px solid #9c27b0;
 }
 
 .section-header {
@@ -1414,6 +1425,7 @@ const mergeToPrevious = (index) => {
   width: 18px;
   height: 18px;
   cursor: pointer;
+  accent-color: #646cff;
 }
 
 .section-title-input {
@@ -1431,50 +1443,89 @@ const mergeToPrevious = (index) => {
   box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.1);
 }
 
+.section-type-badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: white;
+  margin-left: auto;
+}
+
+.section-type-badge[data-type="code"] {
+  background: #2196f3;
+}
+
+.section-type-badge[data-type="heading"] {
+  background: #4caf50;
+}
+
+.section-type-badge[data-type="list"] {
+  background: #ff9800;
+}
+
+.section-type-badge[data-type="text"] {
+  background: #9c27b0;
+}
+
 .section-preview {
   padding: 16px;
-  max-height: 200px;
+  max-height: 300px;
   overflow-y: auto;
   background: white;
   font-size: 14px;
   line-height: 1.6;
 }
 
-/* 添加代码块样式 */
-.section-preview pre {
+.section-preview code {
   background: #f6f8fa;
-  border-radius: 6px;
-  padding: 12px;
-  overflow-x: auto;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
 }
 
-/* 添加列表样式 */
+.section-preview pre {
+  background: #f6f8fa;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
 .section-preview ul,
 .section-preview ol {
   padding-left: 20px;
+  margin: 8px 0;
 }
 
-/* 添加引用样式 */
-.section-preview blockquote {
-  border-left: 4px solid #ddd;
-  margin: 0;
-  padding-left: 16px;
-  color: #666;
+.section-preview p {
+  margin: 8px 0;
 }
 
 .scene-selector {
   margin: 16px 0;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
+.scene-selector label {
+  font-size: 14px;
+  color: #333;
+  min-width: 100px;
+}
+
 .scene-selector select {
+  flex: 1;
   padding: 8px 12px;
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 14px;
   min-width: 200px;
+  cursor: pointer;
+  background-color: white;
 }
 
 .modal-actions {
@@ -1482,6 +1533,8 @@ const mergeToPrevious = (index) => {
   justify-content: flex-end;
   gap: 12px;
   margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #eee;
 }
 
 .modal-actions button {
@@ -1490,6 +1543,8 @@ const mergeToPrevious = (index) => {
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
+  transition: all 0.2s ease;
+  min-width: 100px;
 }
 
 .modal-actions button:first-child {
@@ -1497,17 +1552,36 @@ const mergeToPrevious = (index) => {
   color: white;
 }
 
+.modal-actions button:first-child:not(:disabled) {
+  cursor: pointer;
+  opacity: 1;
+}
+
 .modal-actions button:first-child:disabled {
   background: #cccccc;
   cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .modal-actions button:last-child {
   background: #f0f0f0;
+  color: #666;
 }
 
 .modal-actions button:hover:not(:disabled) {
   opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+/* 添加一个清晰的视觉提示 */
+.scene-selector select:invalid {
+  border-color: #ff4444;
+}
+
+.scene-selector select:focus {
+  border-color: #646cff;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.1);
 }
 
 /* 添加 Toast 样式 */
@@ -1562,5 +1636,22 @@ const mergeToPrevious = (index) => {
   color: #646cff;
   border-color: #646cff;
   background: rgba(100, 108, 255, 0.1);
+}
+
+.split-btn {
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #666;
+  margin-left: 8px;
+  transition: all 0.2s ease;
+}
+
+.split-btn:hover {
+  color: #ff9800;
+  border-color: #ff9800;
+  background: rgba(255, 152, 0, 0.1);
 }
 </style> 

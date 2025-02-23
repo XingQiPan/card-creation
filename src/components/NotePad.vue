@@ -68,6 +68,12 @@
           >
             <i class="fas fa-magic"></i> 续写
           </button>
+          <button 
+            class="mode-btn"
+            @click="formatNovelStyle"
+          >
+            <i class="fas fa-indent"></i> 格式化
+          </button>
           <div class="editor-info">
             <span class="word-count">{{ getWordCount(currentNote.content) }} 字</span>
             <span class="generation-status" v-if="isAutoWriting">
@@ -91,11 +97,6 @@
                 @keydown="handleKeyDown"
                 ref="textarea"
               ></textarea>
-              <div 
-                v-if="showSuggestion && suggestion" 
-                class="suggestion-content"
-                :style="getSuggestionStyle()"
-              >{{ suggestion }}</div>
             </div>
           </div>
           
@@ -142,10 +143,15 @@
       </div>
     </div>
 
-    <!-- 简化提示词选择模态框 -->
+    <!-- 修改模态框内容部分 -->
     <div v-if="showPromptModal" class="modal" @click="closePromptModal">
       <div class="modal-content" @click.stop>
-        <h3>选择续写提示词</h3>
+        <div class="modal-header">
+          <h3>选择续写提示词</h3>
+          <button class="close-btn" @click="closePromptModal">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
         <div class="prompt-list">
           <div 
             v-for="prompt in props.prompts"
@@ -167,18 +173,17 @@
             </div>
             <div class="prompt-content">
               <p>{{ prompt.template }}</p>
-              <button 
-                @click="selectPrompt(prompt)"
-                :disabled="!prompt.selectedModel"
-                class="use-prompt-btn"
-              >
-                使用此提示词
-              </button>
+              <div class="prompt-actions">
+                <button 
+                  @click="selectPrompt(prompt)"
+                  :disabled="!prompt.selectedModel"
+                  class="use-prompt-btn"
+                >
+                  使用此提示词
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-        <div class="modal-actions">
-          <button @click="closePromptModal">取消</button>
         </div>
       </div>
     </div>
@@ -293,10 +298,9 @@ const generateCompletion = async (context) => {
     generationTime.value = 0
     const startTime = Date.now()
     
-    // 使用更精确的计时器
     generationTimer.value = setInterval(() => {
       generationTime.value = Date.now() - startTime
-    }, 100) // 每100ms更新一次
+    }, 100)
     
     if (currentController.value) {
       currentController.value.abort()
@@ -369,6 +373,65 @@ const generateCompletion = async (context) => {
       result = await response.json()
       completion = result.candidates[0].content.parts[0].text
 
+    } else if (model.provider === 'stepfun') {
+      response = await fetch(`${model.apiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${model.apiKey}`
+        },
+        body: JSON.stringify({
+          model: model.modelId,
+          messages: [
+            {
+              role: "user",
+              content: context
+            }
+          ],
+          temperature: Number(model.temperature),
+          max_tokens: Number(model.maxTokens),
+          stream: false
+        }),
+        signal: currentController.value.signal
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || `请求失败: ${response.status}`)
+      }
+      
+      result = await response.json()
+      completion = result.choices[0].message.content
+
+    } else if (model.provider === 'mistral') {
+      response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${model.apiKey}`
+        },
+        body: JSON.stringify({
+          model: model.modelId,
+          messages: [
+            {
+              role: "user",
+              content: context
+            }
+          ],
+          temperature: Number(model.temperature),
+          max_tokens: Number(model.maxTokens),
+          stream: false
+        }),
+        signal: currentController.value.signal
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || `请求失败: ${response.status}`)
+      }
+
+      result = await response.json()
+      completion = result.choices[0].message.content
     } else if (model.provider === 'ollama') {
       response = await fetch(model.apiUrl, {
         method: 'POST',
@@ -408,30 +471,19 @@ const generateCompletion = async (context) => {
 
     console.log('Got new completion with length:', completion.length)
 
-    // 修改建议内容显示逻辑
     if (completion && completion.length > 0) {
-      suggestion.value = completion
-      showSuggestion.value = true
+      // 直接将生成的内容添加到文本框中
+      currentNote.value.content = currentNote.value.content + completion
       
-      // 确保建议内容可见
-      await nextTick()
-      if (textarea.value) {
-        const cursorPos = textarea.value.selectionEnd
-        const text = textarea.value.value
-        const lines = text.substr(0, cursorPos).split('\n')
-        const currentLine = lines.length
-        const lineHeight = parseInt(getComputedStyle(textarea.value).lineHeight)
-        
-        // 计算光标位置
-        const cursorTop = (currentLine - 1) * lineHeight
-        const visibleHeight = textarea.value.clientHeight
-        const scrollTop = textarea.value.scrollTop
-        
-        // 如果光标位置不在可视区域，滚动到合适位置
-        if (cursorTop < scrollTop || cursorTop > scrollTop + visibleHeight - lineHeight * 2) {
-          textarea.value.scrollTop = Math.max(0, cursorTop - visibleHeight / 2)
+      // 更新光标位置到末尾
+      nextTick(() => {
+        if (textarea.value) {
+          const newPosition = currentNote.value.content.length
+          textarea.value.selectionStart = newPosition
+          textarea.value.selectionEnd = newPosition
+          cursorPosition.value = newPosition
         }
-      }
+      })
     }
 
     return completion
@@ -441,6 +493,8 @@ const generateCompletion = async (context) => {
     } else {
       console.error('\n 生成续写内容失败:', error)
       showToast('续写失败，请重试', 'error')
+      // 出错时停止续写
+      stopAutoWriting()
     }
     return null
   } finally {
@@ -466,7 +520,7 @@ const startAutoWriting = () => {
   generateCompletion(currentNote.value.content)
   
   // 设置新的定时器
-  autoWriteTimer.value = setInterval(() => {
+  autoWriteTimer.value = setInterval(async () => {
     if (!currentNote.value || !isEditing.value || !isAutoWriting.value) {
       console.log('Conditions not met for auto writing')
       return
@@ -476,6 +530,9 @@ const startAutoWriting = () => {
     }
   }, 10000)
 }
+
+// 添加延迟函数
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 // 修改内容变化处理
 const handleContentChange = () => {
@@ -821,8 +878,8 @@ const canUsePrompt = (prompt) => {
 const getSuggestionStyle = () => {
   if (!textarea.value) return {}
   
-  const textBeforeCursor = currentNote.value.content.slice(0, cursorPosition.value)
-  const lines = textBeforeCursor.split('\n')
+  const content = currentNote.value.content
+  const lines = content.split('\n')
   const lineCount = lines.length
   const lastLineLength = lines[lines.length - 1].length
   
@@ -832,11 +889,12 @@ const getSuggestionStyle = () => {
   
   return {
     position: 'absolute',
-    top: `${((lineCount - 1) * lineHeight) - scrollTop - 10}px`, // 微调下移
-    left: `${lastLineLength * charWidth}px`,
+    top: `${((lineCount - 1) * lineHeight) - scrollTop}px`,
+    left: `${lastLineLength * charWidth + 20}px`, // 根据最后一行文字长度计算位置
     paddingRight: '20px',
     color: '#999',
-    pointerEvents: 'none'
+    pointerEvents: 'none',
+    whiteSpace: 'pre-wrap'
   }
 }
 
@@ -864,30 +922,7 @@ onMounted(() => {
 
 // 修改 Tab 键处理
 const handleKeyDown = (e) => {
-  if (e.key === 'Tab' && showSuggestion.value && suggestion.value) {
-    e.preventDefault()
-    
-    // 在光标位置插入建议内容，添加换行
-    const text = currentNote.value.content
-    const before = text.slice(0, cursorPosition.value)
-    const after = text.slice(cursorPosition.value)
-    
-    currentNote.value.content = before + '\n' + suggestion.value + after
-    
-    // 更新光标位置到插入内容之后
-    nextTick(() => {
-      if (textarea.value) {
-        const newPosition = cursorPosition.value + suggestion.value.length + 1 // +1 for newline
-        textarea.value.selectionStart = newPosition
-        textarea.value.selectionEnd = newPosition
-        cursorPosition.value = newPosition
-      }
-    })
-    
-    // 清除建议
-    suggestion.value = ''
-    showSuggestion.value = false
-  }
+  // 移除 Tab 键处理逻辑，因为不再需要预览
 }
 
 // 监听光标位置变化
@@ -1027,6 +1062,63 @@ const debouncedGenerate = createDebouncedFunction(() => {
     generateCompletion(currentNote.value.content)
   }
 }, 1000) // 1秒的防抖延迟
+
+// 修改关闭提示词模态框的方法
+const closePromptModal = () => {
+  showPromptModal.value = false
+  selectedPrompt.value = null
+  isAutoWriting.value = false
+  showSuggestion.value = false
+  suggestion.value = ''
+  
+  // 停止所有相关的计时器和请求
+  if (autoWriteTimer.value) {
+    clearInterval(autoWriteTimer.value)
+    autoWriteTimer.value = null
+  }
+  
+  if (generationTimer.value) {
+    clearInterval(generationTimer.value)
+    generationTimer.value = null
+  }
+  
+  if (currentController.value) {
+    currentController.value.abort()
+    currentController.value = null
+  }
+  
+  showToast('已取消续写主人~', 'success')
+}
+
+// 修改格式化方法
+const formatNovelStyle = () => {
+  if (!currentNote.value || !currentNote.value.content) return
+  
+  let content = currentNote.value.content
+  
+  // 1. 处理多余的空行，只保留一个换行
+  content = content.replace(/\n\s*\n\s*\n/g, '\n')
+  
+  // 2. 处理段落，确保每个段落都有两个空格的缩进
+  content = content.split('\n').map(paragraph => {
+    // 跳过空行
+    if (!paragraph.trim()) return ''
+    
+    // 处理对话段落
+    if (paragraph.trim().startsWith('"') || paragraph.trim().startsWith('"')) {
+      return '  ' + paragraph.trim()  // 添加两个空格缩进
+    }
+    
+    // 普通段落添加两个空格缩进
+    return '  ' + paragraph.trim()
+  }).join('\n')  // 只用一个换行符分隔段落
+  
+  // 3. 更新内容
+  currentNote.value.content = content
+  
+  // 4. 显示提示
+  showToast('格式化完成主人~')
+}
 
 </script>
 
@@ -1248,12 +1340,13 @@ const debouncedGenerate = createDebouncedFunction(() => {
   border: none;
   padding: 20px;
   font-size: 1.1em;
-  line-height: 1.6;
+  line-height: 1.8;
   background: transparent;
   outline: none;
   position: relative;
   overflow-x: hidden;
   z-index: 1;
+  white-space: pre-wrap;
 }
 
 .suggestion-content {
@@ -1280,61 +1373,62 @@ const debouncedGenerate = createDebouncedFunction(() => {
 
 .markdown-preview {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-  line-height: 1.6;
+  line-height: 1.8;
 }
 
-.markdown-preview :deep(h1) {
+.markdown-preview :deep(p) {
+  margin: 0;
+  text-indent: 2em;
+}
+
+.markdown-preview::v-deep(h1) {
   font-size: 2em;
   margin: 0.67em 0;
 }
 
-.markdown-preview :deep(h2) {
+.markdown-preview::v-deep(h2) {
   font-size: 1.5em;
   margin: 0.75em 0;
 }
 
-.markdown-preview :deep(h3) {
+.markdown-preview::v-deep(h3) {
   font-size: 1.17em;
   margin: 0.83em 0;
 }
 
-.markdown-preview :deep(p) {
-  margin: 1em 0;
-}
-
-.markdown-preview :deep(code) {
+.markdown-preview::v-deep(code) {
   background-color: #f5f5f5;
   padding: 0.2em 0.4em;
   border-radius: 3px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
 }
 
-.markdown-preview :deep(pre) {
+.markdown-preview::v-deep(pre) {
   background-color: #f5f5f5;
   padding: 1em;
   border-radius: 5px;
   overflow-x: auto;
 }
 
-.markdown-preview :deep(pre code) {
+.markdown-preview::v-deep(pre code) {
   background-color: transparent;
   padding: 0;
 }
 
-.markdown-preview :deep(blockquote) {
+.markdown-preview::v-deep(blockquote) {
   margin: 1em 0;
   padding-left: 1em;
   border-left: 4px solid #ddd;
   color: #666;
 }
 
-.markdown-preview :deep(ul), 
-.markdown-preview :deep(ol) {
+.markdown-preview::v-deep(ul), 
+.markdown-preview::v-deep(ol) {
   margin: 1em 0;
   padding-left: 2em;
 }
 
-.markdown-preview :deep(img) {
+.markdown-preview::v-deep(img) {
   max-width: 100%;
   height: auto;
 }
@@ -1591,6 +1685,79 @@ const debouncedGenerate = createDebouncedFunction(() => {
   background: #f8f9fa;
   border-left: 3px solid #646cff;
   font-style: italic;
+}
+
+.prompt-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
+.cancel-btn {
+  padding: 8px 16px;
+  background: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #666;
+  transition: all 0.2s ease;
+}
+
+.cancel-btn:hover {
+  background: #e9ecef;
+}
+
+.use-prompt-btn {
+  padding: 8px 16px;
+  background: #646cff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.use-prompt-btn:hover {
+  background: #535bf2;
+}
+
+.use-prompt-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: #333;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  padding: 8px;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  border-radius: 50%;
+}
+
+.close-btn:hover {
+  background: #f5f5f5;
+  color: #333;
 }
 </style> 
 

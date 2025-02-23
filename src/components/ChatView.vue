@@ -157,12 +157,20 @@
                 type="checkbox" 
                 v-model="section.selected"
                 :id="'section-' + index"
-              >
+              />
               <input 
                 v-model="section.title"
                 class="section-title-input"
                 placeholder="输入标题..."
+              />
+              <button 
+                v-if="index > 0"
+                class="merge-btn"
+                @click="mergeToPrevious(index)"
+                title="合并到上一节"
               >
+                <i class="fas fa-link"></i>
+              </button>
             </div>
             <div class="section-preview" v-html="formatMessage(section.content)"></div>
           </div>
@@ -620,32 +628,98 @@ const splitMessage = (msg) => {
 
 // 修改 Markdown 内容拆分函数
 const splitMarkdownContent = (content) => {
-  // 将内容按行分割
-  const lines = content.split('\n')
+  const lines = content.split('\n').map(line => line.trimStart())
   const sections = []
   let currentSection = {
     title: '',
     content: []
   }
   
-  // 正则表达式定义
-  const headerRegex = /^(#{1,6}|\*\*\d+\.|\d+\.)\s+(.+?)[\*\#]*$/  // 匹配 Markdown 标题和加粗的数字标题
-  const listStartRegex = /^[-*+]\s+\*\*/   // 列表开始（带加粗）
-  const codeBlockRegex = /^```/            // 代码块
+  // 按优先级定义标题匹配模式
+  const headerPatterns = [
+    // 1级优先级：Markdown 标准标题
+    {
+      pattern: /^#{1,6}\s+(.+?)$/,
+      priority: 1,
+      extract: (match) => match[1]
+    },
+    // 2级优先级：章节标题
+    {
+      pattern: /^第[零一二三四五六七八九十百千]+[章节卷篇]\s*[：:]?\s*(.+?)$/,
+      priority: 2,
+      extract: (match) => match[1] || match[0]
+    },
+    // 3级优先级：特定关键词标题
+    {
+      pattern: /^(人物设定|世界观|背景设定|故事大纲|主要情节|场景描述|系统设计|核心机制|关键特性|主要功能|技术架构|数据结构|接口设计|使用说明|注意事项)[:：]?$/,
+      priority: 3,
+      extract: (match) => match[1]
+    },
+    // 4级优先级：数字编号标题
+    {
+      pattern: /^(\d+[\.:、])\s*(.+?)$/,
+      priority: 4,
+      extract: (match) => `${match[1]} ${match[2]}`
+    },
+    // 5级优先级：特殊符号标题
+    {
+      pattern: /^[【［]\s*(.+?)\s*[】］]$/,
+      priority: 5,
+      extract: (match) => match[1]
+    },
+    // 6级优先级：粗体标题
+    {
+      pattern: /^\*\*(.+?)\*\*$/,
+      priority: 6,
+      extract: (match) => match[1]
+    },
+    // 7级优先级：冒号结尾标题
+    {
+      pattern: /^(.+?)[:：]$/,
+      priority: 7,
+      extract: (match) => match[1]
+    }
+  ]
   
   let inCodeBlock = false
   let inList = false
+  let listContent = []
   let hasContent = false
+  
+  const isHeader = (line) => {
+    for (const { pattern, priority, extract } of headerPatterns) {
+      const match = line.match(pattern)
+      if (match) {
+        return {
+          title: extract(match),
+          priority
+        }
+      }
+    }
+    return null
+  }
+  
+  const saveCurrentSection = () => {
+    if (hasContent) {
+      // 如果当前在处理列表，将列表内容合并
+      if (inList && listContent.length > 0) {
+        currentSection.content.push(...listContent)
+        listContent = []
+      }
+      
+      sections.push({
+        title: currentSection.title,
+        content: currentSection.content.join('\n').trim()
+      })
+      hasContent = false
+    }
+  }
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trimEnd()
-    const headerMatch = line.match(headerRegex)
-    const isCodeBlockMarker = codeBlockRegex.test(line)
-    const isListStart = listStartRegex.test(line)
-    const isCurrentLineEmpty = !line.trim()
     
     // 处理代码块
-    if (isCodeBlockMarker) {
+    if (line.startsWith('```')) {
       inCodeBlock = !inCodeBlock
       currentSection.content.push(line)
       continue
@@ -656,67 +730,84 @@ const splitMarkdownContent = (content) => {
       continue
     }
     
-    // 处理新的标题段落
-    if (headerMatch && hasContent) {
+    // 检查是否是标题
+    const headerInfo = isHeader(line)
+    
+    // 检查列表项
+    const isListItem = /^[-*+]\s+(.+)$/.test(line) || /^\d+[.、]\s+(.+)$/.test(line)
+    
+    if (headerInfo) {
       // 保存当前段落
-      sections.push({
-        title: currentSection.title,
-        content: currentSection.content.join('\n').trim()
-      })
+      saveCurrentSection()
+      
       // 开始新段落
       currentSection = {
-        title: headerMatch[2].replace(/\*\*/g, '').trim(),
-        content: []
+        title: headerInfo.title.trim(),
+        content: [],
+        priority: headerInfo.priority
       }
-      hasContent = false
+      
       inList = false
-    }
-    // 处理段落的第一个标题
-    else if (headerMatch && !hasContent) {
-      currentSection.title = headerMatch[2].replace(/\*\*/g, '').trim()
-    }
-    // 处理列表开始
-    else if (isListStart) {
-      inList = true
-      currentSection.content.push(line)
-      hasContent = true
-    }
-    // 处理列表内容或普通内容
-    else {
-      if (line.trim()) {
-        hasContent = true
+    } else if (isListItem) {
+      if (!inList) {
+        // 新列表开始
+        inList = true
+        listContent = []
       }
-      currentSection.content.push(line)
+      listContent.push(line)
+      hasContent = true
+    } else {
+      // 处理普通内容
+      if (line.trim()) {
+        if (inList) {
+          // 如果是空行且在列表中，检查是否需要结束列表
+          if (line.trim() === '') {
+            inList = false
+            currentSection.content.push(...listContent)
+            listContent = []
+          } else {
+            listContent.push(line)
+          }
+        } else {
+          currentSection.content.push(line)
+        }
+        hasContent = true
+      } else if (inList) {
+        // 空行，结束列表
+        inList = false
+        currentSection.content.push(...listContent)
+        listContent = []
+        currentSection.content.push(line)
+      } else {
+        currentSection.content.push(line)
+      }
     }
   }
   
-  // 添加最后一个段落
-  if (hasContent) {
-    sections.push({
-      title: currentSection.title,
-      content: currentSection.content.join('\n').trim()
+  // 保存最后一个段落
+  saveCurrentSection()
+  
+  // 后处理：清理和优化段落
+  return sections
+    .filter(section => section.content.length > 0)
+    .map(section => {
+      // 清理标题
+      section.title = section.title
+        .replace(/^#+\s*/, '')
+        .replace(/^\*\*|\*\*$/g, '')
+        .replace(/^[【［]\s*|\s*[】］]$/g, '')
+        .replace(/[:：]$/, '')
+        .trim()
+      
+      // 处理没有标题的段落
+      if (!section.title && section.content) {
+        const firstLine = section.content.split('\n')[0].trim()
+        section.title = firstLine.slice(0, 30) + (firstLine.length > 30 ? '...' : '')
+      }
+      
+      return section
     })
-  }
-  
-  // 后处理：清理标题中的特殊字符
-  return sections.map(section => {
-    // 清理标题中的 Markdown 标记
-    section.title = section.title
-      .replace(/^\*\*|\*\*$/g, '')  // 移除首尾的加粗标记
-      .replace(/^#+\s*/, '')        // 移除开头的 # 号
-      .trim()
-    
-    // 如果没有标题，使用内容的第一行
-    if (!section.title && section.content) {
-      const firstLine = section.content.split('\n')[0].trim()
-      section.title = firstLine
-        .replace(/^[-*+]\s+/, '')  // 移除列表标记
-        .replace(/^\*\*|\*\*$/g, '') // 移除加粗标记
-        .slice(0, 30) + (firstLine.length > 30 ? '...' : '')
-    }
-    
-    return section
-  })
+    .sort((a, b) => (a.priority || 999) - (b.priority || 999)) // 按优先级排序
 }
 
 // 定义 emit
@@ -866,6 +957,25 @@ const resendMessage = async (msg) => {
     currentChat.value.messages.pop()
     saveSessions()
   }
+}
+
+// 添加合并方法
+const mergeToPrevious = (index) => {
+  if (index <= 0 || index >= splitSections.value.length) return
+  
+  const currentSection = splitSections.value[index]
+  const previousSection = splitSections.value[index - 1]
+  
+  // 合并内容
+  previousSection.content = `${previousSection.content}\n\n${currentSection.content}`
+  
+  // 如果当前部分被选中,保持上一部分的选中状态
+  if (currentSection.selected) {
+    previousSection.selected = true
+  }
+  
+  // 从数组中移除当前部分
+  splitSections.value.splice(index, 1)
 }
 </script>
 
@@ -1435,5 +1545,22 @@ const resendMessage = async (msg) => {
 /* 添加重新发送按钮的悬停样式 */
 .icon-btn:hover i.fa-redo {
   color: #4caf50;
+}
+
+.merge-btn {
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #666;
+  margin-left: 8px;
+  transition: all 0.2s ease;
+}
+
+.merge-btn:hover {
+  color: #646cff;
+  border-color: #646cff;
+  background: rgba(100, 108, 255, 0.1);
 }
 </style> 

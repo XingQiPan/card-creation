@@ -206,6 +206,8 @@
         v-if="currentView === 'note'" 
         :scenes="scenes"
         :initial-content="notepadInitialContent"
+        :prompts="prompts"
+        :models="models"
       />
     </div>
 
@@ -825,7 +827,7 @@ const sendPromptRequest = async (prompt) => {
 
     let response
     let content
-    console.log('最终处理的提示词:', processedTemplate)
+    //console.log('最终处理的提示词:', processedTemplate)
     showToast('发送成功')
 
     if (model.provider === PROVIDERS.OPENAI) {
@@ -1523,7 +1525,7 @@ const loadScenes = () => {
 
 // 修改处理移动卡片的方法
 const handleMoveCard = ({ card, sourceSceneId, targetSceneId }) => {
-  console.log('Moving card:', { card, sourceSceneId, targetSceneId }) // 调试日志
+  //console.log('Moving card:', { card, sourceSceneId, targetSceneId }) // 调试日志
 
   // 找到源场景和目标场景
   const sourceSceneIndex = scenes.value.findIndex(s => s.id === sourceSceneId)
@@ -1648,7 +1650,7 @@ onUnmounted(() => {
 
 // 修改处理添加到笔记本的方法
 const handleAddToNotepad = (cardData) => {
-  console.log('Handling add to notepad:', cardData)
+  //console.log('Handling add to notepad:', cardData)
   // 先切换到笔记本视图
   
   showToast('已添加到记事本')
@@ -1657,7 +1659,7 @@ const handleAddToNotepad = (cardData) => {
   nextTick(() => {
     // 设置笔记本初始内容，包含标题和完整信息
     const formattedContent = `# ${cardData.title}\n\n${cardData.content}`
-    console.log('Formatted content for notepad:', formattedContent)
+    //console.log('Formatted content for notepad:', formattedContent)
     
     // 重置后设置新值
     notepadInitialContent.value = ''

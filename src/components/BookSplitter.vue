@@ -24,7 +24,7 @@
           :key="scene.id" 
           class="scene-tab"
           :class="{ active: currentSceneId === scene.id }"
-          @click="currentSceneId = scene.id"
+          @click="switchScene(scene.id)"
         >
           <input 
             v-model="scene.name" 
@@ -214,6 +214,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { openDB } from 'idb'
 
 // 定义 props
 const props = defineProps({
@@ -238,65 +239,107 @@ const PROVIDERS = {
   GEMINI: 'gemini'
 }
 
-// 延迟函数
+// 添加 IndexedDB 相关常量
+const DB_NAME = 'bookSplitterDB'
+const DB_VERSION = 1
+const STORE_NAME = 'scenes'
+
+// 添加 delay 函数
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+// 初始化 IndexedDB
+const initDB = async () => {
+  const db = await openDB(DB_NAME, DB_VERSION, {
+    upgrade(db) {
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+      }
+    }
+  })
+  return db
+}
 
 // 计算当前场景
 const currentScene = computed(() => {
   return scenes.value.find(s => s.id === currentSceneId.value)
 })
 
-// 初始化时加载保存的场景
-onMounted(() => {
-  const savedScenes = localStorage.getItem('bookSplitterScenes')
-  if (savedScenes) {
-    scenes.value = JSON.parse(savedScenes)
+// 修改保存场景的方法，确保对象可以被克隆
+const saveScenes = async () => {
+  try {
+    const db = await initDB()
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    const store = tx.objectStore(STORE_NAME)
+    
+    // 清除所有现有数据
+    await store.clear()
+    
+    // 保存所有场景，确保对象可以被克隆
+    for (const scene of scenes.value) {
+      // 创建一个可以被克隆的场景对象
+      const cloneableScene = JSON.parse(JSON.stringify({
+        id: scene.id,
+        name: scene.name,
+        originalCards: scene.originalCards,
+        resultCards: scene.resultCards,
+        selectedPromptId: scene.selectedPromptId,
+        processing: scene.processing,
+        isPaused: scene.isPaused,
+        currentIndex: scene.currentIndex
+      }))
+      
+      await store.put(cloneableScene)
+    }
+    
+    await tx.done
+  } catch (error) {
+    console.error('保存场景失败:', error)
+  }
+}
+
+// 修改加载场景的方法
+const loadScenes = async () => {
+  try {
+    const db = await initDB()
+    const tx = db.transaction(STORE_NAME, 'readonly')
+    const store = tx.objectStore(STORE_NAME)
+    
+    const allScenes = await store.getAll()
+    scenes.value = allScenes
+
     if (scenes.value.length > 0) {
       currentSceneId.value = scenes.value[0].id
+    } else {
+      addScene()
     }
-  }
-  // 如果没有场景，创建一个默认场景
-  if (scenes.value.length === 0) {
+  } catch (error) {
+    console.error('加载场景失败:', error)
+    // 如果加载失败，创建一个默认场景
     addScene()
   }
+}
+
+// 修改 onMounted 钩子
+onMounted(() => {
+  loadScenes()
 })
 
-// 保存场景到本地存储
-const saveScenes = () => {
-  localStorage.setItem('bookSplitterScenes', JSON.stringify(scenes.value))
-}
-
-// 添加新场景
-const addScene = () => {
-  const newScene = {
-    id: Date.now(),
-    name: '新场景',
-    originalCards: [],
-    resultCards: [],
-    selectedPromptId: '',
-    processing: false,
-    isPaused: false,
-    currentIndex: 0
-  }
-  scenes.value.push(newScene)
-  currentSceneId.value = newScene.id
-  saveScenes()
-}
-
-// 删除场景
-const deleteScene = (sceneId) => {
-  if (confirm('确定要删除这个场景吗？')) {
-    scenes.value = scenes.value.filter(s => s.id !== sceneId)
-    saveScenes()
-  }
-}
-
-// 清空所有场景
-const clearAllScenes = () => {
+// 修改清空所有场景的方法
+const clearAllScenes = async () => {
   if (confirm('确定要清空所有场景吗？')) {
-    scenes.value = []
-    localStorage.removeItem('bookSplitterScenes')
-    addScene() // 添加一个新的空场景
+    try {
+      const db = await initDB()
+      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const store = tx.objectStore(STORE_NAME)
+      
+      await store.clear()
+      await tx.done
+      
+      scenes.value = []
+      addScene() // 添加一个新的空场景
+    } catch (error) {
+      console.error('清空场景失败:', error)
+    }
   }
 }
 
@@ -783,6 +826,30 @@ const moveCardToScene = (scene) => {
 const closeMoveModal = () => {
   showMoveModal.value = false
   cardToMove.value = null
+}
+
+// 添加场景方法
+const addScene = () => {
+  const newScene = {
+    id: Date.now(),
+    name: '新场景',
+    originalCards: [],
+    resultCards: [],
+    selectedPromptId: '',
+    processing: false,
+    isPaused: false,
+    currentIndex: 0
+  }
+  
+  scenes.value.push(newScene)
+  currentSceneId.value = newScene.id
+  saveScenes()
+}
+
+// 添加场景切换方法
+const switchScene = (sceneId) => {
+  currentSceneId.value = sceneId
+  saveScenes()
 }
 </script>
 

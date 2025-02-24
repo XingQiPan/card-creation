@@ -61,7 +61,7 @@
                       <div v-for="(content, index) in prompt.insertedContents" 
                            :key="index" 
                            class="inserted-content">
-                        <span>插入 {{index + 1}}: {{ truncateText(content) }}</span>
+                        <span>插入 {{index + 1}}: {{ truncateText(content.content) }}</span>
                         <button @click.stop="removeInsertedContent(prompt, index)">
                           <i class="fas fa-times"></i>
                         </button>
@@ -1119,6 +1119,22 @@ const PROVIDERS = {
   CUSTOM: 'custom'  // 添加自定义类型
 }
 
+// 定义API地址格式化函数
+const formatApiUrl = (model) => {
+  switch (model.provider) {
+    case 'openai':
+      return `${model.apiUrl.replace(/\/+$/, '')}/chat/completions`
+    case 'gemini':
+      return `https://generativelanguage.googleapis.com/v1beta/models/${model.modelId}:generateContent`
+    case 'ollama':
+      return 'http://localhost:11434/api/chat'
+    case 'custom':
+      return model.apiUrl // 自定义API使用完整URL
+    default:
+      return model.apiUrl
+  }
+}
+
 // 修改发送提示词请求的方法
 const sendPromptRequest = async (prompt) => {
   if (!prompt.template.trim()) {
@@ -1134,88 +1150,53 @@ const sendPromptRequest = async (prompt) => {
 
   try {
     let processedTemplate = prompt.template
+
+    // 处理插入内容的替换
+    if (prompt.insertedContents?.length > 0) {
+      const insertedTexts = prompt.insertedContents.map(item => item.content).join('\n')
+      processedTemplate = processedTemplate.replace(/{{text}}/g, insertedTexts)
+    }
+
+    // 只在启用关键词检测时执行关键词处理
+    if (prompt.detectKeywords) {
+      // 检查关键词
+      let keywordContexts = []
+      const keywordTags = tags.value.filter(tag => tag.isKeyword)
+      
+      // 获取当前场景中带有关键词标签的卡片
+      const keywordCards = currentScene.value.cards.filter(card => 
+        card.tags?.some(tagId => keywordTags.some(tag => tag.id === tagId)) && 
+        card.title
+      )
+
+      // 检查每个关键词卡片
+      keywordCards.forEach(card => {
+        if (card.title && processedTemplate.includes(card.title)) {
+          keywordContexts.push({
+            keyword: card.title,
+            content: card.content
+          })
+        }
+      })
+
+      // 如果找到关键词，添加上下文
+      if (keywordContexts.length > 0) {
+        const contextSection = keywordContexts.map(ctx => 
+          `关键词「${ctx.keyword}」的上下文:\n${ctx.content}`
+        ).join('\n\n')
+        processedTemplate = `${contextSection}\n\n---\n\n${processedTemplate}`
+      }
+    }
+
+    console.log('processedTemplate', processedTemplate)
+
+    // 发送请求到API
     let response
-    let content
+    const apiUrl = formatApiUrl(model)
 
-    showToast('发送成功！')
-    // 自定义类型的处理
-    if (model.provider === PROVIDERS.CUSTOM) {
-      try {
-        response = await fetch(model.apiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(model.apiKey && { 'Authorization': `Bearer ${model.apiKey}` })
-          },
-          body: JSON.stringify({
-            model: model.modelId,
-            messages: [
-              {
-                role: "user",
-                content: processedTemplate
-              }
-            ],
-            max_tokens: Number(model.maxTokens),
-            temperature: Number(model.temperature)
-          })
-        })
-
-        if (!response.ok) {
-          const errorText = await response.text()
-          throw new Error(`请求失败: ${response.status} - ${errorText}`)
-        }
-
-        const result = await response.json()
-        content = result.choices?.[0]?.message?.content || 
-                 result.choices?.[0]?.content ||
-                 result.content ||
-                 result.response ||
-                 result.output ||
-                 result.text
-
-        if (!content) {
-          throw new Error('无法从响应中获取内容')
-        }
-      } catch (error) {
-        throw new Error(`自定义API请求失败: ${error.message}`)
-      }
-    } else if (model.provider === PROVIDERS.OLLAMA) {
-      try {
-        response = await fetch(`${model.apiUrl}/api/chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: model.modelId,
-            messages: [{
-              role: "user",
-              content: processedTemplate
-            }],
-            stream: false,
-            options: {
-              temperature: Number(model.temperature)
-            }
-          })
-        })
-
-        if (!response.ok) {
-          const errorText = await response.text()
-          throw new Error(`请求失败: ${response.status} ${errorText}`)
-        }
-
-        const result = await response.json()
-        content = result.message?.content || result.response
-
-        if (!content) {
-          throw new Error('响应格式错误')
-        }
-      } catch (error) {
-        throw new Error(`Ollama请求失败: ${error.message}`)
-      }
-    } else {
-      // OpenAI 接口格式的处理
-      response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
+    // 根据不同的模型提供商发送请求
+    if (model.provider === 'openai' || model.provider === 'custom') {
+      response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1223,31 +1204,73 @@ const sendPromptRequest = async (prompt) => {
         },
         body: JSON.stringify({
           model: model.modelId,
-          messages: [
-            {
-              role: "user",
-              content: processedTemplate
-            }
-          ],
+          messages: [{
+            role: "user",
+            content: processedTemplate
+          }],
           max_tokens: Number(model.maxTokens),
           temperature: Number(model.temperature)
         })
       })
-
-      if (!response.ok) {
-        throw new Error(`请求失败: ${response.status}`)
-      }
-
-      const result = await response.json()
-      content = result.choices?.[0]?.message?.content
-
-      if (!content) {
-        throw new Error('响应格式错误')
-      }
+    } else if (model.provider === 'gemini') {
+      response = await fetch(`${apiUrl}?key=${model.apiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: processedTemplate
+            }]
+          }],
+          generationConfig: {
+            maxOutputTokens: Number(model.maxTokens),
+            temperature: Number(model.temperature)
+          }
+        })
+      })
+    } else if (model.provider === 'ollama') {
+      response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: model.modelId,
+          messages: [{
+            role: "user",
+            content: processedTemplate
+          }],
+          options: {
+            num_predict: Number(model.maxTokens),
+            temperature: Number(model.temperature)
+          }
+        })
+      })
     }
 
-    showToast('数据返回成功', 'success')
-    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error?.message || `API请求失败: ${response.status}`)
+    }
+
+    const result = await response.json()
+    let content
+
+    // 根据不同的提供商处理返回结果
+    if (model.provider === 'openai' || model.provider === 'custom') {
+      content = result.choices?.[0]?.message?.content
+    } else if (model.provider === 'gemini') {
+      content = result.candidates?.[0]?.content?.parts?.[0]?.text
+    } else if (model.provider === 'ollama') {
+      content = result.message?.content
+    }
+
+    if (!content) {
+      throw new Error('响应格式错误')
+    }
+
     // 创建新卡片
     const newCard = {
       id: Date.now(),
@@ -1260,10 +1283,12 @@ const sendPromptRequest = async (prompt) => {
     if (currentScene.value) {
       currentScene.value.cards.push(newCard)
     }
-    
-    // 清理状态
+
+    // 清理插入内容
     prompt.insertedContents = []
     prompt.selectedModel = prompt.defaultModel || ''
+
+    showToast('发送成功')
 
   } catch (error) {
     console.error('API 请求错误:', error)
@@ -1429,6 +1454,8 @@ const insertPromptToCard = (prompt) => {
 
 const removeInsertedContent = (prompt, index) => {
   prompt.insertedContents.splice(index, 1)
+  // 保存更新后的提示词数据
+  localStorage.setItem('prompts', JSON.stringify(prompts.value))
 }
 
 const hasInsertedContent = (prompt) => {
@@ -2432,43 +2459,29 @@ const selectPromptAndInsert = (prompt) => {
   if (!cardToInsert.value) return
 
   try {
-    const card = cardToInsert.value
-    
-    // 检查提示词模板
-    if (!prompt.template) {
-      showToast('提示词模板无效', 'error')
-      return
-    }
-
-    // 初始化提示词的insertedContents数组
+    // 检查是否已经有插入内容
     if (!prompt.insertedContents) {
       prompt.insertedContents = []
     }
 
-    // 添加新的插入内容到提示词中
+    // 添加新的插入内容
     prompt.insertedContents.push({
-      cardId: card.id,
-      content: card.content,
-      timestamp: Date.now()
+      id: Date.now(),
+      content: cardToInsert.value.content,
+      cardId: cardToInsert.value.id
     })
 
     // 更新提示词
-    const promptIndex = prompts.value.findIndex(p => p.id === prompt.id)
-    if (promptIndex !== -1) {
-      prompts.value[promptIndex] = { ...prompt }
+    const index = prompts.value.findIndex(p => p.id === prompt.id)
+    if (index !== -1) {
+      prompts.value[index] = { ...prompt }
     }
 
-    // 保存提示词数据
-    localStorage.setItem('prompts', JSON.stringify(prompts.value))
-    
-    // 关闭模态框
-    showPromptSelectModal.value = false
+    showToast('内容已插入到提示词')
     cardToInsert.value = null
-    
-    showToast('内容已插入到提示词', 'success')
   } catch (error) {
-    console.error('插入内容失败:', error)
-    showToast('插入内容失败: ' + error.message, 'error')
+    console.error('插入内容错误:', error)
+    showToast('插入失败: ' + error.message, 'error')
   }
 }
 

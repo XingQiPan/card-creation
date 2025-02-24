@@ -12,22 +12,17 @@
     "title": "拆书",
     "template": "输入内容：``{{text}}``\n\n我输入了什么内容，给出具体",
     "defaultModel": 1740371817747,
-    "insertedContents": [
-      {
-        "id": 1740379696665,
-        "content": "11231231",
-        "cardId": "bdd527e9-78fc-49aa-b79c-8de86e138905"
-      }
-    ],
+    "insertedContents": [],
     "selectedModel": 1740371817747,
-    "detectKeywords": true,
-    "usedContents": [
-      {
-        "cardId": "bdd527e9-78fc-49aa-b79c-8de86e138905",
-        "content": "11231231",
-        "processedContent": "输入内容：``11231231``\n\n我输入了什么内容，给出具体",
-        "timestamp": 1740376922803
-      }
-    ]
+    "detectKeywords": true
+  },
+  {
+    "id": 1740395783869,
+    "title": "111",
+    "template": "输入内容：``{{text}}``\n\n我输入了什么内容，给出具体",
+    "defaultModel": 1740395625595,
+    "insertedContents": [],
+    "selectedModel": 1740395625595,
+    "detectKeywords": true
   }
 ]

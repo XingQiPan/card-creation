@@ -1,17 +1,17 @@
 @echo off
 chcp 65001 >nul
-title 星卡写作启动器
+cmd /c title "StarCard Writer"
 color 0A
 
 :menu
 cls
 echo ================================
-echo        星卡写作启动器
+echo        StarCard Writer
 echo ================================
-echo 输入1启动
+echo Enter 1 to Start
 echo ================================
 
-set /p choice=请选择启动模式（输入数字）: 
+set /p choice=Please select mode (enter number): 
 
 if "%choice%"=="1" (
     start start-dev.bat
@@ -19,6 +19,6 @@ if "%choice%"=="1" (
 )
 
 echo.
-echo 输入错误，请重新选择！
+echo Invalid input, please try again!
 timeout /t 2 >nul
 goto menu 

@@ -1,13 +1,13 @@
 @echo off
-:: 设置控制台代码页为 UTF-8
+:: Set console codepage to UTF-8
 chcp 65001 >nul
-:: 设置控制台标题和颜色
+:: Set console title and color
 cmd /c title "StarCard Writer Dev"
 color 0A
 
 echo [INFO] Starting environment check...
 
-:: 检查 Node.js 是否安装
+:: Check if Node.js is installed
 node -v > nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] Node.js not found. Please install Node.js first.
@@ -16,23 +16,23 @@ if %errorlevel% neq 0 (
     exit
 )
 
-:: 检查前端 package.json 是否存在
+:: Check if frontend package.json exists
 if not exist "package.json" (
-    echo [错误] 未找到 package.json 文件
-    echo 请确保您在正确的项目目录中运行此脚本
+    echo [ERROR] package.json not found
+    echo Please make sure you are in the correct project directory
     pause
     exit
 )
 
-:: 检查后端目录是否存在
+:: Check if backend directory exists
 if not exist "backend\" (
-    echo 正在创建后端目录...
+    echo [INFO] Creating backend directory...
     mkdir backend
     cd backend
-    echo 正在初始化后端项目...
+    echo [INFO] Initializing backend project...
     call npm init -y
     
-    :: 创建 package.json
+    :: Create package.json
     echo {> package.json
     echo   "name": "starcard-backend",>> package.json
     echo   "version": "1.0.0",>> package.json
@@ -48,36 +48,36 @@ if not exist "backend\" (
     cd ..
 )
 
-:: 检查后端依赖
+:: Check backend dependencies
 cd backend
 if not exist "node_modules\" (
-    echo 正在安装后端依赖...
+    echo [INFO] Installing backend dependencies...
     call npm install
 )
 cd ..
 
-:: 检查前端依赖
+:: Check frontend dependencies
 if not exist "node_modules\" (
-    echo 正在安装前端依赖...
+    echo [INFO] Installing frontend dependencies...
     call npm install --registry=https://registry.npmmirror.com
     if %errorlevel% neq 0 (
-        echo [错误] 依赖安装失败
-        echo 请尝试手动运行以下命令：
+        echo [ERROR] Failed to install dependencies
+        echo Please try running these commands manually:
         echo npm install --registry=https://registry.npmmirror.com
-        echo 或者
+        echo or
         echo npm install
         pause
         exit
     )
 )
 
-:: 启动前端和后端服务
+:: Start frontend and backend services
 echo [INFO] Starting services...
 start cmd /c "cd backend && cmd /c title Backend-Service && color 0B && node server.js"
 start cmd /c "cmd /c title Frontend-Service && color 0E && npm run dev"
 
-echo [SUCCESS] 服务已启动！
-echo [INFO] 前端地址: http://localhost:5173
-echo [INFO] 后端地址: http://localhost:3000
+echo [SUCCESS] Services started successfully!
+echo [INFO] Frontend URL: http://localhost:5173
+echo [INFO] Backend URL: http://localhost:3000
 
 pause 

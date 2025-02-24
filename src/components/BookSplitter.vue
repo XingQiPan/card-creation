@@ -471,24 +471,33 @@ const canProcess = (scene) => {
          !scene.processing
 }
 
-// 修改文件上传处理函数
+// 修改处理文件上传的方法
 const handleBookUpload = async (event, scene) => {
   const file = event.target.files[0]
   if (!file) return
 
   try {
     isLoading.value = true
-    const content = await file.text()
-    const chapters = splitIntoChapters(content)
     
-    // 检查是否成功分割出章节
-    if (chapters.length === 0) {
-      showToast("未能识别到任何章节，请确保文件格式正确主人~", 'error')
-      return
+    // 创建 FormData 对象
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('sceneId', scene.id)
+
+    // 发送到后端处理
+    const response = await fetch('/api/split-book', {
+      method: 'POST',
+      body: formData
+    })
+
+    const result = await response.json()
+    
+    if (!result.success) {
+      throw new Error(result.error || '处理失败')
     }
-    
+
     // 更新场景的原始卡片
-    const originalCards = chapters.map((chapter, index) => ({
+    scene.originalCards = result.chapters.map((chapter, index) => ({
       id: Date.now() + index,
       chapterNumber: index + 1,
       title: chapter.title || `第${index + 1}章`,
@@ -497,89 +506,18 @@ const handleBookUpload = async (event, scene) => {
       uploadTime: new Date().toISOString()
     }))
 
-    // 更新场景数据
-    scene.originalCards = originalCards
-
     // 清空文件输入
     event.target.value = ''
     
     // 保存场景数据
     await saveScenes()
-    showToast(`成功导入 ${chapters.length} 个章节主人~`, 'success')
+    showToast(`成功导入 ${result.chapters.length} 个章节主人~`, 'success')
   } catch (error) {
     console.error('文件处理错误:', error)
     showToast('文件处理失败: ' + error.message, 'error')
   } finally {
     isLoading.value = false
   }
-}
-
-// 修改章节分割函数
-const splitIntoChapters = (text) => {
-  const chapters = []
-  const lines = text.split('\n')
-  let currentChapter = {
-    title: '',
-    content: []
-  }
-  
-  // 扩展章节匹配模式
-  const chapterPatterns = [
-    /^第[一二三四五六七八九十百千]+[章节]/,  // 匹配"第一章"、"第二节"等
-    /^第\d+[章节]/,  // 匹配"第1章"、"第2节"等
-    /^[一二三四五六七八九十][、.．]/,  // 匹配"一、"、"二。"等
-    /^\d+[、.．]/,  // 匹配"1、"、"2。"等
-    /^[（(]\d+[)）]/,  // 匹配"(1)"、"（2）"等
-    /^[【［][^】］]+[】］]/,  // 匹配"【章节名】"、"［章节名］"等
-    /^#+\s+/  // 匹配 Markdown 标题
-  ]
-  
-  const isChapterTitle = (line) => {
-    const trimmedLine = line.trim()
-    // 检查行长度，避免匹配过长的段落
-    if (trimmedLine.length > 100) return false
-    
-    // 检查是否匹配任一章节模式
-    return chapterPatterns.some(pattern => pattern.test(trimmedLine))
-  }
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line) continue
-
-    if (isChapterTitle(line)) {
-      // 保存上一章节
-      if (currentChapter.title && currentChapter.content.length > 0) {
-        chapters.push({
-          ...currentChapter,
-          content: currentChapter.content.join('\n')
-        })
-      }
-
-      // 开始新章节
-      currentChapter = {
-        title: line,
-        content: []
-      }
-    } else if (currentChapter.title) {
-      // 添加到当前章节内容
-      currentChapter.content.push(line)
-    } else {
-      // 如果还没有遇到章节标题，创建一个默认章节
-      currentChapter.title = '引言'
-      currentChapter.content.push(line)
-    }
-  }
-
-  // 保存最后一章
-  if (currentChapter.title && currentChapter.content.length > 0) {
-    chapters.push({
-      ...currentChapter,
-      content: currentChapter.content.join('\n')
-    })
-  }
-
-  return chapters
 }
 
 // 修改暂停/继续功能

@@ -297,6 +297,56 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' })
 })
 
+// 添加新的数据同步路由
+app.post('/api/sync-data', async (req, res) => {
+  try {
+    const { scenes, prompts, tags, config } = req.body
+    
+    // 保存所有数据
+    const results = await Promise.all([
+      saveData(SCENES_FILE, scenes),
+      saveData(PROMPTS_FILE, prompts), 
+      saveData(TAGS_FILE, tags),
+      saveData(CONFIG_FILE, config)
+    ])
+
+    if(results.every(r => r)) {
+      res.json({ success: true })
+    } else {
+      throw new Error('Failed to save some data')
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message 
+    })
+  }
+})
+
+// 添加获取所有数据的路由
+app.get('/api/get-all-data', async (req, res) => {
+  try {
+    const data = {
+      scenes: loadData(SCENES_FILE) || [],
+      prompts: loadData(PROMPTS_FILE) || [],
+      tags: loadData(TAGS_FILE) || [],
+      config: loadData(CONFIG_FILE) || {
+        models: [],
+        notepadContent: '',
+        currentSceneId: null,
+        selectedTags: [],
+        currentView: 'main'
+      }
+    }
+    res.json({ success: true, data })
+  } catch (error) {
+    res.status(500).json({
+      success: false, 
+      error: error.message
+    })
+  }
+})
+
 // 启动服务器
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {

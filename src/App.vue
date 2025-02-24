@@ -344,6 +344,7 @@
                     <option value="stepfun">阶跃星辰</option>
                     <option value="mistral">Mistral AI</option>
                     <option value="ollama">Ollama</option>
+                    <option value="custom">自定义</option>
                   </select>
                 </div>
                 <div class="form-group">
@@ -352,25 +353,48 @@
                 </div>
                 <div class="form-group">
                   <label>API Key</label>
-                  <input v-model="model.apiKey" type="password" placeholder="API Key"/>
+                  <input 
+                    v-model="model.apiKey" 
+                    type="password" 
+                    placeholder="API Key"
+                    :disabled="model.provider === 'ollama'"
+                  />
                 </div>
                 <div class="form-group">
                   <label>模型选择</label>
                   <div class="model-actions">
-                    <select v-model="model.modelId" class="model-select">
-                      <option value="">选择模型</option>
-                      <option v-for="m in model.availableModels" :key="m.id" :value="m.id">
-                        {{ m.name || m.id }}
-                      </option>
-                    </select>
-                    <button 
-                      @click="refreshModelList(model)"
-                      class="refresh-btn"
-                      :disabled="!model.apiUrl || !model.apiKey"
-                    >
-                      <i class="fas fa-sync-alt"></i>
-                      刷新
-                    </button>
+                    <!-- 自定义类型、Gemini 时显示输入框 -->
+                    <template v-if="model.provider === 'custom' || model.provider === 'gemini'">
+                      <input 
+                        v-model="model.modelId"
+                        :placeholder="model.provider === 'gemini' ? 'gemini-pro' : '输入模型ID'"
+                        class="model-input"
+                      />
+                    </template>
+                    <!-- Ollama 和其他类型显示下拉选择 -->
+                    <template v-else>
+                      <select v-model="model.modelId" class="model-select">
+                        <option value="">选择模型</option>
+                        <option 
+                          v-for="m in model.availableModels" 
+                          :key="m.id" 
+                          :value="m.id"
+                        >
+                          {{ m.name }}
+                          <template v-if="model.provider === 'ollama' && m.digest">
+                            ({{ m.digest.substring(0, 8) }})
+                          </template>
+                        </option>
+                      </select>
+                      <button 
+                        @click="refreshModelList(model)"
+                        class="refresh-btn"
+                        :disabled="!model.apiUrl"
+                      >
+                        <i class="fas fa-sync-alt"></i>
+                        刷新
+                      </button>
+                    </template>
                   </div>
                 </div>
                 <div class="form-group">
@@ -521,15 +545,16 @@
       </div>
     </div>
 
-    <!-- 提示消息 -->
-    <div class="toast-container">
-      <div v-for="toast in toasts" :key="toast.id" class="toast" :class="toast.type">
-        <div class="toast-icon">
-          <i :class="toast.icon"></i>
-        </div>
-        <div class="toast-message">{{ toast.message }}</div>
+    <!-- Toast 组件 -->
+    <Teleport to="body">
+      <div 
+        v-if="toast.show" 
+        class="toast"
+        :class="toast.type"
+      >
+        {{ toast.message }}
       </div>
-    </div>
+    </Teleport>
 </template>
 
 
@@ -543,7 +568,8 @@ import BookSplitter from './components/BookSplitter.vue'
 import ChatView from './components/ChatView.vue'
 import NotePad from './components/NotePad.vue'
 
-// 状态管理
+// 将状态声明移到最前面
+const currentView = ref('main') // 添加视图切换状态
 const prompts = ref([])
 const textCards = ref([])
 const selectedCards = ref([])
@@ -553,6 +579,7 @@ const showPromptSelectModal = ref(false)
 const editingPrompt = ref(null)
 const currentEditingCard = ref(null)
 const drag = ref(false)
+const notepadInitialContent = ref('')
 const promptForm = ref({
   title: '',
   template: '',
@@ -607,33 +634,28 @@ const models = ref([
     ]
   }
 ])
-const promptPanelWidth = ref(300) // 默认宽度
+const promptPanelWidth = ref(300)
 const showPromptDetailModal = ref(false)
 const showCardDetailModal = ref(false)
 const selectedCard = ref(null)
 const showSuccessNotification = ref(false)
-let isResizing = false
-let startX = 0
-let startWidth = 0
-
-// 场景相关状态
 const scenes = ref([])
 const currentScene = ref(null)
-
-// 添加标签相关的状态
-const tags = ref([]) // 所有可用的标签
-const selectedTags = ref([]) // 当前选中的标签过滤器
-const showTagModal = ref(false) // 控制标签管理模态框
-const newTagName = ref('') // 新标签名称
-
-// 提示消息相关状态
+const tags = ref([])
+const selectedTags = ref([])
+const showTagModal = ref(false)
+const newTagName = ref('')
 const toasts = ref([])
-
-// 添加拖拽状态
 const dragScene = ref(false)
-
 const isPreview = ref(false)
 const editorTextarea = ref(null)
+
+// Toast 相关
+const toast = ref({
+  show: false,
+  message: '',
+  type: 'info'
+})
 
 // 渲染 Markdown 内容
 const renderedContent = computed(() => {
@@ -673,57 +695,336 @@ const insertMdSyntax = (prefix, suffix) => {
   })
 }
 
-// 加载模型配置
-onMounted(() => {
-  const savedModels = localStorage.getItem('aiModels')
-  if (savedModels) {
-    models.value = JSON.parse(savedModels).map(model => {
-      // 确保移除已保存模型中可能存在的 /chat/completions
-      model.apiUrl = model.apiUrl.replace(/\/chat\/completions$/, '').replace(/\/$/, '')
-      return model
-    })
+// 添加后端API基础URL
+const API_BASE_URL = 'http://localhost:3000/api'
+
+// 添加防抖函数
+const debounce = (fn, delay) => {
+  let timer = null
+  return function (...args) {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      fn.apply(this, args)
+    }, delay)
   }
+}
 
-  // 确保所有提示词都有必要的属性
-  prompts.value = prompts.value.map(prompt => ({
-    ...prompt,
-    insertedContents: prompt.insertedContents || [],
-    selectedModel: prompt.selectedModel || prompt.defaultModel || ''
-  }))
+// 修改数据服务层
+const dataService = {
+  async syncToBackend(data) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/sync-data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+      })
 
+      if (!response.ok) {
+        throw new Error(`同步失败: ${response.status}`)
+      }
+
+      return await response.json()
+    } catch (error) {
+      console.error('后端同步失败:', error)
+      throw error
+    }
+  },
+
+  saveToLocalStorage(key, data) {
+    try {
+      localStorage.setItem(key, JSON.stringify(data))
+    } catch (error) {
+      console.error(`保存到本地存储失败 (${key}):`, error)
+      throw error
+    }
+  },
+
+  loadFromLocalStorage(key) {
+    try {
+      const data = localStorage.getItem(key)
+      return data ? JSON.parse(data) : null
+    } catch (error) {
+      console.error(`从本地存储加载失败 (${key}):`, error)
+      return null
+    }
+  }
+}
+
+// 减少防抖时间到500ms，提高响应速度
+const syncData = debounce(async () => {
+  try {
+    // 准备要保存的数据
+    const dataToSave = {
+      scenes: scenes.value,
+      prompts: prompts.value,
+      tags: tags.value,
+      config: {
+        models: models.value,
+        notepadContent: notepadInitialContent.value,
+        currentSceneId: currentScene.value?.id,
+        selectedTags: selectedTags.value,
+        currentView: currentView.value
+      }
+    }
+
+    // 立即保存到本地存储
+    Object.entries(dataToSave).forEach(([key, value]) => {
+      if (value !== undefined) {
+        dataService.saveToLocalStorage(key, value)
+      }
+    })
+
+    // 异步同步到后端
+    dataService.syncToBackend(dataToSave).catch(error => {
+      console.error('后端同步失败:', error)
+    })
+    
+  } catch (error) {
+    showToast(`数据保存失败: ${error.message}`, 'error')
+  }
+}, 500) // 减少防抖时间到500ms
+
+// 添加立即保存方法，用于重要操作
+const saveImmediately = async () => {
+  try {
+    const dataToSave = {
+      scenes: scenes.value,
+      prompts: prompts.value,
+      tags: tags.value,
+      config: {
+        models: models.value,
+        notepadContent: notepadInitialContent.value,
+        currentSceneId: currentScene.value?.id,
+        selectedTags: selectedTags.value,
+        currentView: currentView.value
+      }
+    }
+
+    // 立即保存到本地存储
+    Object.entries(dataToSave).forEach(([key, value]) => {
+      if (value !== undefined) {
+        dataService.saveToLocalStorage(key, value)
+      }
+    })
+  } catch (error) {
+    console.error('立即保存失败:', error)
+    showToast(`保存失败: ${error.message}`, 'error')
+  }
+}
+
+// 修改数据加载逻辑 - 优先使用本地数据
+const loadAllData = async () => {
+  try {
+    // 1. 先从本地存储加载
+    const localData = {
+      scenes: dataService.loadFromLocalStorage('scenes'),
+      prompts: dataService.loadFromLocalStorage('prompts'),
+      tags: dataService.loadFromLocalStorage('tags'),
+      config: dataService.loadFromLocalStorage('config')
+    }
+
+    // 2. 如果本地有数据，直接使用本地数据
+    if (localData.scenes?.length || localData.prompts?.length || localData.tags?.length) {
+      initializeData(localData)
+      return
+    }
+
+    // 3. 只有在本地没有数据时，才从后端加载
+    try {
+      const response = await fetch(`${API_BASE_URL}/get-all-data`)
+      if (!response.ok) {
+        throw new Error(`加载失败: ${response.status}`)
+      }
+      const { data: backendData } = await response.json()
+      initializeData(backendData)
+    } catch (error) {
+      console.error('从后端加载数据失败:', error)
+      // 如果后端加载失败，创建默认数据
+      initializeData({
+        scenes: [createDefaultScene()],
+        prompts: [],
+        tags: [],
+        config: {
+          models: [],
+          notepadContent: '',
+          currentSceneId: null,
+          selectedTags: [],
+          currentView: 'main'
+        }
+      })
+    }
+  } catch (error) {
+    console.error('数据加载失败:', error)
+    showToast('数据加载失败: ' + error.message, 'error')
+  }
+}
+
+// 初始化数据的方法保持不变
+const initializeData = (data) => {
   // 初始化场景
-  const savedScenes = localStorage.getItem('scenes')
-  if (savedScenes) {
-    scenes.value = JSON.parse(savedScenes)
-    if (scenes.value.length > 0) {
-      currentScene.value = scenes.value[0]
-    }
+  if (data.scenes?.length) {
+    scenes.value = data.scenes
+    currentScene.value = scenes.value.find(s => s.id === data.config?.currentSceneId) || scenes.value[0]
   } else {
-    // 创建默认场景
-    const defaultScene = {
-      id: Date.now(),
-      name: '默认场景',
-      cards: []
-    }
+    const defaultScene = createDefaultScene()
     scenes.value = [defaultScene]
     currentScene.value = defaultScene
   }
 
-  // 在 onMounted 中加载标签
-  const savedTags = localStorage.getItem('tags')
-  if (savedTags) {
-    tags.value = JSON.parse(savedTags)
-  }
+  // 初始化其他数据
+  if (data.prompts) prompts.value = data.prompts
+  if (data.tags) tags.value = data.tags
+  if (data.config?.models) models.value = data.config.models
+  if (data.config?.selectedTags) selectedTags.value = data.config.selectedTags
+  if (data.config?.currentView) currentView.value = data.config.currentView
+}
 
-  // 加载已保存的提示词
-  const savedPrompts = localStorage.getItem('prompts')
-  if (savedPrompts) {
-    prompts.value = JSON.parse(savedPrompts)
-  }
+// 5. 优化场景更新方法
+const updateScene = (updatedScene) => {
+  if (!updatedScene?.id) return
 
-  // 在组件挂载时加载场景数据
-  loadScenes()
+  const index = scenes.value.findIndex(s => s.id === updatedScene.id)
+  if (index !== -1) {
+    // 深拷贝并确保数据结构完整
+    const processedScene = {
+      ...updatedScene,
+      cards: (updatedScene.cards || []).map(card => ({
+        ...card,
+        id: card.id,
+        title: card.title || '',
+        content: card.content || '',
+        height: card.height || '120px',
+        tags: Array.isArray(card.tags) ? card.tags : []
+      }))
+    }
+
+    scenes.value[index] = processedScene
+    
+    if (currentScene.value?.id === updatedScene.id) {
+      currentScene.value = JSON.parse(JSON.stringify(processedScene))
+    }
+
+    // 触发数据同步
+    syncData()
+  }
+}
+
+// 6. 添加数据监听
+watch(
+  [scenes, currentScene, prompts, tags, models, selectedTags, currentView],
+  () => {
+    syncData()
+  },
+  { deep: true }
+)
+
+
+// 修改保存到本地存储的方法
+const saveToLocalStorage = () => {
+  try {
+    if (!scenes.value?.length) {
+      console.warn('No valid scenes data to save')
+      return
+    }
+
+    // 确保场景数据的完整性
+    const scenesToSave = scenes.value.map(scene => ({
+      ...scene,
+      id: scene.id,
+      name: scene.name,
+      cards: Array.isArray(scene.cards) ? 
+        scene.cards.map(card => ({
+          ...card,
+          id: card.id,
+          title: card.title || '',
+          content: card.content || '',
+          height: card.height || '120px',
+          tags: Array.isArray(card.tags) ? card.tags : []
+        })) : []
+    }))
+
+    console.log('Saving scenes to localStorage:', scenesToSave)
+    
+    localStorage.setItem('scenes', JSON.stringify(scenesToSave))
+    localStorage.setItem('currentSceneId', currentScene.value?.id?.toString())
+    localStorage.setItem('prompts', JSON.stringify(prompts.value || []))
+    localStorage.setItem('tags', JSON.stringify(tags.value || []))
+    localStorage.setItem('aiModels', JSON.stringify(models.value || []))
+  } catch (error) {
+    console.error('保存到本地存储失败:', error)
+    showToast('保存到本地存储失败: ' + error.message, 'error')
+  }
+}
+
+// 修改场景切换方法
+const switchScene = (scene) => {
+  if (!scene) return
+  
+  // 保存当前场景的更改
+  const currentIndex = scenes.value.findIndex(s => s.id === currentScene.value?.id)
+  if (currentIndex !== -1) {
+    scenes.value[currentIndex] = JSON.parse(JSON.stringify(currentScene.value))
+  }
+  
+  // 切换到新场景
+  const targetScene = scenes.value.find(s => s.id === scene.id)
+  if (targetScene) {
+    currentScene.value = JSON.parse(JSON.stringify(targetScene))
+    localStorage.setItem('currentSceneId', targetScene.id.toString())
+  }
+  
+  // 保存更改
+  saveToLocalStorage()
+}
+
+// 修改场景更新方法，确保正确保存卡片数据
+const saveScenes = async () => {
+  try {
+    // 优先保存到本地
+    dataService.saveToLocalStorage('scenes', scenes.value)
+    
+    // 触发数据同步
+    await syncData()
+  } catch (error) {
+    console.error('保存场景失败:', error)
+    showToast('保存场景失败: ' + error.message, 'error')
+  }
+}
+
+// 修改保存提示词的方法
+const savePrompts = async () => {
+  localStorage.setItem('prompts', JSON.stringify(prompts.value))
+  await syncData() // 改为使用 syncData
+}
+
+// 修改保存标签的方法
+const saveTags = async () => {
+  localStorage.setItem('tags', JSON.stringify(tags.value))
+  await syncData() // 改为使用 syncData
+}
+
+// 修改保存模型的方法
+const saveModels = async () => {
+  localStorage.setItem('aiModels', JSON.stringify(models.value))
+  await syncData() // 改为使用 syncData
+}
+
+// 在组件挂载时加载数据
+onMounted(async () => {
+  await loadAllData()
+  setInterval(syncData, 30000) // 30秒自动同步一次
 })
+
+// 监听数据变化并保存
+watch(
+  [scenes, currentScene, prompts, tags, models],
+  async () => {
+    await syncData() // 改为使用 syncData
+  },
+  { deep: true }
+)
 
 // 工具函数
 const getInsertCount = (template) => {
@@ -739,10 +1040,10 @@ const canSendRequest = (prompt) => {
   return prompt.template.trim().length > 0
 }
 
-const getRemainingInserts = () => {
-  if (!selectedPrompt.value) return 0
-  return getInsertCount(selectedPrompt.value.template) - selectedCards.value.length
-}
+// const getRemainingInserts = () => {
+//   if (!selectedPrompt.value) return 0
+//   return getInsertCount(selectedPrompt.value.template) - selectedCards.value.length
+// }
 
 const canInsertSelected = () => {
   if (!selectedPrompt.value) return false
@@ -796,18 +1097,6 @@ const savePrompt = () => {
   editingPrompt.value = null
   promptForm.value = {}
 }
-
-const deleteCard = (id) => {
-  // 从 textCards 中删除
-  textCards.value = textCards.value.filter(card => card.id !== id)
-  // 从 selectedCards 中删除
-  selectedCards.value = selectedCards.value.filter(cardId => cardId !== id)
-  // 从当前场景的 cards 中删除
-  if (currentScene.value) {
-    currentScene.value.cards = currentScene.value.cards.filter(card => card.id !== id)
-  }
-}
-
 const clearSelection = () => {
   selectedCards.value = []
   selectedPrompt.value = null
@@ -817,7 +1106,8 @@ const clearSelection = () => {
 const PROVIDERS = {
   OPENAI: 'openai',
   GEMINI: 'gemini',
-  OLLAMA: 'ollama'  // 添加 Ollama 提供商
+  OLLAMA: 'ollama',
+  CUSTOM: 'custom'  // 添加自定义类型
 }
 
 // 修改发送提示词请求的方法
@@ -835,47 +1125,88 @@ const sendPromptRequest = async (prompt) => {
 
   try {
     let processedTemplate = prompt.template
-
-    // 只在启用关键词检测时执行关键词处理
-    if (prompt.detectKeywords) {
-      // 处理插入内容的替换
-      if (prompt.insertedContents?.length > 0) {
-        prompt.insertedContents.forEach(content => {
-          processedTemplate = processedTemplate.replace('{{text}}', content)
-        })
-      }
-
-      // 检查关键词
-      let keywordContexts = []
-      const keywordTags = tags.value.filter(tag => tag.isKeyword)
-      const keywordCards = currentScene.value.cards.filter(card => 
-        card.tags?.some(tagId => keywordTags.some(tag => tag.id === tagId)) && card.title
-      )
-
-      keywordCards.forEach(card => {
-        if (card.title && processedTemplate.includes(card.title)) {
-          keywordContexts.push({
-            keyword: card.title,
-            content: card.content
-          })
-        }
-      })
-
-      if (keywordContexts.length > 0) {
-        const contextSection = keywordContexts.map(ctx => 
-          `关键词「${ctx.keyword}」的上下文:\n${ctx.content}`
-        ).join('\n\n')
-        processedTemplate = `${contextSection}\n\n---\n\n${processedTemplate}`
-      }
-    }
-
     let response
     let content
-    //console.log('最终处理的提示词:', processedTemplate)
-    showToast('发送成功')
 
-    if (model.provider === PROVIDERS.OPENAI) {
-      response = await fetch(`${model.apiUrl}/chat/completions`, {
+    showToast('发送成功！')
+    // 自定义类型的处理
+    if (model.provider === PROVIDERS.CUSTOM) {
+      try {
+        response = await fetch(model.apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(model.apiKey && { 'Authorization': `Bearer ${model.apiKey}` })
+          },
+          body: JSON.stringify({
+            model: model.modelId,
+            messages: [
+              {
+                role: "user",
+                content: processedTemplate
+              }
+            ],
+            max_tokens: Number(model.maxTokens),
+            temperature: Number(model.temperature)
+          })
+        })
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          throw new Error(`请求失败: ${response.status} - ${errorText}`)
+        }
+
+        const result = await response.json()
+        content = result.choices?.[0]?.message?.content || 
+                 result.choices?.[0]?.content ||
+                 result.content ||
+                 result.response ||
+                 result.output ||
+                 result.text
+
+        if (!content) {
+          throw new Error('无法从响应中获取内容')
+        }
+      } catch (error) {
+        throw new Error(`自定义API请求失败: ${error.message}`)
+      }
+    } else if (model.provider === PROVIDERS.OLLAMA) {
+      try {
+        response = await fetch(`${model.apiUrl}/api/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: model.modelId,
+            messages: [{
+              role: "user",
+              content: processedTemplate
+            }],
+            stream: false,
+            options: {
+              temperature: Number(model.temperature)
+            }
+          })
+        })
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          throw new Error(`请求失败: ${response.status} ${errorText}`)
+        }
+
+        const result = await response.json()
+        content = result.message?.content || result.response
+
+        if (!content) {
+          throw new Error('响应格式错误')
+        }
+      } catch (error) {
+        throw new Error(`Ollama请求失败: ${error.message}`)
+      }
+    } else {
+      // OpenAI 接口格式的处理
+      response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -893,67 +1224,20 @@ const sendPromptRequest = async (prompt) => {
           temperature: Number(model.temperature)
         })
       })
-      
+
+      if (!response.ok) {
+        throw new Error(`请求失败: ${response.status}`)
+      }
+
       const result = await response.json()
       content = result.choices?.[0]?.message?.content
-      
-    } else if (model.provider === PROVIDERS.GEMINI) {
-      const url = `${model.apiUrl}?key=${model.apiKey}`
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: processedTemplate
-            }]
-          }],
-          generationConfig: {
-            maxOutputTokens: Number(model.maxTokens),
-            temperature: Number(model.temperature)
-          }
-        })
-      })
-      
-      const result = await response.json()
-      content = result.candidates?.[0]?.content?.parts?.[0]?.text
-    } else if (model.provider === PROVIDERS.OLLAMA) {
-      console.log(model.apiUrl)
-      response = await fetch(model.apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: model.modelId,
-          messages: [
-            {
-              role: "user",
-              content: processedTemplate
-            }
-          ],
-          stream: false,
-          options: {
-            temperature: Number(model.temperature),
-            num_predict: Number(model.maxTokens)
-          }
-        })
-      })
-      
-      const result = await response.json()
-      content = result.message?.content
+
+      if (!content) {
+        throw new Error('响应格式错误')
+      }
     }
 
-    if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`)
-    }
-
-    if (!content) {
-      throw new Error('响应格式错误')
-    }
-    showToast('数据返回成功')
+    showToast('数据返回成功', 'success')
     
     // 创建新卡片
     const newCard = {
@@ -967,7 +1251,6 @@ const sendPromptRequest = async (prompt) => {
     if (currentScene.value) {
       currentScene.value.cards.push(newCard)
     }
-
     
     // 清理状态
     prompt.insertedContents = []
@@ -979,26 +1262,26 @@ const sendPromptRequest = async (prompt) => {
   }
 }
 
-const insertSelectedCards = () => {
-  if (!selectedPrompt.value || !canInsertSelected()) return
+// const insertSelectedCards = () => {
+//   if (!selectedPrompt.value || !canInsertSelected()) return
 
-  let resultTemplate = selectedPrompt.value.template
-  const selectedTexts = selectedCards.value.map(id =>
-    textCards.value.find(card => card.id === id)?.content
-  )
+//   let resultTemplate = selectedPrompt.value.template
+//   const selectedTexts = selectedCards.value.map(id =>
+//     textCards.value.find(card => card.id === id)?.content
+//   )
 
-  selectedTexts.forEach(text => {
-    resultTemplate = resultTemplate.replace('{{text}}', text)
-  })
+//   selectedTexts.forEach(text => {
+//     resultTemplate = resultTemplate.replace('{{text}}', text)
+//   })
 
-  textCards.value.push({
-    id: Date.now(),
-    content: resultTemplate,
-    isResult: true
-  })
+//   textCards.value.push({
+//     id: Date.now(),
+//     content: resultTemplate,
+//     isResult: true
+//   })
 
-  clearSelection()
-}
+//   clearSelection()
+// }
 
 
 // 简化的文件导入处理
@@ -1096,11 +1379,11 @@ const exportToJsonl = () => {
     .map(card => JSON.stringify({ content: card.content }))
     .join('\n')
   
-  const blob = new Blob([jsonl], { type: 'application/x-jsonl' })
+  const blob = new Blob([jsonl], { type: 'application/x-json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'cards.jsonl'
+  a.download = 'cards.json'
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -1154,7 +1437,18 @@ const insertablePrompts = computed(() => {
 
 // 模型管理方法
 const addModel = () => {
-  models.value.push(createDefaultModel())
+  const newModel = {
+    id: Date.now(),
+    name: '',
+    provider: 'custom',
+    apiUrl: '',
+    apiKey: '',
+    modelId: '',
+    maxTokens: 512,
+    temperature: 0.7,
+    availableModels: []
+  }
+  models.value.push(newModel)
 }
 
 const deleteModel = (id) => {
@@ -1165,123 +1459,103 @@ const deleteModel = (id) => {
 // 添加获取模型列表的方法
 const fetchModelList = async (model) => {
   try {
-    let response
-    let modelList = []
-    
-    if (model.provider === 'stepfun') {
-      // 阶跃星辰获取模型列表
-      response = await fetch(`${model.apiUrl}/models`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${model.apiKey}`
-        }
-      })
+    if (model.provider === 'ollama') {
+      const response = await fetch(`${model.apiUrl}/api/tags`)
       
-      const result = await response.json()
       if (!response.ok) {
-        throw new Error(result.message || `请求失败: ${response.status}`)
+        throw new Error(`请求失败: ${response.status}`)
       }
       
-      // 处理返回的模型列表
-      modelList = result.data?.map(m => ({
-        id: m.id,
-        name: m.name || m.id
-      })) || []
-      
-      console.log('获取到的模型列表:', modelList)
-    } else if (model.provider === 'mistral') {
-      // Mistral 获取模型列表
-      response = await fetch(`${model.apiUrl}/v1/models`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${model.apiKey}`
+      const result = await response.json()
+      // Ollama 返回的是一个对象数组，需要正确解析
+      return result.models.map(model => {
+        // 处理可能是字符串或对象的情况
+        if (typeof model === 'string') {
+          return {
+            id: model,
+            name: model
+          }
+        }
+        // 如果是对象格式，解析其中的信息
+        return {
+          id: model.name || model.model,
+          name: model.name || model.model,
+          digest: model.digest,
+          size: model.size,
+          modified_at: model.modified_at
         }
       })
-      
-      const result = await response.json()
-      if (!response.ok) {
-        throw new Error(result.message || `请求失败: ${response.status}`)
-      }
-      
-      // 处理返回的模型列表
-      modelList = result.data?.map(m => ({
-        id: m.id,
-        name: m.id
-      })) || []
-      
-      // 过滤掉 moderation 模型
-      modelList = modelList.filter(m => !m.id.includes('moderation'))
-      
-      console.log('获取到的 Mistral 模型列表:', modelList)
-    } else if (model.provider === 'openai') {
-      // OpenAI获取模型列表保持不变
-      // ... existing code ...
     }
-    
-    return modelList
+    // ... 其他提供商的代码 ...
   } catch (error) {
     console.error('获取模型列表失败:', error)
-    showToast('获取模型列表失败主人~: ' + error.message, 'error')
+    showToast('获取模型列表失败: ' + error.message, 'error')
     return []
   }
 }
 
-// 修改保存模型的方法
-const saveModels = async () => {
-  // 验证所有模型的基础 URL
-  const invalidModels = models.value.filter(model => !validateApiUrl(model.apiUrl))
-  if (invalidModels.length > 0) {
-    alert('请检查 API 地址格式，确保以 https:// 开头')
-    return
-  }
-  
-  try {
-    // 获取每个模型的可用模型列表
-    for (const model of models.value) {
-      if (model.provider === 'stepfun' || model.provider === 'openai') {
-        const modelList = await fetchModelList(model)
-        if (modelList.length > 0) {
-          // 如果当前选择的模型不在列表中，使用第一个可用模型
-          const isValidModel = modelList.some(m => m.id === model.modelId)
-          if (!isValidModel) {
-            model.modelId = modelList[0].id
-          }
-        }
-      }
-    }
-    
-    localStorage.setItem('aiModels', JSON.stringify(models.value))
-    showToast('保存成功主人~')
-  } catch (error) {
-    console.error('保存失败:', error)
-    showToast('保存失败主人~: ' + error.message, 'error')
-  }
-}
-
-// 修改创建默认模型的方法
+// 修改创建默认模型的方法，添加自定义类型
 const createDefaultModel = () => ({
   id: Date.now(),
   name: '',
-  apiUrl: 'https://platform.stepfun.com/v1',  // 设置默认API地址
-  modelId: '',
+  apiUrl: '',
+  modelId: '',  // 自定义类型时手动填写
   apiKey: '',
   maxTokens: 512,
   temperature: 0.7,
-  provider: 'stepfun',
-  availableModels: []
+  provider: 'custom', // 默认使用自定义类型
+  availableModels: [],
+  organizationId: ''
 })
 
-// 添加获取模型列表的按钮事件处理
+// 修改刷新模型列表的方法
 const refreshModelList = async (model) => {
   try {
+    // 自定义类型不需要验证 API Key
+    if (model.provider !== 'ollama' && model.provider !== 'custom' && !model.apiKey) {
+      throw new Error('请先填写 API Key')
+    }
+    
+    // 自定义类型必须填写模型ID
+    if (model.provider === 'custom') {
+      if (!model.modelId) {
+        throw new Error('请填写模型ID')
+      }
+      // 直接使用手动填写的模型ID
+      model.availableModels = [{
+        id: model.modelId,
+        name: model.modelId
+      }]
+      showToast('已设置自定义模型')
+      return
+    }
+
+    // 其他类型需要验证 API URL
+    if (!model.apiUrl) {
+      throw new Error('请先填写 API 地址')
+    }
+    
+    // 确保 API URL 格式正确
+    let apiUrl = model.apiUrl.trim()
+    apiUrl = apiUrl.replace(/\/$/, '')
+    
+    // Ollama 和自定义类型不需要移除 v1 路径
+    if (model.provider !== 'ollama' && model.provider !== 'custom') {
+      apiUrl = apiUrl.replace(/\/(?:api\/)?v1$/, '')
+    }
+    
+    model.apiUrl = apiUrl
+
     const modelList = await fetchModelList(model)
-    model.availableModels = modelList
-    showToast('获取模型列表成功主人~')
+    if (modelList.length > 0) {
+      model.availableModels = modelList
+      showToast('获取模型列表成功主人~')
+    } else {
+      throw new Error('未获取到任何可用模型')
+    }
   } catch (error) {
     console.error('获取模型列表失败:', error)
-    showToast('获取模型列表失败主人~: ' + error.message, 'error')
+    showToast('获取模型列表失败: ' + error.message, 'error')
   }
 }
 
@@ -1300,97 +1574,6 @@ const defaultGeminiModel = {
   apiKey: '',
   maxTokens: 2048,
   temperature: 0.7
-}
-
-// 添加默认的 Ollama 模型配置
-const defaultOllamaModel = {
-  id: 'ollama',
-  name: 'Ollama',
-  provider: PROVIDERS.OLLAMA,
-  apiUrl: 'http://localhost:11434/api/chat',  // Ollama 默认地址
-  modelId: 'llama2',  // 默认模型
-  apiKey: '',  // Ollama 本地服务不需要 API key
-  maxTokens: 512,
-  temperature: 0.7
-}
-
-// 修改默认的 Mistral 模型配置
-const defaultMistralModel = {
-  id: 'mistral',
-  name: 'Mistral AI',
-  provider: 'mistral',
-  apiUrl: 'https://api.mistral.ai',
-  apiKey: '',
-  modelId: '',
-  maxTokens: 512,
-  temperature: 0.7,
-  availableModels: []
-}
-
-// 在 onMounted 中初始化模型
-onMounted(() => {
-  // 加载保存的模型
-  const savedModels = localStorage.getItem('aiModels')
-  if (savedModels) {
-    models.value = JSON.parse(savedModels)
-  } else {
-    // 如果没有保存的模型，添加所有默认模型
-    models.value = [
-      createDefaultModel(), 
-      defaultGeminiModel, 
-      defaultOllamaModel,
-      defaultMistralModel
-    ]
-  }
-  
-  // 确保所有提示词都有必要的属性
-  prompts.value = prompts.value.map(prompt => ({
-    ...prompt,
-    insertedContents: prompt.insertedContents || [],
-    selectedModel: prompt.selectedModel || prompt.defaultModel || ''
-  }))
-
-  // 初始化场景
-  const savedScenes = localStorage.getItem('scenes')
-  if (savedScenes) {
-    scenes.value = JSON.parse(savedScenes)
-    if (scenes.value.length > 0) {
-      currentScene.value = scenes.value[0]
-    }
-  } else {
-    // 创建默认场景
-    const defaultScene = {
-      id: Date.now(),
-      name: '默认场景',
-      cards: []
-    }
-    scenes.value = [defaultScene]
-    currentScene.value = defaultScene
-  }
-
-  // 加载已保存的提示词
-  const savedPrompts = localStorage.getItem('prompts')
-  if (savedPrompts) {
-    prompts.value = JSON.parse(savedPrompts)
-  }
-
-  // 在组件挂载时加载标签
-  loadTags()
-})
-
-// 处理 API 地址输入
-const handleApiUrlInput = (event, model) => {
-  let url = event.target.value
-  // 移除末尾的 /chat/completions（如果有）
-  url = url.replace(/\/chat\/completions$/, '')
-  // 移除末尾的斜杠（如果有）
-  url = url.replace(/\/$/, '')
-  model.apiUrl = url
-}
-
-// 获取完整的 API 地址
-const getFullApiUrl = (baseUrl) => {
-  return `${baseUrl}/chat/completions`
 }
 
 // 面板宽度调整
@@ -1450,7 +1633,7 @@ const viewCardDetail = (card) => {
 }
 
 // 场景操作方法
-const createNewScene = () => {
+const createNewScene = async () => {
   const newScene = {
     id: Date.now(),
     name: `场景 ${scenes.value.length + 1}`,
@@ -1458,45 +1641,32 @@ const createNewScene = () => {
   }
   scenes.value.push(newScene)
   currentScene.value = newScene
-  saveScenes()
+  
+  // 使用新的保存方法
+  await saveImmediately()
+  showToast('新场景创建成功', 'success')
 }
 
-const switchScene = (scene) => {
-  currentScene.value = scene
-  // 确保引用更新
-  const index = scenes.value.findIndex(s => s.id === scene.id)
-  if (index !== -1) {
-    scenes.value[index] = scene
-  }
-}
-
-const deleteScene = (sceneId) => {
+const deleteScene = async (sceneId) => {
   if (!confirm('确定要删除这个场景吗？')) return
   
-  const index = scenes.value.findIndex(s => s.id === sceneId)
-  if (index !== -1) {
-    scenes.value.splice(index, 1)
-    if (currentScene.value.id === sceneId) {
-      currentScene.value = scenes.value[0]
+  try {
+    const index = scenes.value.findIndex(s => s.id === sceneId)
+    if (index !== -1) {
+      scenes.value.splice(index, 1)
+      if (currentScene.value.id === sceneId) {
+        currentScene.value = scenes.value[0]
+      }
+      
+      // 使用新的保存方法
+      await saveImmediately()
+      showToast('场景删除成功', 'success')
     }
-    saveScenes()
+  } catch (error) {
+    console.error('删除场景失败:', error)
+    showToast('删除场景失败: ' + error.message, 'error')
   }
 }
-
-// 保存场景到本地存储
-const saveScenes = () => {
-  localStorage.setItem('scenes', JSON.stringify(scenes.value))
-}
-
-// 监听场景变化并保存
-watch(
-  [scenes, currentScene],
-  () => {
-    // 深度保存场景数据
-    localStorage.setItem('scenes', JSON.stringify(scenes.value))
-  },
-  { deep: true }
-)
 
 // 添加场景名称编辑功能
 const editSceneName = (scene) => {
@@ -1506,14 +1676,6 @@ const editSceneName = (scene) => {
     saveScenes() // 保存更改
   }
 }
-
-// 保存提示词到本地存储
-const savePrompts = () => {
-  localStorage.setItem('prompts', JSON.stringify(prompts.value))
-}
-
-// 监听提示词变化并保存
-watch(() => prompts.value, savePrompts, { deep: true })
 
 // 添加标签相关的方法
 const addTag = () => {
@@ -1560,11 +1722,6 @@ const toggleTagFilter = (tagId) => {
   } else {
     selectedTags.value.splice(index, 1)
   }
-}
-
-// 保存标签到本地存储
-const saveTags = () => {
-  localStorage.setItem('tags', JSON.stringify(tags.value))
 }
 
 // 修改提示框实现
@@ -1659,66 +1816,102 @@ const deletePrompt = (promptId) => {
   }
 }
 
-// 添加视图切换状态
-const currentView = ref('main')
-
 // 修改场景加载方法
 const loadScenes = () => {
-  const savedScenes = localStorage.getItem('scenes')
-  if (savedScenes) {
-    scenes.value = JSON.parse(savedScenes)
-    if (scenes.value.length > 0) {
-      currentScene.value = scenes.value[0]
+  try {
+    // 优先从本地存储加载
+    const savedScenes = localStorage.getItem('scenes')
+    const savedPrompts = localStorage.getItem('prompts')
+    const savedTags = localStorage.getItem('tags')
+    const savedModels = localStorage.getItem('aiModels')
+
+    console.log('Loading saved scenes:', savedScenes) // 调试用
+
+    // 只在没有保存的场景数据时创建默认场景
+    if (!savedScenes) {
+      const defaultScene = {
+        id: Date.now(),
+        name: '默认场景',
+        cards: []
+      }
+      scenes.value = [defaultScene]
+      currentScene.value = defaultScene
+      
+      // 保存默认场景到本地存储
+      localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    } else {
+      // 加载保存的场景数据
+      const parsedScenes = JSON.parse(savedScenes)
+      scenes.value = parsedScenes.map(scene => ({
+        ...scene,
+        cards: Array.isArray(scene.cards) ? scene.cards : []
+      }))
+      
+      // 恢复之前的当前场景
+      if (scenes.value.length > 0) {
+        const savedCurrentSceneId = localStorage.getItem('currentSceneId')
+        if (savedCurrentSceneId) {
+          currentScene.value = scenes.value.find(s => s.id === parseInt(savedCurrentSceneId))
+        }
+        // 如果找不到保存的当前场景，使用第一个场景
+        if (!currentScene.value) {
+          currentScene.value = scenes.value[0]
+        }
+      }
     }
-  } else {
-    // 创建默认场景
-    const defaultScene = {
-      id: Date.now(),
-      name: '默认场景',
-      cards: []
-    }
-    scenes.value = [defaultScene]
-    currentScene.value = defaultScene
-    // 立即保存默认场景
-    localStorage.setItem('scenes', JSON.stringify(scenes.value))
+
+    // 加载其他数据
+    if (savedPrompts) prompts.value = JSON.parse(savedPrompts)
+    if (savedTags) tags.value = JSON.parse(savedTags)
+    if (savedModels) models.value = JSON.parse(savedModels)
+
+    // 打印加载后的数据（调试用）
+    console.log('Loaded scenes:', scenes.value)
+    console.log('Current scene:', currentScene.value)
+
+    // 异步同步到后端
+    syncToBackend()
+  } catch (error) {
+    console.error('加载场景失败:', error)
+    showToast('加载场景失败: ' + error.message, 'error')
   }
 }
 
 // 修改处理移动卡片的方法
 const handleMoveCard = ({ card, sourceSceneId, targetSceneId }) => {
-  //console.log('Moving card:', { card, sourceSceneId, targetSceneId }) // 调试日志
-
-  // 找到源场景和目标场景
-  const sourceSceneIndex = scenes.value.findIndex(s => s.id === sourceSceneId)
-  const targetSceneIndex = scenes.value.findIndex(s => s.id === targetSceneId)
-  
-  if (sourceSceneIndex === -1 || targetSceneIndex === -1) {
-    console.error('Scene not found')
-    return
+  try {
+    const sourceSceneIndex = scenes.value.findIndex(s => s.id === sourceSceneId)
+    const targetSceneIndex = scenes.value.findIndex(s => s.id === targetSceneId)
+    
+    if (sourceSceneIndex === -1 || targetSceneIndex === -1) {
+      throw new Error('场景不存在')
+    }
+    
+    // 创建新的场景数组以保持响应性
+    const newScenes = [...scenes.value]
+    
+    // 从源场景移除卡片
+    newScenes[sourceSceneIndex].cards = newScenes[sourceSceneIndex].cards.filter(c => c.id !== card.id)
+    
+    // 添加到目标场景
+    newScenes[targetSceneIndex].cards.push({ ...card })
+    
+    // 更新场景数组
+    scenes.value = newScenes
+    
+    // 如果当前场景是源场景，更新 currentScene
+    if (currentScene.value?.id === sourceSceneId) {
+      currentScene.value = newScenes[sourceSceneIndex]
+    }
+    
+    // 保存更改
+    saveScenes()
+    
+    showToast(`已将卡片移动到「${newScenes[targetSceneIndex].name}」`)
+  } catch (error) {
+    console.error('移动卡片失败:', error)
+    showToast('移动卡片失败: ' + error.message, 'error')
   }
-  
-  // 创建新的场景数组以保持响应性
-  const newScenes = [...scenes.value]
-  
-  // 从源场景移除卡片
-  newScenes[sourceSceneIndex].cards = newScenes[sourceSceneIndex].cards.filter(c => c.id !== card.id)
-  
-  // 添加到目标场景
-  newScenes[targetSceneIndex].cards.push({ ...card })
-  
-  // 更新场景数组
-  scenes.value = newScenes
-  
-  // 如果当前场景是源场景，更新 currentScene
-  if (currentScene.value?.id === sourceSceneId) {
-    currentScene.value = newScenes[sourceSceneIndex]
-  }
-  
-  // 保存到本地存储
-  localStorage.setItem('scenes', JSON.stringify(scenes.value))
-  
-  // 显示成功提示
-  showToast(`已将卡片移动到「${newScenes[targetSceneIndex].name}」`)
 }
 
 // 修改提供的移动到场景方法
@@ -1773,28 +1966,35 @@ const handleMergeCards = (cards) => {
 
 // 修改创建新卡片的逻辑
 const createNewCard = () => {
+  if (!currentScene.value) return
+  
   const newCard = {
     id: Date.now(),
-    content: '',
     title: '新建卡片',
-    height: '200px',
-    tags: [],
-    insertedContents: [] // 添加插入内容数组
+    content: '',
+    height: '120px',
+    tags: []
   }
   
-  if (currentScene.value) {
-    currentScene.value.cards.push(newCard)
+  if (!currentScene.value.cards) {
+    currentScene.value.cards = []
   }
+  
+  currentScene.value.cards.push(newCard)
+  updateScene(currentScene.value)
 }
 
 // 修改更新卡片的方法
 const updateCard = (card) => {
-  if (!currentScene.value) return
+  if (!currentScene.value || !currentScene.value.cards) return
   
-  const index = currentScene.value.cards.findIndex(c => c.id === card.id)
-  if (index !== -1) {
-    currentScene.value.cards[index] = { ...card }
-    saveScenes() // 保存更新
+  const cardIndex = currentScene.value.cards.findIndex(c => c.id === card.id)
+  if (cardIndex !== -1) {
+    // 更新卡片
+    currentScene.value.cards[cardIndex] = JSON.parse(JSON.stringify(card))
+    
+    // 更新场景
+    updateScene(currentScene.value)
   }
 }
 
@@ -1835,8 +2035,6 @@ const handleAddToNotepad = (cardData) => {
   })
 }
 
-const notepadInitialContent = ref('')
-
 // 修改删除场景的方法
 const handleDeleteScene = async (sceneId) => {
   try {
@@ -1869,6 +2067,241 @@ const handleDeleteScene = async (sceneId) => {
   } catch (error) {
     console.error('删除场景失败:', error)
     showToast(error.message, 'error')
+  }
+}
+
+// 添加保存当前场景ID的逻辑
+watch(currentScene, (newScene) => {
+  if (newScene) {
+    localStorage.setItem('currentSceneId', newScene.id.toString())
+  }
+}, { deep: true })
+
+// 修改关键操作的保存方法
+const deleteCard = async (id) => {
+  try {
+    if (!currentScene.value) return
+
+    // 从当前场景中删除卡片
+    currentScene.value.cards = currentScene.value.cards.filter(card => card.id !== id)
+
+    // 更新scenes数组中的场景
+    const sceneIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
+    if (sceneIndex !== -1) {
+      scenes.value[sceneIndex] = {
+        ...currentScene.value,
+        cards: [...currentScene.value.cards]
+      }
+    }
+
+    // 关闭卡片详情模态框
+    if (selectedCard.value?.id === id) {
+      showCardDetailModal.value = false
+      selectedCard.value = null
+    }
+
+    // 保存到localStorage
+    localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    
+    showToast('卡片删除成功', 'success')
+  } catch (error) {
+    console.error('删除卡片失败:', error)
+    showToast('删除卡片失败: ' + error.message, 'error')
+  }
+}
+
+// 修改数据监听，增加即时性
+watch(
+  [scenes, currentScene],
+  async () => {
+    await saveImmediately() // 场景变化立即保存
+  },
+  { deep: true }
+)
+
+// 其他数据变化使用防抖同步
+watch(
+  [prompts, tags, models, selectedTags, currentView],
+  () => {
+    syncData()
+  },
+  { deep: true }
+)
+
+// 减少自动同步间隔到30秒
+onMounted(async () => {
+  await loadAllData()
+  setInterval(syncData, 30000) // 30秒自动同步一次
+})
+
+// 修改保存卡片的方法
+const saveCard = async (card) => {
+  try {
+    if (!currentScene.value) {
+      throw new Error('没有选择场景')
+    }
+
+    // 确保卡片有完整的数据结构
+    const processedCard = {
+      id: card.id || Date.now(),
+      title: card.title || '',
+      content: card.content || '',
+      height: card.height || '120px',
+      tags: Array.isArray(card.tags) ? card.tags : []
+    }
+
+    // 更新或添加卡片到当前场景
+    const cardIndex = currentScene.value.cards.findIndex(c => c.id === processedCard.id)
+    if (cardIndex !== -1) {
+      // 更新现有卡片
+      currentScene.value.cards[cardIndex] = processedCard
+    } else {
+      // 添加新卡片
+      currentScene.value.cards.push(processedCard)
+    }
+
+    // 更新scenes数组中的场景
+    const sceneIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
+    if (sceneIndex !== -1) {
+      scenes.value[sceneIndex] = {
+        ...currentScene.value,
+        cards: [...currentScene.value.cards]
+      }
+    }
+
+    // 保存到localStorage
+    localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    localStorage.setItem('currentSceneId', currentScene.value.id.toString())
+
+    showToast('卡片保存成功', 'success')
+
+  } catch (error) {
+    console.error('保存卡片失败:', error)
+    showToast('保存卡片失败: ' + error.message, 'error')
+  }
+}
+
+// 修改卡片内容更新方法
+const updateCardContent = async (card, newContent) => {
+  try {
+    if (!currentScene.value) return
+
+    // 更新卡片内容
+    const cardIndex = currentScene.value.cards.findIndex(c => c.id === card.id)
+    if (cardIndex !== -1) {
+      currentScene.value.cards[cardIndex] = {
+        ...currentScene.value.cards[cardIndex],
+        content: newContent
+      }
+
+      // 更新scenes数组中的场景
+      const sceneIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
+      if (sceneIndex !== -1) {
+        scenes.value[sceneIndex] = {
+          ...currentScene.value,
+          cards: [...currentScene.value.cards]
+        }
+      }
+
+      // 保存到localStorage
+      localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    }
+  } catch (error) {
+    console.error('更新卡片内容失败:', error)
+    showToast('更新卡片内容失败: ' + error.message, 'error')
+  }
+}
+
+// 修改卡片标题更新方法
+const updateCardTitle = async (card, newTitle) => {
+  try {
+    if (!currentScene.value) return
+
+    // 更新卡片标题
+    const cardIndex = currentScene.value.cards.findIndex(c => c.id === card.id)
+    if (cardIndex !== -1) {
+      currentScene.value.cards[cardIndex] = {
+        ...currentScene.value.cards[cardIndex],
+        title: newTitle
+      }
+
+      // 更新scenes数组中的场景
+      const sceneIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
+      if (sceneIndex !== -1) {
+        scenes.value[sceneIndex] = {
+          ...currentScene.value,
+          cards: [...currentScene.value.cards]
+        }
+      }
+
+      // 保存到localStorage
+      localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    }
+  } catch (error) {
+    console.error('更新卡片标题失败:', error)
+    showToast('更新卡片标题失败: ' + error.message, 'error')
+  }
+}
+
+// 修改卡片标签更新方法
+const updateCardTags = async (card, newTags) => {
+  try {
+    if (!currentScene.value) return
+
+    // 更新卡片标签
+    const cardIndex = currentScene.value.cards.findIndex(c => c.id === card.id)
+    if (cardIndex !== -1) {
+      currentScene.value.cards[cardIndex] = {
+        ...currentScene.value.cards[cardIndex],
+        tags: newTags
+      }
+
+      // 更新scenes数组中的场景
+      const sceneIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
+      if (sceneIndex !== -1) {
+        scenes.value[sceneIndex] = {
+          ...currentScene.value,
+          cards: [...currentScene.value.cards]
+        }
+      }
+
+      // 保存到localStorage
+      localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    }
+  } catch (error) {
+    console.error('更新卡片标签失败:', error)
+    showToast('更新卡片标签失败: ' + error.message, 'error')
+  }
+}
+
+// 修改卡片高度更新方法
+const updateCardHeight = async (card, newHeight) => {
+  try {
+    if (!currentScene.value) return
+
+    // 更新卡片高度
+    const cardIndex = currentScene.value.cards.findIndex(c => c.id === card.id)
+    if (cardIndex !== -1) {
+      currentScene.value.cards[cardIndex] = {
+        ...currentScene.value.cards[cardIndex],
+        height: newHeight
+      }
+
+      // 更新scenes数组中的场景
+      const sceneIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
+      if (sceneIndex !== -1) {
+        scenes.value[sceneIndex] = {
+          ...currentScene.value,
+          cards: [...currentScene.value.cards]
+        }
+      }
+
+      // 保存到localStorage
+      localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    }
+  } catch (error) {
+    console.error('更新卡片高度失败:', error)
+    showToast('更新卡片高度失败: ' + error.message, 'error')
   }
 }
 </script>
@@ -3401,5 +3834,52 @@ textarea.template-input {
 
 .custom-checkbox:disabled + .checkbox-text {
   color: #999;
+}
+
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 12px 24px;
+  border-radius: 4px;
+  color: white;
+  font-size: 14px;
+  z-index: 9999;
+  animation: slideIn 0.3s ease;
+}
+
+.toast.info {
+  background-color: #2196f3;
+}
+
+.toast.error {
+  background-color: #f44336;
+}
+
+.toast.success {
+  background-color: #4caf50;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* 添加样式以更好地显示模型信息 */
+.model-select {
+  font-family: monospace;
+  padding: 8px;
+  min-width: 200px;
+}
+
+.model-select option {
+  padding: 4px;
+  font-family: monospace;
 }
 </style> 

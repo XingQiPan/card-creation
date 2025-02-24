@@ -61,8 +61,10 @@ npm run dev
 
 - API 地址配置：
   - Gemini API: `https://generativelanguage.googleapis.com/v1beta/models/{模型名称}:generateContent`
-  - OpenAI API: 自动附加 `/chat/completions`
-  - Ollama API: `http://localhost:11434/api/chat`
+  - OpenAI API: 自动附加 `/chat/completions` 符合openai格式都可
+  - Ollama API: `http://localhost:11434` 拉取模型，拉取后选择自己想要的模型
+  - custom API: 自定义API，请确保API地址正确（完整），填入对应api模型
+  - 阶跃星辰 API: 拉取选择对应模型(感谢IssaCic0贡献)
   - 请确保 Ollama 服务已正确启动
 - 关键词标签：使用关键词标签的卡片内容会在提示词中被检测并自动注入相关上下文
 - 卡片关联：关联的卡片内容会在插入提示词时自动合并
@@ -78,6 +80,10 @@ npm run dev
 3. 提交改动 (`git commit -m 'Add some AmazingFeature'`)
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 开启 Pull Request
+
+### 贡献列表
+
+- [IssaCic0](https://github.com/IssaCic0)
 
 ## 📧 联系方式
 

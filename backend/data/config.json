@@ -362,16 +362,61 @@
       "provider": "ollama",
       "apiUrl": "http://localhost:11434",
       "apiKey": "1",
-      "modelId": "sailor2:1b",
+      "modelId": {
+        "name": "sailor2:1b",
+        "model": "sailor2:1b",
+        "modified_at": "2025-02-20T21:13:06.7850854+08:00",
+        "size": 1056200558,
+        "digest": "7b8c8f58ae999a7ae3f3788ee1bcd4b03ffad0169cdc2ec45058a9da2bfdedaf",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "qwen2",
+          "families": [
+            "qwen2"
+          ],
+          "parameter_size": "988.06M",
+          "quantization_level": "Q8_0"
+        }
+      },
       "maxTokens": 2048,
       "temperature": 0.7,
       "availableModels": [
         {
-          "id": "sailor2:1b",
-          "name": "sailor2:1b",
-          "digest": "7b8c8f58ae999a7ae3f3788ee1bcd4b03ffad0169cdc2ec45058a9da2bfdedaf",
-          "size": 1056200558,
-          "modified_at": "2025-02-20T21:13:06.7850854+08:00"
+          "id": {
+            "name": "sailor2:1b",
+            "model": "sailor2:1b",
+            "modified_at": "2025-02-20T21:13:06.7850854+08:00",
+            "size": 1056200558,
+            "digest": "7b8c8f58ae999a7ae3f3788ee1bcd4b03ffad0169cdc2ec45058a9da2bfdedaf",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "qwen2",
+              "families": [
+                "qwen2"
+              ],
+              "parameter_size": "988.06M",
+              "quantization_level": "Q8_0"
+            }
+          },
+          "name": {
+            "name": "sailor2:1b",
+            "model": "sailor2:1b",
+            "modified_at": "2025-02-20T21:13:06.7850854+08:00",
+            "size": 1056200558,
+            "digest": "7b8c8f58ae999a7ae3f3788ee1bcd4b03ffad0169cdc2ec45058a9da2bfdedaf",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "qwen2",
+              "families": [
+                "qwen2"
+              ],
+              "parameter_size": "988.06M",
+              "quantization_level": "Q8_0"
+            }
+          }
         }
       ]
     },

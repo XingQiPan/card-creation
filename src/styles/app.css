@@ -1671,3 +1671,266 @@
   background: #5058cc;
   transform: translateY(-1px);
 }
+
+/* 提示词卡片样式优化 */
+.prompt-item {
+  background: white;
+  border: 1px solid #eee;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.prompt-item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+/* 可插入状态样式 */
+.prompt-item.can-insert {
+  border-color: #646cff;
+  background: linear-gradient(to right, rgba(100, 108, 255, 0.02), rgba(100, 108, 255, 0.05));
+}
+
+.prompt-item.can-insert::before {
+  content: '可插入';
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 12px;
+  color: #646cff;
+  background: rgba(100, 108, 255, 0.1);
+  padding: 4px 8px;
+  border-radius: 12px;
+}
+
+/* 已有内容状态样式 */
+.prompt-item.has-content {
+  border-color: #10b981;
+  background: linear-gradient(to right, rgba(16, 185, 129, 0.02), rgba(16, 185, 129, 0.05));
+}
+
+/* 插入内容显示区域 */
+.inserted-contents {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  border: 1px dashed #ddd;
+}
+
+.inserted-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background: white;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  border: 1px solid #eee;
+  transition: all 0.2s ease;
+}
+
+.inserted-content:hover {
+  border-color: #646cff;
+  background: rgba(100, 108, 255, 0.02);
+}
+
+.inserted-content:last-child {
+  margin-bottom: 0;
+}
+
+.inserted-content button {
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.inserted-content button:hover {
+  color: #dc3545;
+  background: rgba(220, 53, 69, 0.1);
+}
+
+/* 准备插入状态样式 */
+.prompt-item.preparing-insert {
+  border-style: dashed;
+  border-color: #646cff;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(100, 108, 255, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(100, 108, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(100, 108, 255, 0);
+  }
+}
+
+/* 提示词内容样式优化 */
+.prompt-content {
+  margin-bottom: 16px;
+}
+
+.prompt-content h3 {
+  margin: 0 0 12px 0;
+  color: #333;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.template-preview {
+  color: #666;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.template-preview:hover {
+  background: #f0f0f0;
+}
+
+.prompt-info {
+  font-size: 13px;
+  color: #666;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 插入数量标识 */
+.insert-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(100, 108, 255, 0.1);
+  color: #646cff;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.insert-count i {
+  font-size: 12px;
+}
+
+/* Add styles for the dual prompt input */
+.prompt-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.prompt-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prompt-input-group label {
+  font-weight: 500;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prompt-input-group label i {
+  color: #666;
+  font-size: 14px;
+  cursor: help;
+}
+
+.system-prompt-input,
+.user-prompt-input {
+  width: 100%;
+  min-height: 100px;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.system-prompt-input:focus,
+.user-prompt-input:focus {
+  outline: none;
+  border-color: #646cff;
+  box-shadow: 0 0 0 3px rgba(100, 108, 255, 0.1);
+}
+
+
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.close-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.cancel-btn {
+  background: #f3f4f6;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.save-btn {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}

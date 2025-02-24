@@ -49,14 +49,14 @@
               <div class="prompt-content">
                 <h3>{{ prompt.title }}</h3>
                 <div class="template-preview" @click="showPromptDetail(prompt)">
-                  {{ truncateText(prompt.template, 200) }}
-                  <span v-if="prompt.template.length > 200" class="show-more" style="color: #999;">
+                  {{ truncateText(prompt.userPrompt, 200) }}
+                  <span v-if="prompt.userPrompt.length > 200" class="show-more" style="color: #999;">
                     点击查看更多...
                   </span>
                 </div>
                 <div class="prompt-info">
                   <template v-if="canInsertText(prompt)">
-                    <span>可插入数量: {{ getInsertCount(prompt.template) }}</span>
+                    <span>可插入数量: {{ getInsertCount(prompt.userPrompt) }}</span>
                     <div v-if="prompt.insertedContents?.length" class="inserted-contents">
                       <div v-for="(content, index) in prompt.insertedContents" 
                            :key="index" 
@@ -260,8 +260,10 @@
               class="prompt-item"
               @click="selectPromptAndInsert(prompt)"
             >
-              <h4>{{ prompt.title }}</h4>
-              <p class="prompt-template">{{ truncateText(prompt.template, 100) }}</p>
+              <h4>{{ prompt.title || '未命名提示词' }}</h4>
+              <p class="prompt-template">
+                {{ prompt.userPrompt ? truncateText(prompt.userPrompt, 100) : '无内容' }}
+              </p>
             </div>
           </div>
           <div class="modal-actions">
@@ -272,50 +274,73 @@
     </Teleport>
 
     <!-- 提示词编辑模态框 -->
-    <div v-if="showPromptModal" class="modal">
+    <div v-if="showPromptModal" class="modal" @click.self="closePromptModal">
       <div class="modal-content">
-        <h3>{{ editingPrompt ? '编辑提示词' : '新建提示词' }}</h3>
-        <div class="form-group">
-          <label>标题</label>
-          <input v-model="promptForm.title" placeholder="输入标题" />
+        <div class="modal-header">
+          <h3>{{ editingPrompt ? '编辑提示词' : '新建提示词' }}</h3>
+          <button @click="closePromptModal" class="close-btn">
+            <i class="fas fa-times"></i>
+          </button>
         </div>
-        <div class="form-group">
-          <label>模板 (使用 {{text}} 表示文本插入位置)</label>
-          <textarea 
-            v-model="promptForm.template" 
-            placeholder="输入提示词模板"
-            class="template-input"
-          ></textarea>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>标题</label>
+            <input v-model="promptForm.title" placeholder="输入提示词标题">
+          </div>
+          <div class="prompt-inputs">
+            <div class="prompt-input-group">
+              <label>
+                系统提示词
+                <i class="fas fa-info-circle" title="设置AI助手的角色和行为准则"></i>
+              </label>
+              <textarea
+                v-model="promptForm.systemPrompt"
+                class="system-prompt-input"
+                placeholder="输入系统提示词，用于设置AI助手的角色和行为准则..."
+              ></textarea>
+            </div>
+            <div class="prompt-input-group">
+              <label>
+                用户提示词
+                <i class="fas fa-info-circle" title="使用{{text}}作为插入内容的占位符"></i>
+              </label>
+              <textarea
+                v-model="promptForm.userPrompt"
+                class="user-prompt-input"
+                placeholder="输入用户提示词，使用{{text}}作为插入内容的占位符..."
+              ></textarea>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>默认模型</label>
+            <select v-model="promptForm.defaultModel">
+              <option value="">选择默认模型</option>
+              <option 
+                v-for="model in models" 
+                :key="model.id" 
+                :value="model.id"
+              >
+                {{ model.name }}
+              </option>
+            </select>
+          </div>
+          <div class="checkbox-group">
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                v-model="promptForm.detectKeywords"
+                class="custom-checkbox"
+              />
+              <span class="checkbox-text">检测关键词</span>
+              <span class="checkbox-description">
+                启用后将自动检测提示词中的关键词并添加相关上下文
+              </span>
+            </label>
+          </div>
         </div>
-        <div class="form-group">
-          <label>默认模型</label>
-          <select v-model="promptForm.defaultModel">
-            <option value="">选择默认模型</option>
-            <option 
-              v-for="model in models" 
-              :key="model.id" 
-              :value="model.id"
-            >
-              {{ model.name }}
-            </option>
-          </select>
-        </div>
-        <div class="checkbox-group">
-          <label class="checkbox-label">
-            <input 
-              type="checkbox" 
-              v-model="promptForm.detectKeywords"
-              class="custom-checkbox"
-            />
-            <span class="checkbox-text">检测关键词</span>
-            <span class="checkbox-description">
-              启用后将自动检测提示词中的关键词并添加相关上下文
-            </span>
-          </label>
-        </div>
-        <div class="modal-actions">
-          <button @click="showPromptModal = false">取消</button>
-          <button @click="savePrompt">保存</button>
+        <div class="modal-footer">
+          <button @click="closePromptModal" class="cancel-btn">取消</button>
+          <button @click="savePrompt" class="save-btn">保存</button>
         </div>
       </div>
     </div>
@@ -445,7 +470,7 @@
           </button>
         </div>
         <div class="modal-body">
-          <pre class="template-detail">{{ selectedPrompt.template }}</pre>
+          <pre class="template-detail">{{ selectedPrompt.userPrompt }}</pre>
         </div>
       </div>
     </div>
@@ -586,10 +611,13 @@ const editingPrompt = ref(null)
 const currentEditingCard = ref(null)
 const drag = ref(false)
 const notepadInitialContent = ref('')
+const dataLoaded = ref(false) // 添加这一行
 const promptForm = ref({
   title: '',
-  template: '',
-  apiEndpoint: ''
+  systemPrompt: '',
+  userPrompt: '',
+  defaultModel: '',
+  detectKeywords: true
 })
 const showSettings = ref(false)
 const models = ref([
@@ -823,68 +851,108 @@ const saveImmediately = async () => {
 // 修改数据加载逻辑 - 优先使用本地数据
 const loadAllData = async () => {
   try {
-    // 1. 先从本地存储加载
+    dataLoaded.value = false // 开始加载时设置为 false
+    
+    // 从本地存储加载
+    const localPrompts = localStorage.getItem('prompts')
+    if (localPrompts) {
+      try {
+        const parsedPrompts = JSON.parse(localPrompts)
+        prompts.value = Array.isArray(parsedPrompts) ? parsedPrompts.map(prompt => ({
+          ...prompt,
+          systemPrompt: prompt.systemPrompt || '',
+          userPrompt: prompt.userPrompt || prompt.template || '',
+          insertedContents: Array.isArray(prompt.insertedContents) ? prompt.insertedContents : [],
+          detectKeywords: prompt.detectKeywords ?? true
+        })) : []
+      } catch (e) {
+        console.error('解析提示词数据失败:', e)
+        prompts.value = []
+      }
+    }
+
     const localData = {
       scenes: dataService.loadFromLocalStorage('scenes'),
-      prompts: dataService.loadFromLocalStorage('prompts'),
       tags: dataService.loadFromLocalStorage('tags'),
       config: dataService.loadFromLocalStorage('config')
     }
 
-    // 2. 如果本地有数据，直接使用本地数据
-    if (localData.scenes?.length || localData.prompts?.length || localData.tags?.length) {
-      initializeData(localData)
-      return
-    }
+    // 初始化数据
+    await initializeData(localData)
+    dataLoaded.value = true
 
-    // 3. 只有在本地没有数据时，才从后端加载
-    try {
-      const response = await fetch(`${API_BASE_URL}/get-all-data`)
-      if (!response.ok) {
-        throw new Error(`加载失败: ${response.status}`)
-      }
-      const { data: backendData } = await response.json()
-      initializeData(backendData)
-    } catch (error) {
-      console.error('从后端加载数据失败:', error)
-      // 如果后端加载失败，创建默认数据
-      initializeData({
-        scenes: [createDefaultScene()],
-        prompts: [],
-        tags: [],
-        config: {
-          models: [],
-          notepadContent: '',
-          currentSceneId: null,
-          selectedTags: [],
-          currentView: 'main'
-        }
-      })
-    }
   } catch (error) {
     console.error('数据加载失败:', error)
-    showToast('数据加载失败: ' + error.message, 'error')
+    showToast('数据加载失败', 'error')
+    // 初始化默认数据
+    await initializeData({
+      scenes: [],
+      tags: [],
+      config: {}
+    })
+    prompts.value = []
+    dataLoaded.value = true
   }
 }
 
 // 初始化数据的方法保持不变
 const initializeData = (data) => {
-  // 初始化场景
-  if (data.scenes?.length) {
-    scenes.value = data.scenes
-    currentScene.value = scenes.value.find(s => s.id === data.config?.currentSceneId) || scenes.value[0]
-  } else {
-    const defaultScene = createDefaultScene()
+  try {
+    // 初始化场景
+    if (Array.isArray(data.scenes) && data.scenes.length) {
+      scenes.value = data.scenes.map(scene => ({
+        ...scene,
+        cards: Array.isArray(scene.cards) ? scene.cards : []
+      }))
+      // 设置当前场景
+      if (data.config?.currentSceneId) {
+        currentScene.value = scenes.value.find(s => s.id === data.config.currentSceneId)
+      }
+      if (!currentScene.value) {
+        currentScene.value = scenes.value[0]
+      }
+    } else {
+      // 创建默认场景
+      const defaultScene = {
+        id: Date.now(),
+        name: '默认场景',
+        cards: []
+      }
+      scenes.value = [defaultScene]
+      currentScene.value = defaultScene
+    }
+
+    // 初始化提示词
+    if (Array.isArray(data.prompts)) {
+      prompts.value = data.prompts.map(prompt => ({
+        ...prompt,
+        userPrompt: prompt.userPrompt || prompt.template || '', // 兼容旧数据
+        systemPrompt: prompt.systemPrompt || '',
+        insertedContents: Array.isArray(prompt.insertedContents) ? prompt.insertedContents : []
+      }))
+    } else {
+      prompts.value = []
+    }
+
+    // 初始化其他数据
+    if (Array.isArray(data.tags)) tags.value = data.tags
+    if (Array.isArray(data.config?.models)) models.value = data.config.models
+    if (Array.isArray(data.config?.selectedTags)) selectedTags.value = data.config.selectedTags
+    if (data.config?.currentView) currentView.value = data.config.currentView
+    if (data.config?.notepadContent) notepadInitialContent.value = data.config.notepadContent
+  } catch (error) {
+    console.error('数据初始化错误:', error)
+    // 创建默认数据
+    const defaultScene = {
+      id: Date.now(),
+      name: '默认场景',
+      cards: []
+    }
     scenes.value = [defaultScene]
     currentScene.value = defaultScene
+    prompts.value = []
+    tags.value = []
   }
-
-  // 初始化其他数据
-  if (data.prompts) prompts.value = data.prompts
-  if (data.tags) tags.value = data.tags
-  if (data.config?.models) models.value = data.config.models
-  if (data.config?.selectedTags) selectedTags.value = data.config.selectedTags
-  if (data.config?.currentView) currentView.value = data.config.currentView
 }
 
 // 5. 优化场景更新方法
@@ -966,23 +1034,27 @@ const saveToLocalStorage = () => {
 
 // 修改场景切换方法
 const switchScene = (scene) => {
-  if (!scene) return
+  if (!scene?.id) return
   
-  // 保存当前场景的更改
-  const currentIndex = scenes.value.findIndex(s => s.id === currentScene.value?.id)
-  if (currentIndex !== -1) {
-    scenes.value[currentIndex] = JSON.parse(JSON.stringify(currentScene.value))
+  try {
+    // 保存当前场景的更改
+    if (currentScene.value?.id) {
+      const currentIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
+      if (currentIndex !== -1) {
+        scenes.value[currentIndex] = { ...currentScene.value }
+      }
+    }
+    
+    // 切换到新场景
+    const targetScene = scenes.value.find(s => s.id === scene.id)
+    if (targetScene) {
+      currentScene.value = { ...targetScene }
+      saveImmediately() // 立即保存更改
+    }
+  } catch (error) {
+    console.error('场景切换错误:', error)
+    showToast('场景切换失败', 'error')
   }
-  
-  // 切换到新场景
-  const targetScene = scenes.value.find(s => s.id === scene.id)
-  if (targetScene) {
-    currentScene.value = JSON.parse(JSON.stringify(targetScene))
-    localStorage.setItem('currentSceneId', targetScene.id.toString())
-  }
-  
-  // 保存更改
-  saveToLocalStorage()
 }
 
 // 修改场景更新方法，确保正确保存卡片数据
@@ -1038,16 +1110,18 @@ watch(
 
 // 工具函数
 const getInsertCount = (template) => {
+  if (typeof template !== 'string') return 0
   return (template.match(/{{text}}/g) || []).length
 }
 
 const canInsertText = (prompt) => {
-  return getInsertCount(prompt.template) > 0
+  if (!prompt?.userPrompt) return false
+  return getInsertCount(prompt.userPrompt) > 0
 }
 
 const canSendRequest = (prompt) => {
-  // 只要有模板内容就可以发送
-  return prompt.template.trim().length > 0
+  if (!prompt?.userPrompt) return false
+  return prompt.userPrompt.trim().length > 0
 }
 
 // const getRemainingInserts = () => {
@@ -1062,12 +1136,12 @@ const canInsertSelected = () => {
 // 提示词相关方法
 const createNewPrompt = () => {
   showPromptModal.value = true
+  editingPrompt.value = null // 确保清空编辑状态
   promptForm.value = {
     title: '',
-    template: '',
+    systemPrompt: '', // 初始化系统提示词
+    userPrompt: '', 
     defaultModel: '',
-    insertedContents: [],
-    selectedModel: '',
     detectKeywords: true  // 默认启用关键词检测
   }
 }
@@ -1078,35 +1152,102 @@ const editPrompt = (prompt) => {
   showPromptModal.value = true
 }
 
+// 修改关闭模态框的方法
+const closePromptModal = () => {
+  showPromptModal.value = false
+  editingPrompt.value = null
+  // 重置表单
+  promptForm.value = {
+    title: '',
+    systemPrompt: '',
+    userPrompt: '{{text}}',
+    defaultModel: '',
+    detectKeywords: true
+  }
+}
+
+// 修改保存提示词的方法
 const savePrompt = () => {
-  if (!promptForm.value.title || !promptForm.value.template) {
-    alert('请填写标题和模板')
+  if (!promptForm.value.title || !promptForm.value.userPrompt) {
+    showToast('请填写标题和用户提示词', 'error')
     return
   }
 
-  const newPrompt = {
-    id: editingPrompt.value?.id || Date.now(),
-    title: promptForm.value.title,
-    template: promptForm.value.template,
-    defaultModel: promptForm.value.defaultModel,
-    insertedContents: [],
-    selectedModel: promptForm.value.defaultModel,
-    detectKeywords: promptForm.value.detectKeywords  // 保存检测关键词设置
-  }
-
-  if (editingPrompt.value) {
-    const index = prompts.value.findIndex(p => p.id === editingPrompt.value.id)
-    if (index !== -1) {
-      prompts.value[index] = newPrompt
+  try {
+    const newPrompt = {
+      id: editingPrompt.value?.id || Date.now(),
+      title: promptForm.value.title,
+      systemPrompt: promptForm.value.systemPrompt || '',
+      userPrompt: promptForm.value.userPrompt,
+      defaultModel: promptForm.value.defaultModel || '',
+      insertedContents: editingPrompt.value?.insertedContents || [],
+      selectedModel: promptForm.value.defaultModel || '',
+      detectKeywords: promptForm.value.detectKeywords
     }
-  } else {
-    prompts.value.push(newPrompt)
+
+    if (editingPrompt.value) {
+      const index = prompts.value.findIndex(p => p.id === editingPrompt.value.id)
+      if (index !== -1) {
+        prompts.value[index] = newPrompt
+      }
+    } else {
+      prompts.value.push(newPrompt)
+    }
+
+    // 保存到本地存储
+    localStorage.setItem('prompts', JSON.stringify(prompts.value))
+    
+    closePromptModal() // 使用closePromptModal方法关闭
+    showToast('提示词保存成功', 'success')
+  } catch (error) {
+    console.error('保存提示词失败:', error)
+    showToast('保存提示词失败: ' + error.message, 'error')
+  }
+}
+
+// 修改插入文本的方法
+const insertSelectedText = (prompt) => {
+  if (!selectedCards.value.length) {
+    showToast('请先选择要处理的卡片', 'error')
+    return
   }
 
-  showPromptModal.value = false
-  editingPrompt.value = null
-  promptForm.value = {}
+  const selectedTexts = selectedCards.value.map(card => card.content).join('\n\n')
+  
+  // 检查提示词模板中是否包含 {{text}}
+  if (!prompt.userPrompt.includes('{{text}}')) {
+    showToast('提示词模板必须包含 {{text}} 占位符', 'error')
+    return
+  }
+
+  // 替换模板中的 {{text}} 为选中的文本
+  const processedPrompt = prompt.userPrompt.replace(/{{text}}/g, selectedTexts)
+  
+  // 更新提示词的插入内容记录
+  const insertedContent = {
+    id: Date.now(),
+    text: selectedTexts,
+    cards: selectedCards.value.map(card => ({ id: card.id, content: card.content }))
+  }
+
+  // 确保 insertedContents 是数组
+  if (!Array.isArray(prompt.insertedContents)) {
+    prompt.insertedContents = []
+  }
+  prompt.insertedContents.push(insertedContent)
+
+  // 保存更新后的提示词
+  localStorage.setItem('prompts', JSON.stringify(prompts.value))
+
+  // 更新当前选中的提示词
+  selectedPrompt.value = {
+    ...prompt,
+    processedPrompt
+  }
+
+  showToast('内容已插入提示词', 'success')
 }
+
 const clearSelection = () => {
   selectedCards.value = []
   selectedPrompt.value = null
@@ -1138,7 +1279,7 @@ const formatApiUrl = (model) => {
 
 // 修改发送提示词请求的方法
 const sendPromptRequest = async (prompt) => {
-  if (!prompt.template.trim()) {
+  if (!prompt.userPrompt.trim()) {
     showToast('请输入提示词内容', 'error')
     return
   }
@@ -1150,7 +1291,7 @@ const sendPromptRequest = async (prompt) => {
   }
 
   try {
-    let processedTemplate = prompt.template
+    let processedTemplate = prompt.userPrompt
 
     // 处理插入内容的替换
     if (prompt.insertedContents?.length > 0) {
@@ -1205,10 +1346,16 @@ const sendPromptRequest = async (prompt) => {
         },
         body: JSON.stringify({
           model: model.modelId,
-          messages: [{
-            role: "user",
-            content: processedTemplate
-          }],
+          messages: [
+            {
+              role: "system",
+              content: prompt.systemPrompt
+            },
+            {
+              role: "user",
+              content: processedTemplate
+            }
+          ],
           max_tokens: Number(model.maxTokens),
           temperature: Number(model.temperature)
         })
@@ -1297,27 +1444,6 @@ const sendPromptRequest = async (prompt) => {
   }
 }
 
-// const insertSelectedCards = () => {
-//   if (!selectedPrompt.value || !canInsertSelected()) return
-
-//   let resultTemplate = selectedPrompt.value.template
-//   const selectedTexts = selectedCards.value.map(id =>
-//     textCards.value.find(card => card.id === id)?.content
-//   )
-
-//   selectedTexts.forEach(text => {
-//     resultTemplate = resultTemplate.replace('{{text}}', text)
-//   })
-
-//   textCards.value.push({
-//     id: Date.now(),
-//     content: resultTemplate,
-//     isResult: true
-//   })
-
-//   clearSelection()
-// }
-
 
 // 简化的文件导入处理
 const importPrompts = async (event) => {
@@ -1328,40 +1454,51 @@ const importPrompts = async (event) => {
     for (const file of files) {
       let content = await file.text()
       
-      // 根据文件类型处理内容
       if (file.name.endsWith('.json')) {
         try {
           const jsonData = JSON.parse(content)
-          // 如果是数组，直接添加；如果是单个对象，包装成数组
           const newPrompts = Array.isArray(jsonData) ? jsonData : [jsonData]
           
           newPrompts.forEach(prompt => {
-            prompt.id = Date.now() + Math.random()
-            prompts.value.push(prompt)
+            // 确保导入的提示词符合新结构
+            prompts.value.push({
+              id: Date.now() + Math.random(),
+              title: prompt.title || file.name,
+              systemPrompt: prompt.systemPrompt || '',
+              userPrompt: prompt.userPrompt || prompt.template || content.trim(), // 兼容旧版本
+              defaultModel: prompt.defaultModel || models.value[0]?.id || '',
+              insertedContents: [],
+              detectKeywords: prompt.detectKeywords ?? true
+            })
           })
         } catch (e) {
           console.warn('JSON 解析失败，作为普通文本处理')
-          // 如果 JSON 解析失败，作为普通文本处理
           prompts.value.push({
             id: Date.now() + Math.random(),
             title: file.name,
-            template: content.trim(),
-            defaultModel: models.value[0]?.id || ''
+            systemPrompt: '',
+            userPrompt: content.trim(),
+            defaultModel: models.value[0]?.id || '',
+            insertedContents: [],
+            detectKeywords: true
           })
         }
       } else {
-        // 处理 .txt, .md 等其他文本文件
+        // 处理普通文本文件
         prompts.value.push({
           id: Date.now() + Math.random(),
           title: file.name,
-          template: content.trim(),
-          defaultModel: models.value[0]?.id || ''
+          systemPrompt: '',
+          userPrompt: content.trim(),
+          defaultModel: models.value[0]?.id || '',
+          insertedContents: [],
+          detectKeywords: true
         })
       }
     }
 
     event.target.value = ''
-    savePrompts() // 保存到本地存储
+    savePrompts()
     showToast('提示词导入成功')
 
   } catch (error) {
@@ -1432,7 +1569,7 @@ const insertPromptAtCursor = (card) => {
 const insertPromptToCard = (prompt) => {
   if (!currentEditingCard.value) return
   
-  const insertCount = getInsertCount(prompt.template)
+  const insertCount = getInsertCount(prompt.userPrompt)
   if (insertCount === 0) return
   
   // 初始化插入内容数组
@@ -1460,16 +1597,22 @@ const removeInsertedContent = (prompt, index) => {
 }
 
 const hasInsertedContent = (prompt) => {
-  return prompt.insertedContents?.length > 0
+  return Array.isArray(prompt?.insertedContents) && prompt.insertedContents.length > 0
 }
 
+// 修改文本截断方法，添加更严格的类型检查
 const truncateText = (text, length = 20) => {
-  return text.length > length ? text.slice(0, length) + '...' : text
+  // 如果文本为空或未定义，返回空字符串
+  if (!text) return ''
+  
+  // 确保文本是字符串类型
+  const str = String(text)
+  return str.length > length ? str.slice(0, length) + '...' : str
 }
 
 // 计算可插入的提示词
 const insertablePrompts = computed(() => {
-  return prompts.value.filter(prompt => getInsertCount(prompt.template) > 0)
+  return prompts.value.filter(prompt => getInsertCount(prompt.userPrompt) > 0)
 })
 
 // 模型管理方法
@@ -1659,7 +1802,15 @@ const startCardResize = (e, card) => {
 
 // 显示提示词详情
 const showPromptDetail = (prompt) => {
-  selectedPrompt.value = prompt
+  if (!prompt) return
+  
+  selectedPrompt.value = {
+    ...prompt,
+    template: [
+      prompt.systemPrompt && `系统提示词:\n${prompt.systemPrompt}`,
+      `用户提示词:\n${prompt.userPrompt}`
+    ].filter(Boolean).join('\n\n')
+  }
   showPromptDetailModal.value = true
 }
 
@@ -1846,10 +1997,15 @@ const loadTags = () => {
 
 // 在 prompts 相关方法中添加删除提示词的方法
 const deletePrompt = (promptId) => {
-  if (confirm('确定要删除这个提示词吗？')) {
+  try {
+    if (!confirm('确定要删除这个提示词吗？')) return
+    
     prompts.value = prompts.value.filter(p => p.id !== promptId)
-    // 保存到本地存储
     localStorage.setItem('prompts', JSON.stringify(prompts.value))
+    showToast('提示词删除成功', 'success')
+  } catch (error) {
+    console.error('删除提示词失败:', error)
+    showToast('删除提示词失败: ' + error.message, 'error')
   }
 }
 
@@ -2503,7 +2659,7 @@ const sendMessage = async () => {
     const insertedTexts = insertedContents.map(item => item.content).join('\n')
     
     // 构建完整的提示词内容
-    const fullPrompt = currentPrompt.template.replace(/{{text}}/g, insertedTexts)
+    const fullPrompt = currentPrompt.userPrompt.replace(/{{text}}/g, insertedTexts)
 
     // 添加用户消息到聊天记录
     messages.value.push({
@@ -2537,7 +2693,7 @@ const sendMessage = async () => {
 // 获取处理后的提示词内容
 const getProcessedPromptContent = (prompt, cardContent) => {
   if (!prompt || !cardContent) return ''
-  return prompt.template.replace(/{{text}}/g, cardContent)
+  return prompt.userPrompt.replace(/{{text}}/g, cardContent)
 }
 
 // 在聊天中使用处理后的提示词内容
@@ -2560,4 +2716,6 @@ const usePromptInChat = (prompt, processedContent) => {
 <style scoped>
 @import url("./styles/app.css");
 @import url("./styles/common.css");
+
+
 </style> 

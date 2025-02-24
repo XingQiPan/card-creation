@@ -226,6 +226,206 @@ _**Assistant**_
 
 ---
 
+_**User**_
+
+优化提示词样式，优化插入样式，优化准备插入样式(123)
+
+---
+
+_**Assistant**_
+
+我将帮你优化提示词相关的样式，包括插入状态和准备插入状态的样式。以下是建议的修改：
+
+```css:src/styles/app.css
+/* 提示词卡片样式优化 */
+.prompt-item {
+  background: white;
+  border: 1px solid #eee;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.prompt-item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+/* 可插入状态样式 */
+.prompt-item.can-insert {
+  border-color: #646cff;
+  background: linear-gradient(to right, rgba(100, 108, 255, 0.02), rgba(100, 108, 255, 0.05));
+}
+
+.prompt-item.can-insert::before {
+  content: '可插入';
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 12px;
+  color: #646cff;
+  background: rgba(100, 108, 255, 0.1);
+  padding: 4px 8px;
+  border-radius: 12px;
+}
+
+/* 已有内容状态样式 */
+.prompt-item.has-content {
+  border-color: #10b981;
+  background: linear-gradient(to right, rgba(16, 185, 129, 0.02), rgba(16, 185, 129, 0.05));
+}
+
+/* 插入内容显示区域 */
+.inserted-contents {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  border: 1px dashed #ddd;
+}
+
+.inserted-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background: white;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  border: 1px solid #eee;
+  transition: all 0.2s ease;
+}
+
+.inserted-content:hover {
+  border-color: #646cff;
+  background: rgba(100, 108, 255, 0.02);
+}
+
+.inserted-content:last-child {
+  margin-bottom: 0;
+}
+
+.inserted-content button {
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.inserted-content button:hover {
+  color: #dc3545;
+  background: rgba(220, 53, 69, 0.1);
+}
+
+/* 准备插入状态样式 */
+.prompt-item.preparing-insert {
+  border-style: dashed;
+  border-color: #646cff;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(100, 108, 255, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(100, 108, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(100, 108, 255, 0);
+  }
+}
+
+/* 提示词内容样式优化 */
+.prompt-content {
+  margin-bottom: 16px;
+}
+
+.prompt-content h3 {
+  margin: 0 0 12px 0;
+  color: #333;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.template-preview {
+  color: #666;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.template-preview:hover {
+  background: #f0f0f0;
+}
+
+.prompt-info {
+  font-size: 13px;
+  color: #666;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 插入数量标识 */
+.insert-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(100, 108, 255, 0.1);
+  color: #646cff;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.insert-count i {
+  font-size: 12px;
+}
+```
+
+主要改进包括：
+
+1. 提示词卡片样式优化：
+   - 更现代的卡片设计
+   - 平滑的悬停效果
+   - 清晰的状态指示
+
+2. 可插入状态样式：
+   - 添加渐变背景
+   - 显示状态标签
+   - 突出显示边框
+
+3. 已插入内容样式：
+   - 更好的视觉层次
+   - 改进的交互效果
+   - 优化的删除按钮
+
+4. 准备插入状态：
+   - 添加脉冲动画效果
+   - 虚线边框提示
+   - 清晰的视觉反馈
+
+5. 整体交互优化：
+   - 更流畅的动画效果
+   - 更好的视觉层次
+   - 更清晰的状态指示
+
+这些样式改进将使提示词相关的交互更加直观和用户友好。
+
+---
+
 
 
 ---

@@ -32,8 +32,17 @@
 git clone https://github.com/XingQiPan/card-creation.git
 cd card-creation
 ```
+一、第一种方式
 
 2. 安装依赖：
+
+card-creation\
+
+```bash
+npm install
+```
+
+backend\
 
 ```bash
 npm install
@@ -41,9 +50,27 @@ npm install
 
 3. 运行开发服务器：
 
+card-creation\
 ```bash
 npm run dev
 ```
+
+backend\
+
+```bash
+node server.js
+```
+
+二、第二种启动方式
+
+card-creation\
+```bash
+start-dev.bat
+```
+
+注意：
+默认两种方式都是安装好NodeJS的，如果未安装请先安装NodeJS
+
 
 4. 打开浏览器访问 http://localhost:8888
 
@@ -66,6 +93,7 @@ npm run dev
   - custom API: 自定义API，请确保API地址正确（完整），填入对应api模型
   - 阶跃星辰 API: 拉取选择对应模型(感谢IssaCic0贡献)
   - 请确保 Ollama 服务已正确启动
+  - 支持拉取模型列表，请确保模型支持拉取列表服务，若有问题可以用自定义API（需要输入完整地址）
 - 关键词标签：使用关键词标签的卡片内容会在提示词中被检测并自动注入相关上下文
 - 卡片关联：关联的卡片内容会在插入提示词时自动合并
 - 拖拽优化：场景和卡片拖拽时不会干扰文本选择

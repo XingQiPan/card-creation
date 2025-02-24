@@ -113,57 +113,61 @@
         <!-- 右侧内容区改为场景管理 -->
         <div class="scenes-container">
           <div class="scenes-header">
-            <draggable 
-              v-model="scenes"
-              class="scene-tabs"
-              item-key="id"
-              handle=".scene-name"
-              @start="dragScene=true"
-              @end="dragScene=false"
-            >
-              <template #item="{ element: scene }">
-                <div 
-                  class="scene-tab"
-                  :class="{ 
-                    active: currentScene?.id === scene.id,
-                    'is-dragging': dragScene && currentScene?.id === scene.id
-                  }"
-                >
-                  <span class="scene-name" @click="switchScene(scene)">
-                    <i class="fas fa-grip-lines"></i>
-                    {{ scene.name }}
-                  </span>
-                  <div class="scene-actions">
-                    <button 
-                      class="edit-name-btn"
-                      @click.stop="editSceneName(scene)"
-                    >
-                      <i class="fas fa-edit"></i>
-                    </button>
-                    <button 
-                      v-if="scenes.length > 1"
-                      @click.stop="deleteScene(scene.id)"
-                      class="delete-scene-btn"
-                    >
-                      <i class="fas fa-times"></i>
-                    </button>
-                  </div>
-                </div>
-              </template>
-            </draggable>
-            <div class="tag-filters">
-              <div 
-                v-for="tag in tags" 
-                :key="tag.id"
-                class="tag-filter"
-                :class="{ active: selectedTags.includes(tag.id) }"
-                @click="toggleTagFilter(tag.id)"
+            <div class="scene-tabs">
+              <draggable 
+                v-model="scenes"
+                class="scene-tabs"
+                item-key="id"
+                handle=".scene-name"
+                @start="dragScene=true"
+                @end="dragScene=false"
               >
-                {{ tag.name }}
-              </div>
+                <template #item="{ element: scene }">
+                  <div 
+                    class="scene-tab"
+                    :class="{ 
+                      active: currentScene?.id === scene.id,
+                      'is-dragging': dragScene && currentScene?.id === scene.id
+                    }"
+                  >
+                    <span class="scene-name" @click="switchScene(scene)">
+                      <i class="fas fa-grip-lines"></i>
+                      {{ scene.name }}
+                    </span>
+                    <div class="scene-actions">
+                      <button 
+                        class="edit-name-btn"
+                        @click.stop="editSceneName(scene)"
+                      >
+                        <i class="fas fa-edit"></i>
+                      </button>
+                      <button 
+                        v-if="scenes.length > 1"
+                        @click.stop="deleteScene(scene.id)"
+                        class="delete-scene-btn"
+                      >
+                        <i class="fas fa-times"></i>
+                      </button>
+                    </div>
+                  </div>
+                </template>
+              </draggable>
             </div>
-            <button @click="createNewScene" class="new-scene-btn">
-              <i class="fas fa-plus"></i> 新场景
+            <button @click="createNewScene">
+              <i class="fas fa-plus"></i> 新建场景
+            </button>
+            <label class="import-btn">
+              <input 
+                type="file" 
+                multiple 
+                accept=".txt,.md,.json,.jsonl"
+                @change="handleFilesImport"
+                ref="fileInput"
+              >
+              <i class="fas fa-file-import"></i> 导入文件
+            </label>
+            <button @click="exportScene">
+              <i class="fas fa-file-export"></i> 导出
             </button>
           </div>
           
@@ -1546,20 +1550,6 @@ const handleDrop = async (event) => {
   }
 }
 
-const exportToJsonl = () => {
-  const jsonl = textCards.value
-    .map(card => JSON.stringify({ content: card.content }))
-    .join('\n')
-  
-  const blob = new Blob([jsonl], { type: 'application/x-json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'cards.json'
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 // 新增的插入提示词相关方法
 const insertPromptAtCursor = (card) => {
   currentEditingCard.value = card
@@ -2690,27 +2680,138 @@ const sendMessage = async () => {
   }
 }
 
-// 获取处理后的提示词内容
-const getProcessedPromptContent = (prompt, cardContent) => {
-  if (!prompt || !cardContent) return ''
-  return prompt.userPrompt.replace(/{{text}}/g, cardContent)
-}
 
-// 在聊天中使用处理后的提示词内容
-const usePromptInChat = (prompt, processedContent) => {
-  // 这里添加将处理后的内容发送到聊天的逻辑
-  if (currentChat.value) {
-    currentChat.value.messages.push({
-      role: 'user',
-      content: processedContent
-    })
-    // 触发消息发送
-    sendMessage()
+// 修改导入文件处理方法
+const handleFilesImport = async (event) => {
+  const files = event.target.files
+  if (!files.length) return
+
+  try {
+    for (const file of files) {
+      let content = await file.text()
+      
+      if (file.name.endsWith('.json')) {
+        try {
+          const jsonData = JSON.parse(content)
+          // 如果是场景导出的JSON，包含cards数组
+          if (Array.isArray(jsonData.cards)) {
+            // 创建新场景
+            const newScene = {
+              id: Date.now(),
+              name: jsonData.name || file.name.replace('.json', ''),
+              cards: jsonData.cards.map(card => ({
+                ...card,
+                id: Date.now() + Math.random(), // 生成新的ID
+                height: card.height || '120px',
+                tags: Array.isArray(card.tags) ? card.tags : []
+              }))
+            }
+            scenes.value.push(newScene)
+            currentScene.value = newScene
+          } else if (Array.isArray(jsonData)) {
+            // 如果是普通JSON数组，作为卡片导入
+            const newCards = jsonData.map(item => ({
+              id: Date.now() + Math.random(),
+              title: typeof item === 'object' ? (item.title || '') : '',
+              content: typeof item === 'object' ? (item.content || JSON.stringify(item)) : String(item),
+              height: '120px',
+              tags: []
+            }))
+            if (currentScene.value) {
+              currentScene.value.cards.push(...newCards)
+            }
+          } else {
+            // 单个JSON对象
+            const newCard = {
+              id: Date.now() + Math.random(),
+              title: '',
+              content: JSON.stringify(jsonData, null, 2),
+              height: '120px',
+              tags: []
+            }
+            if (currentScene.value) {
+              currentScene.value.cards.push(newCard)
+            }
+          }
+        } catch (e) {
+          console.warn('JSON解析失败，作为文本处理')
+          if (currentScene.value) {
+            currentScene.value.cards.push({
+              id: Date.now() + Math.random(),
+              title: file.name,
+              content: content.trim(),
+              height: '120px',
+              tags: []
+            })
+          }
+        }
+      } else {
+        // 处理普通文本文件
+        if (currentScene.value) {
+          currentScene.value.cards.push({
+            id: Date.now() + Math.random(),
+            title: file.name,
+            content: content.trim(),
+            height: '120px',
+            tags: []
+          })
+        }
+      }
+    }
+
+    // 清空文件输入
+    event.target.value = ''
+    // 保存更改
+    saveImmediately()
+    showToast('文件导入成功')
+
+  } catch (error) {
+    console.error('文件导入错误:', error)
+    showToast('文件导入失败: ' + error.message, 'error')
   }
 }
 
-// 确保在 setup 中定义状态
+// 将函数名改为 exportScene，避免与其他地方的 exportToJsonl 冲突
+const exportScene = () => {
+  try {
+    if (!currentScene.value) {
+      showToast('没有可导出的场景', 'error')
+      return
+    }
 
+    const sceneData = {
+      name: currentScene.value.name,
+      cards: currentScene.value.cards.map(card => ({
+        title: card.title || '',
+        content: card.content || '',
+        tags: card.tags || [],
+        height: card.height || '120px'
+      }))
+    }
+
+    const jsonStr = JSON.stringify(sceneData, null, 2)
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${currentScene.value.name || 'scene'}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    showToast('场景导出成功')
+  } catch (error) {
+    console.error('导出失败:', error)
+    showToast('导出失败: ' + error.message, 'error')
+  }
+}
+
+
+defineExpose({
+  handleFilesImport,
+  exportScene // 更新导出的函数名
+})
 </script>
 
 <style scoped>

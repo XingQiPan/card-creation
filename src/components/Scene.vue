@@ -11,19 +11,6 @@
           <button @click="createNewCard">
             <i class="fas fa-plus"></i> 新建卡片
           </button>
-          <label class="import-btn">
-            <input 
-              type="file" 
-              multiple 
-              accept=".txt,.md,.json"
-              @change="handleFilesImport"
-              ref="fileInput"
-            >
-            <i class="fas fa-file-import"></i> 导入文件
-          </label>
-          <button @click="exportToJsonl">
-            <i class="fas fa-file-export"></i> 导出
-          </button>
           <button @click="deleteScene" class="delete-scene-btn">
             <i class="fas fa-trash"></i> 删除场景
           </button>
@@ -341,53 +328,6 @@ const filteredCards = computed(() => {
   return Array.from(taggedCardsMap.value.values())
 })
 
-// 改进文件导入错误处理
-const handleFilesImport = async (event) => {
-  const files = event.target.files
-  if (!files.length) return
-
-  try {
-    if (!props.scene.cards) {
-      props.scene.cards = []
-    }
-
-    const newCards = []
-    for (const file of files) {
-      if (file.size > 5000000) { // 5MB限制
-        throw new Error(`文件 ${file.name} 太大，请选择小于5MB的文件`)
-      }
-
-      try {
-        const content = await file.text()
-        const newCard = {
-          id: generateUUID(),
-          title: file.name,
-          content: content.trim(),
-          height: '200px',
-          tags: [],
-          insertedContents: []
-        }
-        newCards.push(newCard)
-      } catch (fileError) {
-        console.error(`处理文件 ${file.name} 时出错:`, fileError)
-        throw new Error(`无法读取文件 ${file.name}`)
-      }
-    }
-
-    emit('update:scene', {
-      ...props.scene,
-      cards: [...props.scene.cards, ...newCards]
-    })
-    event.target.value = ''
-
-  } catch (error) {
-    console.error('文件导入错误:', error)
-    // 使用更友好的错误提示
-    const errorMessage = error.message || '导入文件时发生未知错误'
-    // 这里可以使用更好的UI组件来显示错误
-    alert(errorMessage)
-  }
-}
 
 // 拖放处理
 const handleDragOver = (event) => {
@@ -423,35 +363,6 @@ const handleDrop = async (event) => {
       console.error('文件导入错误:', error)
       alert('文件导入失败: ' + error.message)
     }
-  }
-}
-
-// 修改导出方法
-const exportToJsonl = () => {
-  if (!props.scene.cards.length) {
-    alert('没有可导出的卡片')
-    return
-  }
-
-  try {
-    // 将每个卡片转换为 JSON 行
-    const jsonlContent = props.scene.cards
-      .map(card => JSON.stringify(card))
-      .join('\n')
-
-    // 创建下载
-    const blob = new Blob([jsonlContent], { type: 'application/x-jsonlines' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${props.scene.name || 'cards'}.jsonl`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  } catch (error) {
-    console.error('导出错误:', error)
-    alert('导出失败: ' + error.message)
   }
 }
 

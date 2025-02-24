@@ -1,12 +1,17 @@
 @echo off
+:: 设置控制台代码页为 UTF-8
 chcp 65001 >nul
-echo 正在检查环境...
+:: 设置控制台标题和颜色
+cmd /c title "StarCard Writer Dev"
+color 0A
+
+echo [INFO] Starting environment check...
 
 :: 检查 Node.js 是否安装
 node -v > nul 2>&1
 if %errorlevel% neq 0 (
-    echo [错误] 未检测到 Node.js，请先安装 Node.js
-    echo 您可以从这里下载：https://nodejs.org/
+    echo [ERROR] Node.js not found. Please install Node.js first.
+    echo Download from: https://nodejs.org/
     pause
     exit
 )
@@ -26,7 +31,20 @@ if not exist "backend\" (
     cd backend
     echo 正在初始化后端项目...
     call npm init -y
-    call npm install express multer cors
+    
+    :: 创建 package.json
+    echo {> package.json
+    echo   "name": "starcard-backend",>> package.json
+    echo   "version": "1.0.0",>> package.json
+    echo   "type": "module",>> package.json
+    echo   "dependencies": {>> package.json
+    echo     "express": "^4.18.2",>> package.json
+    echo     "multer": "^1.4.5-lts.1",>> package.json
+    echo     "cors": "^2.8.5">> package.json
+    echo   }>> package.json
+    echo }>> package.json
+    
+    call npm install
     cd ..
 )
 
@@ -54,12 +72,12 @@ if not exist "node_modules\" (
 )
 
 :: 启动前端和后端服务
-echo 正在启动服务...
-start cmd /k "cd backend && node server.js"
-start cmd /k "npm run dev"
+echo [INFO] Starting services...
+start cmd /c "cd backend && cmd /c title Backend-Service && color 0B && node server.js"
+start cmd /c "cmd /c title Frontend-Service && color 0E && npm run dev"
 
-echo 服务已启动！
-echo 前端地址: http://localhost:5173
-echo 后端地址: http://localhost:3000
+echo [SUCCESS] 服务已启动！
+echo [INFO] 前端地址: http://localhost:5173
+echo [INFO] 后端地址: http://localhost:3000
 
 pause 

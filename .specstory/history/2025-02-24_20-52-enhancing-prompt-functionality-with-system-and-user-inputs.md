@@ -1957,6 +1957,62 @@ _**User**_
 
 _**Assistant**_
 
+让我们删除所有导入导出相关的代码：
+
+```javascript:src/App.vue
+// 删除这些函数
+// const handleFilesImport = async (event) => { ... }
+// const exportScene = () => { ... }
+
+// 删除模板中的导入导出按钮
+<template>
+  <div class="scenes-header">
+    <div class="scene-tabs">
+      <!-- ... existing scene tabs code ... -->
+    </div>
+    <button @click="createNewScene">
+      <i class="fas fa-plus"></i> 新建场景
+    </button>
+    <!-- 删除这些按钮
+    <label class="import-btn">
+      <input 
+        type="file" 
+        multiple 
+        accept=".txt,.md,.json,.jsonl"
+        @change="handleFilesImport"
+        ref="fileInput"
+      >
+      <i class="fas fa-file-import"></i> 导入文件
+    </label>
+    <button @click="exportScene">
+      <i class="fas fa-file-export"></i> 导出
+    </button>
+    -->
+  </div>
+</template>
+
+<script setup>
+// 删除 defineExpose 中的相关函数
+defineExpose({
+  // 删除这些
+  // handleFilesImport,
+  // exportScene
+})
+</script>
+```
+
+这样就删除了所有导入导出相关的功能。
+
+---
+
+_**User**_
+
+对话支持流式输出
+
+---
+
+_**Assistant**_
+
 
 
 ---

@@ -2534,30 +2534,9 @@ const sendMessage = async () => {
   }
 }
 
-// 获取处理后的提示词内容
-const getProcessedPromptContent = (prompt, cardContent) => {
-  if (!prompt || !cardContent) return ''
-  return prompt.template.replace(/{{text}}/g, cardContent)
-}
-
-// 在聊天中使用处理后的提示词内容
-const usePromptInChat = (prompt, processedContent) => {
-  // 这里添加将处理后的内容发送到聊天的逻辑
-  if (currentChat.value) {
-    currentChat.value.messages.push({
-      role: 'user',
-      content: processedContent
-    })
-    // 触发消息发送
-    sendMessage()
-  }
-}
-
-// 确保在 setup 中定义状态
 
 </script>
 
 <style scoped>
 @import url("./styles/app.css");
-@import url("./styles/common.css");
 </style> 

@@ -691,121 +691,137 @@ const processWithPrompt = async (scene) => {
 
 // 添加 processWithAPI 方法
 const processWithAPI = async (card, prompt, scene) => {
-  try {
-    const model = props.models.find(m => m.id === prompt.selectedModel)
-    if (!model) {
-      throw new Error('未选择模型')
-    }
-
-    const processedTemplate = prompt.template.replace(/{{text}}/g, card.content)
-    const messages = [
-      {
-        role: "user",
-        content: processedTemplate
-      }
-    ]
-
-    let response
-    let result
-
-    // 构建基础请求配置
-    const baseHeaders = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${model.apiKey}`
-    }
-
-    // 根据不同提供商处理请求
-    switch (model.provider) {
-      case 'openai':
-      case 'stepfun':
-      case 'mistral':
-        response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
-          method: 'POST',
-          headers: baseHeaders,
-          body: JSON.stringify({
-            model: model.modelId,
-            messages: messages,
-            max_tokens: Number(model.maxTokens),
-            temperature: Number(model.temperature)
-          })
-        })
-        break
-
-      case 'custom': // 直接使用提供的 URL，不附加路径
-        response = await fetch(model.apiUrl, {
-          method: 'POST',
-          headers: baseHeaders,
-          body: JSON.stringify({
-            model: model.modelId,
-            messages: messages,
-            max_tokens: Number(model.maxTokens),
-            temperature: Number(model.temperature)
-          })
-        })
-        break
-
-      case 'gemini':
-        response = await fetch(`${model.apiUrl}?key=${model.apiKey}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: processedTemplate
-              }]
-            }],
-            generationConfig: {
-              temperature: Number(model.temperature),
-              maxOutputTokens: Number(model.maxTokens)
-            }
-          })
-        })
-        break
-
-      default:
-        throw new Error(`不支持的模型提供商: ${model.provider}`)
-    }
-
-    // 检查响应状态
-    if (!response || !response.ok) {
-      const errorData = await response?.json().catch(() => ({}))
-      console.error('API Error Response:', errorData)
-      
-      // 处理错误响应
-      let errorMessage = '请求失败'
-      if (errorData.error) {
-        if (typeof errorData.error === 'string') {
-          errorMessage = errorData.error
-        } else if (errorData.error.message) {
-          errorMessage = errorData.error.message
-        } else if (errorData.error.code) {
-          errorMessage = `服务器错误 (${errorData.error.code})`
-        }
-      }
-      throw new Error(`${errorMessage}: ${response?.status || 'Unknown Error'}`)
-    }
-
-    result = await response.json()
-    
-    // 解析不同提供商的响应
-    switch (model.provider) {
-      case 'openai':
-      case 'stepfun':
-      case 'mistral':
-      case 'custom':
-        return result.choices[0].message.content
-      case 'gemini':
-        return result.candidates[0].content.parts[0].text
-      default:
-        throw new Error(`不支持的模型提供商: ${model.provider}`)
-    }
-
-  } catch (error) {
-    console.error('API 请求错误:', error)
-    throw new Error(`处理失败: ${error.message}`)
+  const model = props.models.find(m => m.id === prompt.selectedModel)
+  if (!model) {
+    throw new Error('未选择模型')
   }
+
+  const processedTemplate = prompt.template.replace(/{{text}}/g, card.content)
+  const messages = [
+    {
+      role: "user",
+      content: processedTemplate
+    }
+  ]
+
+  let response
+  let content
+
+  if (model.provider === 'openai') {
+    response = await fetch(`${model.apiUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${model.apiKey}`
+      },
+      body: JSON.stringify({
+        model: model.modelId,
+        messages: messages,
+        max_tokens: Number(model.maxTokens),
+        temperature: Number(model.temperature)
+      })
+    })
+    
+    const result = await response.json()
+    content = result.choices?.[0]?.message?.content
+    
+  } else if (model.provider === 'gemini') {
+    console.log('准备调用 Gemini API:', {
+      modelId: model.modelId,
+      template: processedTemplate
+    })
+
+    // 构建 Gemini 格式的消息
+    const url = `${model.apiUrl}?key=${model.apiKey}`
+    console.log('请求 URL:', url)
+    
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: processedTemplate
+          }]
+        }],
+        generationConfig: {
+          temperature: Number(model.temperature),
+          maxOutputTokens: Number(model.maxTokens)
+        }
+      })
+    })
+
+    console.log('API 响应状态:', response.status)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Gemini API 错误响应:', errorText)
+      throw new Error(`请求失败主人~: ${response.status} - ${errorText}`)
+    }
+
+    const result = await response.json()
+    console.log('API 响应结果:', result)
+    
+    if (!result.candidates || !result.candidates[0]?.content?.parts?.[0]?.text) {
+      console.error('Gemini API 响应格式异常:', result)
+      throw new Error('响应格式错误主人~')
+    }
+
+    content = result.candidates[0].content.parts[0].text
+  } else if (model.provider === 'stepfun') {
+    response = await fetch(`${model.apiUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${model.apiKey}`
+      },
+      body: JSON.stringify({
+        model: model.modelId,
+        messages: messages,
+        temperature: Number(model.temperature),
+        max_tokens: Number(model.maxTokens),
+        stream: false
+      })
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.message || `请求失败: ${response.status}`)
+    }
+
+    const result = await response.json()
+    content = result.choices[0].message.content
+  } else if (model.provider === 'mistral') {
+    response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${model.apiKey}`
+      },
+      body: JSON.stringify({
+        model: model.modelId,
+        messages: messages,
+        temperature: Number(model.temperature),
+        max_tokens: Number(model.maxTokens)
+      })
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.message || `请求失败: ${response.status}`)
+    }
+
+    const result = await response.json()
+    content = result.choices[0].message.content
+  }
+
+  if (!content) {
+    throw new Error('响应格式错误')
+  }
+
+  return content
 }
 
 // 导出结果

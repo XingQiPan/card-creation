@@ -92,7 +92,10 @@
               <button @click.stop="toggleLinkMode(card)" :class="{ active: isLinkMode }">
                 <i class="fas fa-link"></i>
               </button>
-              <button @click.stop="$emit('insert-prompt-at-cursor', card)">
+              <button 
+                @click.stop="handleInsertPrompt(card)"
+                title="插入到提示词"
+              >
                 <i class="fas fa-pencil-alt"></i>
               </button>
               <button @click.stop="$emit('view-card', card)">
@@ -108,15 +111,28 @@
                 <i class="fas fa-times"></i>
               </button>
             </div>
-            <div class="inserted-prompts" v-if="card.insertedContents?.length">
-              <div v-for="(content, index) in card.insertedContents" 
-                   :key="index" 
-                   class="inserted-prompt">
-                <span>已插入到提示词</span>
-                <button @click.stop="removeInsertedPrompt(card, index)" 
-                        class="remove-prompt-btn">
-                  <i class="fas fa-times"></i>
-                </button>
+            <div 
+              v-if="card.insertedContents?.length" 
+              class="inserted-contents"
+            >
+              <div 
+                v-for="(content, index) in card.insertedContents" 
+                :key="index"
+                class="inserted-content"
+              >
+                <div class="inserted-header">
+                  <span>已插入到: {{ content.promptTitle }}</span>
+                  <button 
+                    @click.stop="removeInsertedContent(card, index)"
+                    class="remove-btn"
+                  >
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+                <div class="processed-content">
+                  <div class="content-label">处理后的内容:</div>
+                  <div class="content-text">{{ content.processedContent }}</div>
+                </div>
               </div>
             </div>
             <div v-if="hasLinks(card)" class="linked-cards">
@@ -195,13 +211,14 @@
     <!-- Add link mode indicator -->
     <div v-if="isLinkMode" class="link-mode-indicator">
       <div class="indicator-content">
-        <i class="fas fa-link"></i>
-        选择要关联的卡片 (已选择 {{ selectedForLink.length }} 张)
-        <button @click="confirmLink" :disabled="selectedForLink.length < 2">
-          确认关联
-        </button>
-        <button @click="cancelLink" class="cancel-btn">
-          取消
+        <span v-if="selectedForLink.length === 0">
+          请选择要关联的卡片
+        </span>
+        <span v-else-if="selectedForLink.length === 1">
+          已选择 1 张卡片，请选择要关联的另一张卡片
+        </span>
+        <button @click="isLinkMode = false" class="cancel-btn">
+          取消关联
         </button>
       </div>
     </div>
@@ -248,7 +265,8 @@ const props = defineProps({
   selectedTags: {
     type: Array,
     default: () => []
-  }
+  },
+  selectedPrompt: Object
 })
 
 const emit = defineEmits([
@@ -256,11 +274,12 @@ const emit = defineEmits([
   'view-card',
   'delete-card',
   'update-card',
-  'insert-prompt-at-cursor',
+  'insert-prompt',
   'update-card-tags',
   'move-card',
   'add-to-notepad',
-  'delete-scene'
+  'delete-scene',
+  'remove-inserted-content'
 ])
 
 const drag = ref(false)
@@ -485,12 +504,11 @@ const closeTagSelector = () => {
 
 // 计算可用的目标场景（排除当前场景）
 const availableScenes = computed(() => {
-  return props.scenes.filter(s => s.id !== props.scene.id)
+  return props.scenes.filter(scene => scene.id !== props.scene.id)
 })
 
 // 显示移动卡片模态框
 const showMoveCardModal = (card) => {
-  console.log('Opening move modal for card:', card)
   cardToMove.value = card
   showMoveModal.value = true
 }
@@ -503,7 +521,6 @@ const closeMoveModal = () => {
 
 // 移动卡片到选定场景
 const moveCardToScene = (card, targetScene) => {
-  console.log('Moving card to scene:', targetScene)
   emit('move-card', {
     card,
     sourceSceneId: props.scene.id,
@@ -512,114 +529,127 @@ const moveCardToScene = (card, targetScene) => {
   closeMoveModal()
 }
 
-// 改进链接模式状态管理
-const linkModeState = reactive({
-  isActive: false,
-  sourceCard: null,
-  selectedCards: new Set()
-})
-
+// 切换关联模式
 const toggleLinkMode = (card) => {
-  if (!linkModeState.isActive) {
-    linkModeState.isActive = true
-    linkModeState.sourceCard = card
-    linkModeState.selectedCards.clear()
-    linkModeState.selectedCards.add(card.id)
-  }
-}
-
-const toggleCardSelection = (card) => {
-  if (!linkModeState.isActive) return
-  
-  if (linkModeState.selectedCards.has(card.id)) {
-    linkModeState.selectedCards.delete(card.id)
+  if (!isLinkMode.value) {
+    // 进入关联模式
+    isLinkMode.value = true
+    selectedForLink.value = [card.id]
   } else {
-    linkModeState.selectedCards.add(card.id)
+    // 退出关联模式
+    isLinkMode.value = false
+    selectedForLink.value = []
   }
 }
 
-const confirmLink = () => {
-  if (selectedForLink.value.length < 2) return
-  
-  // Create or update links for all selected cards
-  selectedForLink.value.forEach(cardId => {
-    const card = props.scene.cards.find(c => c.id === cardId)
-    if (card) {
-      if (!card.links) card.links = []
-      // Add all other selected cards as links
-      selectedForLink.value.forEach(linkId => {
-        if (linkId !== cardId && !card.links.includes(linkId)) {
-          card.links.push(linkId)
-        }
-      })
+// 切换卡片选择
+const toggleCardSelection = (card) => {
+  if (!isLinkMode.value) return
+
+  const index = selectedForLink.value.indexOf(card.id)
+  if (index === -1) {
+    selectedForLink.value.push(card.id)
+  } else {
+    selectedForLink.value.splice(index, 1)
+  }
+
+  // 如果选择了两张卡片，创建关联
+  if (selectedForLink.value.length === 2) {
+    createCardLink()
+  }
+}
+
+// 创建卡片关联
+const createCardLink = () => {
+  const [cardId1, cardId2] = selectedForLink.value
+  const card1 = props.scene.cards.find(c => c.id === cardId1)
+  const card2 = props.scene.cards.find(c => c.id === cardId2)
+
+  if (card1 && card2) {
+    // 初始化links数组（如果不存在）
+    if (!card1.links) card1.links = []
+    if (!card2.links) card2.links = []
+
+    // 添加相互关联
+    if (!card1.links.includes(cardId2)) {
+      card1.links.push(cardId2)
     }
-  })
-  
-  emit('update:scene', {...props.scene})
-  cancelLink()
+    if (!card2.links.includes(cardId1)) {
+      card2.links.push(cardId1)
+    }
+
+    // 更新卡片
+    emit('update-card', card1)
+    emit('update-card', card2)
+
+    // 退出关联模式
+    isLinkMode.value = false
+    selectedForLink.value = []
+    
+    showToast('卡片关联成功')
+  }
 }
 
-const cancelLink = () => {
-  isLinkMode.value = false
-  selectedForLink.value = []
-  linkModeState.sourceCard = null
-  linkModeState.selectedCards.clear()
-}
-
+// 检查卡片是否有关联
 const hasLinks = (card) => {
-  return card.links?.length > 0
+  return card.links && card.links.length > 0
 }
 
+// 获取关联的卡片
 const getLinkedCards = (card) => {
   if (!card.links) return []
   return props.scene.cards.filter(c => card.links.includes(c.id))
 }
 
-const viewCardDetail = (card) => {
-  emit('view-card', card)
-}
-
-const truncateText = (text, maxLength) => {
-  if (text.length > maxLength) {
-    return text.slice(0, maxLength) + '...'
-  }
-  return text
-}
-
-// Add new methods for unlinking cards
+// 取消单个卡片关联
 const unlinkCards = (card1, card2) => {
-  // Remove link from card1
+  // 移除相互关联
   if (card1.links) {
     card1.links = card1.links.filter(id => id !== card2.id)
   }
-  
-  // Remove link from card2
   if (card2.links) {
     card2.links = card2.links.filter(id => id !== card1.id)
   }
+
+  // 更新卡片
+  emit('update-card', card1)
+  emit('update-card', card2)
   
-  emit('update:scene', {...props.scene})
+  showToast('已取消卡片关联')
 }
 
+// 取消所有关联
 const unlinkAllCards = (card) => {
-  if (!card.links) return
-  
-  // Get all linked cards
+  if (!card.links || card.links.length === 0) return
+
+  // 获取所有关联的卡片
   const linkedCards = getLinkedCards(card)
   
-  // Remove this card's ID from all linked cards
+  // 移除所有关联
+  card.links = []
   linkedCards.forEach(linkedCard => {
     if (linkedCard.links) {
       linkedCard.links = linkedCard.links.filter(id => id !== card.id)
+      emit('update-card', linkedCard)
     }
   })
+
+  // 更新当前卡片
+  emit('update-card', card)
   
-  // Clear all links from this card
-  card.links = []
-  
-  emit('update:scene', {...props.scene})
+  showToast('已取消所有关联')
 }
 
+// 文本截断辅助函数
+const truncateText = (text, length) => {
+  if (!text) return '未命名'
+  return text.length > length ? text.slice(0, length) + '...' : text
+}
+
+// 查看卡片详情
+const viewCardDetail = (card) => {
+  emit('view-card', card)
+}
 // Add new method to prevent text selection during drag
 const preventTextSelection = (prevent) => {
   document.body.style.userSelect = prevent ? 'none' : ''
@@ -638,14 +668,10 @@ onUnmounted(() => {
 
 // 修改卡片传输到笔记本的方法，添加调试日志
 const addToNotepad = (card) => {
-  console.log('Adding card to notepad:', card)
-  // 确保发送完整的卡片内容
   emit('add-to-notepad', {
-    title: card.title || '无标题',
-    content: card.content || '',
-    height: card.height || '200px',
-    tags: card.tags || [],
-    insertedContents: card.insertedContents || []
+    id: card.id,
+    title: card.title,
+    content: card.content
   })
 }
 
@@ -726,6 +752,23 @@ const processWithAPI = async (card, prompt) => {
   }
 
   return content
+}
+
+// 获取提示词标题
+const getPromptTitle = (promptId) => {
+  const prompt = props.prompts?.find(p => p.id === promptId)
+  return prompt ? prompt.title : '未知提示词'
+}
+
+// 处理插入提示词
+const handleInsertPrompt = (card) => {
+  console.log('Scene: 发出插入请求', card)
+  emit('insert-prompt', card)
+}
+
+// 移除已插入内容
+const removeInsertedContent = (card, index) => {
+  emit('remove-inserted-content', { card, index })
 }
 </script>
 
@@ -1326,5 +1369,58 @@ const processWithAPI = async (card, prompt) => {
 
 .delete-scene-btn i {
   font-size: 14px;
+}
+
+.inserted-contents {
+  margin-top: 8px;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+.inserted-content {
+  background: white;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.inserted-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.processed-content {
+  background: #f8f9fa;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+.content-label {
+  font-size: 0.9em;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.content-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: monospace;
+}
+
+.remove-btn {
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: #dc3545;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.remove-btn:hover {
+  background: #fee2e2;
 }
 </style>

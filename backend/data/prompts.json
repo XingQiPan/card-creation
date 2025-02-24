@@ -6,5 +6,22 @@
     "defaultModel": "default",
     "insertedContents": [],
     "selectedModel": "gemini"
+  },
+  {
+    "id": 1740375134961,
+    "title": "拆书",
+    "template": "输入内容：``{{text}}``\n\n我输入了什么内容，给出具体",
+    "defaultModel": 1740371817747,
+    "insertedContents": [],
+    "selectedModel": 1740371817747,
+    "detectKeywords": true,
+    "usedContents": [
+      {
+        "cardId": "bdd527e9-78fc-49aa-b79c-8de86e138905",
+        "content": "11231231",
+        "processedContent": "输入内容：``11231231``\n\n我输入了什么内容，给出具体",
+        "timestamp": 1740376922803
+      }
+    ]
   }
 ]

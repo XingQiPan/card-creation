@@ -4,9 +4,24 @@
     <div class="chat-list">
       <div class="list-header">
         <h3>聊天记录</h3>
-        <button @click="createNewChat" class="primary-btn">
-          <i class="fas fa-plus"></i> 新对话
-        </button>
+        <div class="header-actions">
+          <button class="icon-btn" @click="createNewChat" title="新建对话">
+            <i class="fas fa-plus"></i>
+          </button>
+          <button class="icon-btn" @click="exportChatSessions" title="导出聊天记录">
+            <i class="fas fa-download"></i>
+          </button>
+          <input
+            type="file"
+            accept=".json"
+            @change="importChatSessions"
+            style="display: none"
+            ref="fileInput"
+          >
+          <button class="icon-btn" @click="$refs.fileInput.click()" title="导入聊天记录">
+            <i class="fas fa-upload"></i>
+          </button>
+        </div>
       </div>
       <div class="chat-sessions">
         <div 
@@ -956,6 +971,63 @@ const splitSection = (index) => {
   
   showToastMessage('段落已拆分主人~')
 }
+
+// 添加导出和导入方法
+const exportChatSessions = () => {
+  try {
+    const data = JSON.stringify(chatSessions.value, null, 2)
+    const blob = new Blob([data], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `chat-sessions-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    
+    showToast('聊天记录导出成功', 'success')
+  } catch (error) {
+    console.error('导出聊天记录失败:', error)
+    showToast('导出聊天记录失败: ' + error.message, 'error')
+  }
+}
+
+const importChatSessions = (event) => {
+  try {
+    const file = event.target.files[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const importedData = JSON.parse(e.target.result)
+        
+        // 更新聊天会话数据
+        chatSessions.value = importedData
+        
+        // 立即保存到 localStorage
+        localStorage.setItem('chatSessions', JSON.stringify(importedData))
+        
+        // 如果有聊天会话，设置当前会话为第一个
+        if (importedData.length > 0) {
+          currentChatId.value = importedData[0].id
+        }
+        
+        showToast('聊天记录导入成功', 'success')
+      } catch (error) {
+        console.error('解析导入文件失败:', error)
+        showToast('导入失败: 无效的文件格式', 'error')
+      }
+    }
+    reader.readAsText(file)
+    // 清除文件输入值，允许重复导入相同文件
+    event.target.value = ''
+  } catch (error) {
+    console.error('导入聊天记录失败:', error)
+    showToast('导入聊天记录失败: ' + error.message, 'error')
+  }
+}
 </script>
 
 <style scoped>
@@ -992,6 +1064,54 @@ const splitSection = (index) => {
   color: #333;
   font-size: 1.2em;
   font-weight: 600;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.icon-btn {
+  padding: 6px;
+  background: transparent;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #666;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:hover {
+  background: #f5f5f5;
+  color: #1976d2;
+  border-color: #1976d2;
+}
+
+.icon-btn i {
+  font-size: 14px;
+}
+
+/* 添加工具提示样式 */
+.icon-btn[title] {
+  position: relative;
+}
+
+.icon-btn[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  font-size: 12px;
+  border-radius: 4px;
+  white-space: nowrap;
+  z-index: 1000;
 }
 
 .chat-sessions {
@@ -1270,33 +1390,6 @@ const splitSection = (index) => {
 .send-btn:disabled {
   background: #e0e0e0;
   cursor: not-allowed;
-}
-
-.icon-btn {
-  padding: 4px 8px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: #666;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-}
-
-.icon-btn:hover {
-  background: #f0f0f0;
-  color: #2196f3;
-}
-
-.icon-btn.delete:hover {
-  background: #fee2e2;
-  color: #f44336;
-}
-
-.icon-btn i {
-  font-size: 16px;
 }
 
 .edit-textarea {
@@ -1653,5 +1746,25 @@ const splitSection = (index) => {
   color: #ff9800;
   border-color: #ff9800;
   background: rgba(255, 152, 0, 0.1);
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.secondary-btn {
+  padding: 4px 8px;
+  background-color: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.secondary-btn:hover {
+  background-color: #e0e0e0;
 }
 </style> 

@@ -186,6 +186,12 @@
             @merge-cards="handleMergeCards"
             @add-to-notepad="handleAddToNotepad"
             @delete-scene="handleDeleteScene"
+            :scene="currentScene"
+            :selected-prompt="selectedPrompt"
+            @insert-to-prompt="handleInsertToPrompt"
+            @remove-inserted-content="handleRemoveInsertedContent"
+            @select-prompt="selectPrompt"
+            @insert-prompt="handleInsertPrompt"
           />
         </div>
       </div>
@@ -243,28 +249,27 @@
 
   
     <!-- 提示词选择模态框 -->
-    <div v-if="showPromptSelectModal" class="modal">
-      <div class="modal-content">
-        <h3>选择要插入的提示词</h3>
-        <div class="prompt-select-list">
-          <div 
-            v-for="prompt in insertablePrompts"
-            :key="prompt.id"
-            class="prompt-select-item"
-            @click="insertPromptToCard(prompt)"
-          >
-            <h4>{{ prompt.title }}</h4>
-            <p>{{ prompt.template }}</p>
-            <div class="prompt-slots">
-              <span>需要插入 {{ getInsertCount(prompt.template) }} 个文本</span>
+    <Teleport to="body">
+      <div v-if="showPromptSelectModal" class="modal" @click="showPromptSelectModal = false">
+        <div class="modal-content" @click.stop>
+          <h3>选择提示词模板</h3>
+          <div class="prompt-list">
+            <div 
+              v-for="prompt in prompts" 
+              :key="prompt.id"
+              class="prompt-item"
+              @click="selectPromptAndInsert(prompt)"
+            >
+              <h4>{{ prompt.title }}</h4>
+              <p class="prompt-template">{{ truncateText(prompt.template, 100) }}</p>
             </div>
           </div>
-        </div>
-        <div class="modal-actions">
-          <button @click="showPromptSelectModal = false">取消</button>
+          <div class="modal-actions">
+            <button @click="showPromptSelectModal = false" class="cancel-btn">取消</button>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
 
     <!-- 提示词编辑模态框 -->
     <div v-if="showPromptModal" class="modal">
@@ -1015,6 +1020,10 @@ const saveModels = async () => {
 onMounted(async () => {
   await loadAllData()
   setInterval(syncData, 30000) // 30秒自动同步一次
+  const savedInsertedContents = localStorage.getItem('promptInsertedContents')
+  if (savedInsertedContents) {
+    promptInsertedContents.value = JSON.parse(savedInsertedContents)
+  }
 })
 
 // 监听数据变化并保存
@@ -1984,19 +1993,6 @@ const createNewCard = () => {
   updateScene(currentScene.value)
 }
 
-// 修改更新卡片的方法
-const updateCard = (card) => {
-  if (!currentScene.value || !currentScene.value.cards) return
-  
-  const cardIndex = currentScene.value.cards.findIndex(c => c.id === card.id)
-  if (cardIndex !== -1) {
-    // 更新卡片
-    currentScene.value.cards[cardIndex] = JSON.parse(JSON.stringify(card))
-    
-    // 更新场景
-    updateScene(currentScene.value)
-  }
-}
 
 // Add new method to prevent text selection during scene drag
 const preventTextSelection = (prevent) => {
@@ -2132,6 +2128,10 @@ watch(
 onMounted(async () => {
   await loadAllData()
   setInterval(syncData, 30000) // 30秒自动同步一次
+  const savedInsertedContents = localStorage.getItem('promptInsertedContents')
+  if (savedInsertedContents) {
+    promptInsertedContents.value = JSON.parse(savedInsertedContents)
+  }
 })
 
 // 修改保存卡片的方法
@@ -2304,6 +2304,243 @@ const updateCardHeight = async (card, newHeight) => {
     showToast('更新卡片高度失败: ' + error.message, 'error')
   }
 }
+
+// 处理插入卡片到提示词
+const handleInsertToPrompt = (card) => {
+  try {
+    if (!selectedPrompt.value) {
+      showToast('请先选择一个提示词模板', 'error')
+      return
+    }
+
+    // 初始化提示词的insertedContents数组
+    if (!selectedPrompt.value.insertedContents) {
+      selectedPrompt.value.insertedContents = []
+    }
+
+    // 添加新的插入内容
+    selectedPrompt.value.insertedContents.push(card.content)
+
+    // 更新提示词
+    const promptIndex = prompts.value.findIndex(p => p.id === selectedPrompt.value.id)
+    if (promptIndex !== -1) {
+      prompts.value[promptIndex] = { ...selectedPrompt.value }
+    }
+
+    // 初始化卡片的insertedContents数组
+    if (!card.insertedContents) {
+      card.insertedContents = []
+    }
+
+    // 添加到卡片的已插入记录
+    card.insertedContents.push({
+      promptId: selectedPrompt.value.id,
+      content: card.content
+    })
+
+    // 更新卡片
+    updateCard(card)
+
+    // 保存提示词数据
+    localStorage.setItem('prompts', JSON.stringify(prompts.value))
+    
+    showToast('内容已插入到提示词', 'success')
+  } catch (error) {
+    console.error('插入内容失败:', error)
+    showToast('插入内容失败: ' + error.message, 'error')
+  }
+}
+
+// 处理移除已插入的内容
+const handleRemoveInsertedContent = ({ card, index }) => {
+  try {
+    if (!card.insertedContents) return
+
+    // 获取要移除的内容信息
+    const removedContent = card.insertedContents[index]
+    
+    // 从卡片中移除
+    card.insertedContents.splice(index, 1)
+    
+    // 从提示词中移除
+    const prompt = prompts.value.find(p => p.id === removedContent.promptId)
+    if (prompt && prompt.insertedContents) {
+      const promptContentIndex = prompt.insertedContents.indexOf(card.content)
+      if (promptContentIndex !== -1) {
+        prompt.insertedContents.splice(promptContentIndex, 1)
+      }
+    }
+
+    // 更新卡片和提示词
+    updateCard(card)
+    localStorage.setItem('prompts', JSON.stringify(prompts.value))
+    
+    showToast('已移除插入的内容', 'success')
+  } catch (error) {
+    console.error('移除内容失败:', error)
+    showToast('移除内容失败: ' + error.message, 'error')
+  }
+}
+
+// 更新卡片方法
+const updateCard = (card) => {
+  if (!currentScene.value) return
+
+  const cardIndex = currentScene.value.cards.findIndex(c => c.id === card.id)
+  if (cardIndex !== -1) {
+    currentScene.value.cards[cardIndex] = {
+      ...card,
+      insertedContents: card.insertedContents || []
+    }
+
+    // 更新场景
+    const sceneIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
+    if (sceneIndex !== -1) {
+      scenes.value[sceneIndex] = {
+        ...currentScene.value,
+        cards: [...currentScene.value.cards]
+      }
+    }
+
+    // 保存到本地存储
+    localStorage.setItem('scenes', JSON.stringify(scenes.value))
+  }
+}
+
+// 处理选择提示词
+const selectPrompt = (prompt) => {
+  selectedPrompt.value = prompt
+}
+
+const cardToInsert = ref(null)
+
+// 修改处理插入提示词的方法
+const handleInsertPrompt = (card) => {
+  // 如果没有可用的提示词，显示错误提示
+  if (!prompts.value || prompts.value.length === 0) {
+    showToast('请先创建提示词模板', 'error')
+    return
+  }
+
+  // 保存要插入的卡片并显示模态框
+  cardToInsert.value = card
+  showPromptSelectModal.value = true
+}
+
+// 修改选择提示词并插入的方法
+const selectPromptAndInsert = (prompt) => {
+  if (!cardToInsert.value) return
+
+  try {
+    const card = cardToInsert.value
+    
+    // 检查提示词模板
+    if (!prompt.template) {
+      showToast('提示词模板无效', 'error')
+      return
+    }
+
+    // 初始化提示词的insertedContents数组
+    if (!prompt.insertedContents) {
+      prompt.insertedContents = []
+    }
+
+    // 添加新的插入内容到提示词中
+    prompt.insertedContents.push({
+      cardId: card.id,
+      content: card.content,
+      timestamp: Date.now()
+    })
+
+    // 更新提示词
+    const promptIndex = prompts.value.findIndex(p => p.id === prompt.id)
+    if (promptIndex !== -1) {
+      prompts.value[promptIndex] = { ...prompt }
+    }
+
+    // 保存提示词数据
+    localStorage.setItem('prompts', JSON.stringify(prompts.value))
+    
+    // 关闭模态框
+    showPromptSelectModal.value = false
+    cardToInsert.value = null
+    
+    showToast('内容已插入到提示词', 'success')
+  } catch (error) {
+    console.error('插入内容失败:', error)
+    showToast('插入内容失败: ' + error.message, 'error')
+  }
+}
+
+// 修改发送消息的方法
+const sendMessage = async () => {
+  try {
+    // 获取选中的模型和提示词
+    const selectedModel = models.value.find(m => m.id === currentModelId.value)
+    const currentPrompt = selectedPrompt.value
+    
+    if (!selectedModel || !currentPrompt) {
+      showToast('请选择模型和提示词', 'error')
+      return
+    }
+
+    // 获取提示词的已插入内容
+    const insertedContents = currentPrompt.insertedContents || []
+    const insertedTexts = insertedContents.map(item => item.content).join('\n')
+    
+    // 构建完整的提示词内容
+    const fullPrompt = currentPrompt.template.replace(/{{text}}/g, insertedTexts)
+
+    // 添加用户消息到聊天记录
+    messages.value.push({
+      role: 'user',
+      content: fullPrompt
+    })
+
+    // 显示加载状态
+    isLoading.value = true
+
+    // 发送请求到API
+    const response = await sendToAPI(selectedModel, messages.value)
+    
+    if (response.success) {
+      messages.value.push({
+        role: 'assistant',
+        content: response.message
+      })
+    } else {
+      showToast(response.error || '发送失败', 'error')
+    }
+
+  } catch (error) {
+    console.error('发送消息失败:', error)
+    showToast('发送失败: ' + error.message, 'error')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// 获取处理后的提示词内容
+const getProcessedPromptContent = (prompt, cardContent) => {
+  if (!prompt || !cardContent) return ''
+  return prompt.template.replace(/{{text}}/g, cardContent)
+}
+
+// 在聊天中使用处理后的提示词内容
+const usePromptInChat = (prompt, processedContent) => {
+  // 这里添加将处理后的内容发送到聊天的逻辑
+  if (currentChat.value) {
+    currentChat.value.messages.push({
+      role: 'user',
+      content: processedContent
+    })
+    // 触发消息发送
+    sendMessage()
+  }
+}
+
+// 确保在 setup 中定义状态
+
 </script>
 
 <style scoped>
@@ -2795,170 +3032,6 @@ button:disabled {
   display: block;
   margin-bottom: 8px;
   color: #666;
-}
-
-input, textarea {
-  width: 90%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-}
-
-textarea.template-input {
-  min-height: 200px !important;
-  font-family: monospace;
-  white-space: pre-wrap;
-}
-
-.prompt-item {
-  background: white;
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 12px;
-  cursor: grab;
-  position: relative;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.prompt-item:hover .prompt-actions {
-  opacity: 1;
-}
-
-.prompt-actions {
-  position: absolute;
-  right: 8px;
-  top: 8px;
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.prompt-info {
-  font-size: 0.8em;
-  color: #666;
-  margin-top: 8px;
-}
-
-.selected-info {
-  display: flex;
-  gap: 16px;
-  color: #666;
-}
-
-.action-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.prompt-item.has-content {
-  border-left: 4px solid #646cff;
-}
-
-.inserted-contents {
-  margin-top: 8px;
-  padding: 8px;
-  background: #f5f5f5;
-  border-radius: 4px;
-}
-
-.inserted-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 8px;
-  margin-bottom: 4px;
-  background: white;
-  border-radius: 4px;
-  font-size: 0.9em;
-}
-
-.inserted-content button {
-  padding: 2px 4px;
-  background: none;
-  border: none;
-  color: #ff4444;
-  cursor: pointer;
-}
-
-.send-btn {
-  background: #10b981;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: all 0.2s ease;
-}
-
-.send-btn:hover {
-  background: #059669;
-}
-
-.send-btn:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-
-.edit-btn:hover {
-  color: #646cff;
-  background: rgba(100,108,255,0.1);
-}
-
-.delete-btn:hover {
-  color: #dc3545;
-  background: #fee2e2;
-}
-
-.settings-modal {
-  width: 800px;
-  max-width: 90vw;
-  height: auto;
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.settings-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-  padding-top: 0;
-}
-
-.models-list {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  margin-bottom: 20px;
-}
-
-.model-item {
-  position: relative;
-  background: #f8f9fa;
-  border-radius: 8px;
-  padding: 20px;
-  border: 1px solid #eee;
-}
-
-.model-info {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-}
-
-.form-group {
-  justify-content: center;
-  margin-bottom: 0;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 4px;
-  color: #666;
-  font-size: 0.9em;
 }
 
 .form-group input {
@@ -3881,5 +3954,68 @@ textarea.template-input {
 .model-select option {
   padding: 4px;
   font-family: monospace;
+}
+
+/* 添加模态框样式 */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.prompt-list {
+  margin: 16px 0;
+}
+
+.prompt-item {
+  padding: 12px;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.prompt-item:hover {
+  background: #f5f5f5;
+}
+
+.modal-actions {
+  margin-top: 16px;
+  text-align: right;
+}
+
+.cancel-btn {
+  padding: 8px 16px;
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cancel-btn:hover {
+  background: #e5e5e5;
+}
+
+.prompt-template {
+  color: #666;
+  font-size: 14px;
+  margin-top: 8px;
 }
 </style> 

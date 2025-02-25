@@ -38,7 +38,10 @@
             <div class="agent-description">{{ agent.description || '无描述' }}</div>
           </div>
           <div class="agent-actions">
-            <button @click.stop="$emit('edit', agent)" class="icon-btn edit">
+            <button @click.stop="$emit('editFlow', agent)" class="icon-btn edit">
+              <i class="fas fa-project-diagram"></i>
+            </button>
+            <button @click.stop="$emit('editAgent', agent)" class="icon-btn edit">
               <i class="fas fa-edit"></i>
             </button>
             <button @click.stop="$emit('delete', agent.id)" class="icon-btn delete">
@@ -62,7 +65,7 @@ const props = defineProps({
   selectedId: String
 })
 
-const emit = defineEmits(['select', 'create', 'edit', 'delete'])
+const emit = defineEmits(['select', 'create', 'editAgent', 'editFlow', 'delete'])
 
 // 默认头像
 const defaultAvatar = 'https://ui-avatars.com/api/?background=random&name=AI'

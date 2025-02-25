@@ -1,7 +1,7 @@
 <template>
   <div class="agents-view">
     <div class="header-section">
-      <h1>智能助手管理</h1>
+      <h1>智能自动化工作流</h1>
       <div class="actions">
         <button @click="createNewAgent" class="primary-btn">
           <i class="fas fa-plus"></i> 新建助手

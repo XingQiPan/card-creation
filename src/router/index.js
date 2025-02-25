@@ -3,13 +3,15 @@ import AgentsView from '../views/AgentsView.vue'
 import AgentDetailView from '../views/AgentDetailView.vue'
 import AgentFlowEditor from '../components/AgentFlow/AgentFlowEditor.vue'
 import AgentTesting from '../components/AgentManager/AgentTesting.vue'
+import AgentEditor from '../components/AgentManager/AgentEditor.vue'
 
 // 检查组件是否正确导入
 console.log('Router components:', {
   AgentsView,
   AgentDetailView,
   AgentFlowEditor,
-  AgentTesting
+  AgentTesting,
+  AgentEditor
 });
 
 // 简化路由配置，删除重复路由
@@ -25,12 +27,8 @@ const routes = [
   },
   {
     path: '/agents/new',
-    name: 'new-agent',
-    component: AgentFlowEditor,
-    props: (route) => ({
-      id: 'new',
-      models: route.params.models || []
-    })
+    name: 'AgentNew',
+    component: AgentEditor
   },
   {
     path: '/agents/:id',
@@ -40,9 +38,8 @@ const routes = [
   },
   {
     path: '/agents/:id/edit',
-    name: 'agent-edit',
-    component: AgentFlowEditor,
-    props: true
+    name: 'AgentEdit',
+    component: AgentEditor
   },
   {
     path: '/agents/:id/test',

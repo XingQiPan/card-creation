@@ -1,11 +1,11 @@
 [
   {
-    "name": "新建智能助手",
-    "description": "",
-    "modelId": "default",
+    "name": "小说工作室",
+    "description": "自动化小说流程",
     "enabled": true,
-    "createdAt": "2025-02-25T10:12:10.931Z",
-    "updatedAt": 1740478330916,
+    "settings": {
+      "systemPrompt": ""
+    },
     "flow": {
       "nodes": [
         {
@@ -38,6 +38,9 @@
         }
       ]
     },
+    "createdAt": "2025-02-25T10:12:10.931Z",
+    "updatedAt": "2025-02-25T11:31:10.891Z",
+    "modelId": "default",
     "id": 1740478330930
   }
 ]

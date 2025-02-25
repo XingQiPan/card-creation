@@ -354,6 +354,155 @@ _**Assistant**_
 
 
 
+I apologize for the error. It seems the `getInsertCount` function is already defined elsewhere in your code. Let's modify our approach to use the existing function instead of declaring a new one:
+
+```javascript:src/App.vue
+// ... existing code ...
+
+// 修改选择提示词并插入的方法
+const selectPromptAndInsert = (prompt) => {
+  if (!cardToInsert.value) return
+
+  try {
+    // 使用已存在的 getInsertCount 函数检查提示词中有多少个 {{text}} 占位符
+    const textPlaceholders = getInsertCount(prompt.userPrompt)
+    
+    // 确保 insertedContents 是数组
+    if (!prompt.insertedContents) {
+      prompt.insertedContents = []
+    }
+    
+    // 检查是否已达到最大插入数量
+    if (prompt.insertedContents.length >= textPlaceholders) {
+      showToast(`该提示词最多只能插入 ${textPlaceholders} 个内容`, 'error')
+      return
+    }
+    
+    // 检查是否已经插入过相同内容
+    const isDuplicate = prompt.insertedContents.some(item => 
+      item.content === cardToInsert.value.content && 
+      item.cardId === cardToInsert.value.id
+    )
+    
+    if (isDuplicate) {
+      showToast('该内容已经插入过', 'error')
+      return
+    }
+
+    // 添加新的插入内容
+    prompt.insertedContents.push({
+      id: Date.now(),
+      content: cardToInsert.value.content,
+      cardId: cardToInsert.value.id
+    })
+
+    // 更新提示词
+    const index = prompts.value.findIndex(p => p.id === prompt.id)
+    if (index !== -1) {
+      prompts.value[index] = { ...prompt }
+    }
+
+    // 保存到本地存储
+    localStorage.setItem('prompts', JSON.stringify(prompts.value))
+    
+    // 关闭模态框
+    showPromptSelectModal.value = false
+    cardToInsert.value = null
+    
+    showToast('内容已插入到提示词')
+  } catch (error) {
+    console.error('插入内容错误:', error)
+    showToast('插入失败: ' + error.message, 'error')
+  }
+}
+
+// ... existing code ...
+```
+
+I've removed the duplicate function declaration and instead used the existing `getInsertCount` function that's already defined in your code. This should resolve the compilation error while maintaining all the functionality we need.
+
+---
+
+_**User**_
+
+BookSplitter.vue:806 
+ API 请求错误: TypeError: Cannot read properties of undefined (reading 'replace')
+    at processWithAPI (BookSplitter.vue:700:47)
+    at Proxy.processWithPrompt (BookSplitter.vue:646:30)
+    at _createElementVNode.onClick._cache.<computed>._cache.<computed> (BookSplitter.vue:159:31)
+BookSplitter.vue:671 
+ 处理章节 引言 失败: Error: 处理失败: Cannot read properties of undefined (reading 'replace')
+    at processWithAPI (BookSplitter.vue:807:11)
+    at Proxy.processWithPrompt (BookSplitter.vue:646:30)
+    at _createElementVNode.onClick._cache.<computed>._cache.<computed> (BookSplitter.vue:159:31)
+﻿
+
+
+
+---
+
+_**Assistant**_
+
+
+
+这个错误是因为在 `BookSplitter.vue` 中的 `processWithAPI` 函数尝试访问 `prompt.template` 属性，但该属性不存在。在新版本的代码中，提示词模板可能已经改名为 `userPrompt`。让我们修复这个问题：
+
+```javascript:src/components/BookSplitter.vue
+// ... existing code ...
+
+// 修改 processWithAPI 方法
+const processWithAPI = async (card, prompt, scene) => {
+  try {
+    const model = props.models.find(m => m.id === prompt.selectedModel)
+    if (!model) {
+      throw new Error('未选择模型')
+    }
+
+    // 使用 userPrompt 替代 template
+    const processedTemplate = (prompt.userPrompt || prompt.template || "").replace(/{{text}}/g, card.content)
+    const messages = [
+      {
+        role: "user",
+        content: processedTemplate
+      }
+    ]
+
+    // 如果存在 systemPrompt，添加到消息中
+    if (prompt.systemPrompt) {
+      messages.unshift({
+        role: "system",
+        content: prompt.systemPrompt
+      });
+    }
+
+    let response
+    let result
+
+    // 构建基础请求配置
+    const baseHeaders = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${model.apiKey}`
+    }
+
+    // 根据不同提供商处理请求
+    switch (model.provider) {
+      case 'openai':
+      case 'stepfun':
+      case 'mistral':
+        response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
+          method: 'POST',
+          headers: baseHeaders,
+          body: JSON.stringify({
+            model: model.modelId,
+            messages: messages,
+            max_tokens: Number(model.maxTokens),
+            temperature: Number(model.temperature)
+          })
+        })
+        break
+
+      case 'custom': // 直接使用提
+
 ---
 
 

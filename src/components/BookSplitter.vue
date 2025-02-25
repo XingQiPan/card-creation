@@ -689,7 +689,7 @@ const processWithPrompt = async (scene) => {
   }
 }
 
-// 添加 processWithAPI 方法
+// 修改 processWithAPI 方法
 const processWithAPI = async (card, prompt, scene) => {
   try {
     const model = props.models.find(m => m.id === prompt.selectedModel)
@@ -697,13 +697,22 @@ const processWithAPI = async (card, prompt, scene) => {
       throw new Error('未选择模型')
     }
 
-    const processedTemplate = prompt.template.replace(/{{text}}/g, card.content)
+    // 使用 userPrompt 替代 template
+    const processedTemplate = (prompt.userPrompt || prompt.template || "").replace(/{{text}}/g, card.content)
     const messages = [
       {
         role: "user",
         content: processedTemplate
       }
     ]
+
+    // 如果存在 systemPrompt，添加到消息中
+    if (prompt.systemPrompt) {
+      messages.unshift({
+        role: "system",
+        content: prompt.systemPrompt
+      });
+    }
 
     let response
     let result

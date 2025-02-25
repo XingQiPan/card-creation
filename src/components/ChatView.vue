@@ -546,7 +546,7 @@ const sendToModel = async (model, message, context = []) => {
         // 确保 API 密钥直接作为 URL 参数
         const cleanApiUrl = apiUrl.replace(/\/+$/, '')
         url = `${cleanApiUrl}key=${encodeURIComponent(model.apiKey)}`
-        console.log('完整的 Gemini URL:', url)
+        //console.log('完整的 Gemini URL:', url)
         // 构建 Gemini 格式的消息历史
         const contents = []
         
@@ -572,8 +572,7 @@ const sendToModel = async (model, message, context = []) => {
           }
         }
         
-        // 打印完整的 URL 和 API 密钥（仅用于调试，生产环境应移除）
-        console.log('完整的 Gemini URL:', url)
+ 
         break
       case 'custom':
         url = apiUrl
@@ -592,9 +591,9 @@ const sendToModel = async (model, message, context = []) => {
         throw new Error(`不支持的模型提供商: ${model.provider}`)
     }
 
-    console.log('发送请求到:', url)
-    console.log('请求头:', headers)
-    console.log('请求体:', JSON.stringify(body, null, 2))
+    //console.log('发送请求到:', url)
+    //console.log('请求头:', headers)
+    //console.log('请求体:', JSON.stringify(body, null, 2))
 
     // 添加终止控制器
     const response = await fetch(url, {
@@ -628,7 +627,7 @@ const sendToModel = async (model, message, context = []) => {
     }
 
     const result = await response.json()
-    console.log('API 响应:', result)
+    //console.log('API 响应:', result)
     
     // 解析不同提供商的响应
     switch (model.provider) {
@@ -829,7 +828,7 @@ const splitMarkdownContent = (content) => {
     })
   })
   
-  console.log('Split into sections:', sections)
+  //console.log('Split into sections:', sections)
   return sections
 }
 
@@ -853,7 +852,7 @@ const showToastMessage = (message, type = 'success') => {
 
 // 修改保存方法
 const saveSplitSections = () => {
-  console.log('Saving sections...') // 添加调试日志
+  //console.log('Saving sections...') // 添加调试日志
   const selectedSections = splitSections.value.filter(s => s.selected)
   
   if (selectedSections.length === 0) {
@@ -867,8 +866,8 @@ const saveSplitSections = () => {
   }
 
   try {
-    console.log('Selected sections:', selectedSections) // 添加调试日志
-    console.log('Target scene:', selectedSceneId.value) // 添加调试日志
+    //console.log('Selected sections:', selectedSections) // 添加调试日志
+    //console.log('Target scene:', selectedSceneId.value) // 添加调试日志
     
     // 创建新卡片
     const cards = selectedSections.map(section => ({

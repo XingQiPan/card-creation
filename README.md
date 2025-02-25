@@ -119,6 +119,8 @@ start-dev.bat
 
 - QQ群：1028368820
 - 教程：【逆天，一步操作，写作10倍效率——《星卡基础教程》】 https://www.bilibili.com/video/BV1WdPFegEpt/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1
+本教程虽然才过了几天，但是已经与最新版本有较大差异，可以在本视频了解对应功能。
+有问题优先进群问，我后期会出新视频同步更新到这里。
 
 ---
 

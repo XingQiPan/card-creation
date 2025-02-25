@@ -857,26 +857,10 @@ const loadAllData = async () => {
   try {
     dataLoaded.value = false // 开始加载时设置为 false
     
-    // 从本地存储加载
-    const localPrompts = localStorage.getItem('prompts')
-    if (localPrompts) {
-      try {
-        const parsedPrompts = JSON.parse(localPrompts)
-        prompts.value = Array.isArray(parsedPrompts) ? parsedPrompts.map(prompt => ({
-          ...prompt,
-          systemPrompt: prompt.systemPrompt || '',
-          userPrompt: prompt.userPrompt || prompt.template || '',
-          insertedContents: Array.isArray(prompt.insertedContents) ? prompt.insertedContents : [],
-          detectKeywords: prompt.detectKeywords ?? true
-        })) : []
-      } catch (e) {
-        console.error('解析提示词数据失败:', e)
-        prompts.value = []
-      }
-    }
-
+    // 从本地存储加载所有数据
     const localData = {
       scenes: dataService.loadFromLocalStorage('scenes'),
+      prompts: dataService.loadFromLocalStorage('prompts'),
       tags: dataService.loadFromLocalStorage('tags'),
       config: dataService.loadFromLocalStorage('config')
     }
@@ -891,10 +875,10 @@ const loadAllData = async () => {
     // 初始化默认数据
     await initializeData({
       scenes: [],
+      prompts: [],
       tags: [],
       config: {}
     })
-    prompts.value = []
     dataLoaded.value = true
   }
 }
@@ -1199,7 +1183,7 @@ const savePrompt = () => {
     }
 
     // 保存到本地存储
-    localStorage.setItem('prompts', JSON.stringify(prompts.value))
+    dataService.saveToLocalStorage('prompts', prompts.value)
     
     closePromptModal() // 使用closePromptModal方法关闭
     showToast('提示词保存成功', 'success')

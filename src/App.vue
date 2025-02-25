@@ -1,8 +1,14 @@
 <template>
   <div class="container">
-    <div class="content-area">
+    <!-- 当 currentView 为 'agents' 时，显示路由视图 -->
+    <router-view v-if="currentView === 'agents'" />
+    
+    <!-- 其他视图内容 -->
+    <div v-else class="content-area">
       <!-- 主要内容区域 -->
       <div v-if="currentView === 'main'" class="main-content">
+      <router-view v-if="currentView === 'agents'" />
+
         <!-- 左侧提示词模板区 -->
         <div class="prompt-panel" :style="{ width: promptPanelWidth + 'px' }">
           <div class="panel-header">
@@ -220,6 +226,10 @@
         :prompts="prompts"
         :models="models"
       />
+      <AgentsView 
+        v-else-if="currentView === 'agents'"
+        :models="models"
+      />
     </div>
 
     <!-- 视图切换按钮 -->
@@ -247,6 +257,12 @@
         @click="currentView = 'note'"
       >
         <i class="fas fa-sticky-note"></i>
+      </button>
+      <button 
+        @click="currentView = 'agents'" 
+        :class="{ active: currentView === 'agents' }"
+      >
+        <i class="fas fa-robot"></i>
       </button>
     </div>
   </div>
@@ -601,6 +617,8 @@ import DOMPurify from 'dompurify'
 import BookSplitter from './components/BookSplitter.vue'
 import ChatView from './components/ChatView.vue'
 import NotePad from './components/NotePad.vue'
+// 导入 AgentsView 组件
+import AgentsView from './views/AgentsView.vue'
 
 
 // 将状态声明移到最前面
@@ -2841,6 +2859,11 @@ const insertContentToPrompt = (prompt, content) => {
   
   showToast('内容已插入到提示词')
 }
+
+// 保存当前视图到本地存储
+watch(currentView, (newView) => {
+  localStorage.setItem('currentView', newView)
+})
 </script>
 
 <style scoped>

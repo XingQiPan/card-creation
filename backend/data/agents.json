@@ -1,0 +1,43 @@
+[
+  {
+    "name": "新建智能助手",
+    "description": "",
+    "modelId": "default",
+    "enabled": true,
+    "createdAt": "2025-02-25T10:12:10.931Z",
+    "updatedAt": 1740478330916,
+    "flow": {
+      "nodes": [
+        {
+          "id": "977748e2-ec33-4956-9641-fa8083b20b8a",
+          "type": "start",
+          "name": "开始节点",
+          "position": {
+            "x": 100,
+            "y": 100
+          },
+          "config": {}
+        },
+        {
+          "id": "node-1740478327212",
+          "type": "condition",
+          "name": "条件",
+          "position": {
+            "x": 577,
+            "y": 157
+          },
+          "config": {}
+        }
+      ],
+      "connections": [
+        {
+          "id": "conn-1740478328875",
+          "sourceId": "977748e2-ec33-4956-9641-fa8083b20b8a",
+          "targetId": "node-1740478327212",
+          "type": "default"
+        }
+      ]
+    },
+    "id": 1740478330930
+  }
+]

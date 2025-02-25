@@ -1,7 +1,7 @@
 {
   "name": "card-creation",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port 8888",
@@ -10,7 +10,12 @@
   },
   "dependencies": {
     "@fortawesome/fontawesome-free": "^6.7.2",
+    "@vue-flow/background": "^1.2.0",
+    "@vue-flow/controls": "^1.0.5",
+    "@vue-flow/core": "^1.20.1",
+    "@vue-flow/minimap": "^1.1.1",
     "@vueuse/core": "^12.7.0",
+    "axios": "^1.7.9",
     "cors": "^2.8.5",
     "dompurify": "^3.2.4",
     "express": "^4.21.2",
@@ -19,7 +24,9 @@
     "mitt": "^3.0.1",
     "multer": "^1.4.5-lts.1",
     "pinia": "^3.0.1",
+    "uuid": "^11.1.0",
     "vue": "^3.5.13",
+    "vue-router": "^4.5.0",
     "vuedraggable": "^4.1.0"
   },
   "devDependencies": {

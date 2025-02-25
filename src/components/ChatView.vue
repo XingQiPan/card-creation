@@ -430,7 +430,7 @@ const sendMessage = async () => {
       if (prompt) {
         context.push({
           role: 'system',
-          content: prompt.template
+          content: prompt.systemPrompt || prompt.template || prompt.userPrompt
         })
       }
     }
@@ -553,15 +553,15 @@ const sendToModel = async (model, message, context = []) => {
         // 处理上下文消息
         for (const msg of context) {
           contents.push({
-            parts: [{ text: msg.content }],
-            role: msg.role === 'user' ? 'user' : 'model'
+            role: msg.role === 'user' ? 'user' : 'model',
+            parts: [{ text: msg.content }]
           })
         }
         
         // 添加当前用户消息
         contents.push({
-          parts: [{ text: message }],
-          role: 'user'
+          role: 'user',
+          parts: [{ text: message }]
         })
         
         body = {
@@ -940,21 +940,24 @@ const mergeToPrevious = (index) => {
 
 // 修改重新发送消息方法
 const resendMessage = async (msg) => {
-  // 删除这条消息之后的所有消息
-  const msgIndex = currentChat.value.messages.findIndex(m => m.id === msg.id)
-  currentChat.value.messages = currentChat.value.messages.slice(0, msgIndex)
-  
-  // 添加用户消息
-  const userMessage = {
-    id: Date.now(),
-    role: 'user',
-    content: msg.content,
-    timestamp: new Date()
+  if (!currentChat.value?.modelId) {
+    showToastMessage('请先选择模型', 'error')
+    return
   }
-  currentChat.value.messages.push(userMessage)
-  
-  // 重新发送消息
+
   try {
+    // 设置请求状态
+    isRequesting.value = true
+    requestStartTime.value = Date.now()
+    elapsedTime.value = 0  // 重置计时器
+    
+    // 启动计时器，每10毫秒更新一次
+    timerInterval.value = setInterval(() => {
+      elapsedTime.value = Date.now() - requestStartTime.value
+    }, 10)
+    
+    abortController.value = new AbortController()
+
     const model = props.models.find(m => m.id === currentChat.value.modelId)
     if (!model) throw new Error('未找到选择的模型')
 
@@ -967,7 +970,7 @@ const resendMessage = async (msg) => {
       if (prompt) {
         context.push({
           role: 'system',
-          content: prompt.template
+          content: prompt.systemPrompt || prompt.template || prompt.userPrompt
         })
       }
     }
@@ -1001,11 +1004,20 @@ const resendMessage = async (msg) => {
     // 调用 API 获取回复
     const response = await sendToModel(model, processedContent, context)
     
+    // 计算响应时间
+    const endTime = Date.now()
+    const responseTimeValue = endTime - requestStartTime.value
+    
+    // 清除计时器
+    clearInterval(timerInterval.value)
+    timerInterval.value = null
+    
     const assistantMessage = {
       id: Date.now(),
       role: 'assistant',
       content: response,
-      timestamp: new Date()
+      timestamp: new Date(),
+      responseTime: responseTimeValue // 保存响应时间
     }
 
     currentChat.value.messages.push(assistantMessage)
@@ -1021,6 +1033,12 @@ const resendMessage = async (msg) => {
     // 发送失败时移除刚才添加的用户消息
     currentChat.value.messages.pop()
     saveSessions()
+  } finally {
+    isRequesting.value = false
+    abortController.value = null
+    elapsedTime.value = 0  // 重置计时器
+    clearInterval(timerInterval.value)  // 确保清除计时器
+    timerInterval.value = null
   }
 }
 

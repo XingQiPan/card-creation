@@ -105,6 +105,10 @@
           <div class="message-header">
             <span class="role-badge">{{ msg.role === 'user' ? '我' : 'AI' }}</span>
             <span class="message-time">{{ formatTime(msg.timestamp) }}</span>
+            <!-- 显示响应时间 -->
+            <span v-if="msg.role === 'assistant' && msg.responseTime" class="response-time">
+              ({{ formatResponseTime(msg.responseTime) }})
+            </span>
             <div class="message-actions">
               <button class="icon-btn" @click="editMessage(msg)" title="编辑">
                 <i class="fas fa-edit"></i>
@@ -151,14 +155,30 @@
           placeholder="输入消息，Enter 发送，Shift + Enter 换行"
           rows="3"
           class="input-textarea"
+          :disabled="isRequesting"
         ></textarea>
-        <button 
-          @click="sendMessage"
-          :disabled="!currentChat.modelId || !inputMessage.trim()"
-          class="send-btn"
-        >
-          发送
-        </button>
+        <div class="input-actions">
+          <div v-if="isRequesting" class="elapsed-time">
+            {{ formatElapsedTime(elapsedTime) }}
+          </div>
+          <button 
+            v-if="!isRequesting"
+            @click="sendMessage"
+            :disabled="!currentChat.modelId || !inputMessage.trim()"
+            class="send-btn"
+          >
+            <i class="fas fa-paper-plane"></i>
+            发送
+          </button>
+          <button 
+            v-else
+            @click="abortRequest"
+            class="abort-btn"
+          >
+            <i class="fas fa-stop"></i>
+            终止
+          </button>
+        </div>
       </div>
     </div>
 
@@ -350,6 +370,27 @@ const deleteChat = (id) => {
   }
 }
 
+// 添加响应式变量来跟踪请求时间和请求状态
+const requestStartTime = ref(null)
+const responseTime = ref(null)
+const isRequesting = ref(false)
+const abortController = ref(null)
+const elapsedTime = ref(0)  // 添加用于实时显示的计时器变量
+const timerInterval = ref(null)  // 添加计时器间隔引用
+
+// 终止请求的方法
+const abortRequest = () => {
+  if (abortController.value) {
+    abortController.value.abort()
+    abortController.value = null
+    isRequesting.value = false
+    clearInterval(timerInterval.value)  // 清除计时器
+    timerInterval.value = null
+    elapsedTime.value = 0
+    showToastMessage('已终止请求', 'info')
+  }
+}
+
 // 修改发送消息方法
 const sendMessage = async () => {
   if (!inputMessage.value.trim() || !currentChat.value?.modelId) return
@@ -365,6 +406,18 @@ const sendMessage = async () => {
   inputMessage.value = ''
   
   try {
+    // 设置请求状态
+    isRequesting.value = true
+    requestStartTime.value = Date.now()
+    elapsedTime.value = 0  // 重置计时器
+    
+    // 启动计时器，每10毫秒更新一次
+    timerInterval.value = setInterval(() => {
+      elapsedTime.value = Date.now() - requestStartTime.value
+    }, 10)
+    
+    abortController.value = new AbortController()
+    
     const model = props.models.find(m => m.id === currentChat.value.modelId)
     if (!model) throw new Error('未找到选择的模型')
 
@@ -391,20 +444,11 @@ const sendMessage = async () => {
 
     // 处理关键词检测
     let processedContent = userMessage.content
-    //console.log(processedContent)
-    //console.log(currentChat.value.enableKeywords)
     if (currentChat.value.enableKeywords) {
-      //console.log("message content:", userMessage.content) // 打印用户消息
-      //console.log("all keywords available:", allKeywords.value) // 打印可用的关键词
-
       // 检测关键词
       const keywords = allKeywords.value.filter(keyword => {
-        const found = userMessage.content.toLowerCase().includes(keyword.name.toLowerCase())
-        //console.log(`checking keyword: ${keyword.name}, found: ${found}`) // 打印每个关键词的检测结果
-        return found
+        return userMessage.content.toLowerCase().includes(keyword.name.toLowerCase())
       })
-
-      //console.log(keywords)
 
       if (keywords.length > 0) {
         let keywordsContext = '检测到以下相关内容:\n\n'
@@ -424,11 +468,20 @@ const sendMessage = async () => {
     // 调用 API 获取回复
     const response = await sendToModel(model, processedContent, context)
     
+    // 计算响应时间
+    const endTime = Date.now()
+    responseTime.value = endTime - requestStartTime.value
+    
+    // 清除计时器
+    clearInterval(timerInterval.value)
+    timerInterval.value = null
+    
     const assistantMessage = {
       id: Date.now(),
       role: 'assistant',
       content: response,
-      timestamp: new Date()
+      timestamp: new Date(),
+      responseTime: responseTime.value // 保存响应时间
     }
 
     currentChat.value.messages.push(assistantMessage)
@@ -441,113 +494,141 @@ const sendMessage = async () => {
 
   } catch (error) {
     console.error('发送失败:', error)
+    
+    // 清除计时器
+    clearInterval(timerInterval.value)
+    timerInterval.value = null
+    
+    // 如果是用户主动终止，不显示错误
+    if (error.name === 'AbortError') {
+      currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== userMessage.id)
+      return
+    }
+    
     currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== userMessage.id)
     alert(error.message)
+  } finally {
+    isRequesting.value = false
+    abortController.value = null
+    elapsedTime.value = 0  // 重置计时器
   }
 }
 
 // 修改调用模型 API
-const sendToModel = async (model, content, context = []) => {
+const sendToModel = async (model, message, context = []) => {
   try {
-    let response
-    let result
-
-    // 检查必要的参数
-    if (!model?.provider || !model?.apiUrl || !model?.apiKey) {
-      throw new Error('模型配置不完整')
+    const apiUrl = model.apiUrl || ''
+    let url = ''
+    let body = {}
+    let headers = {
+      'Content-Type': 'application/json'
     }
 
-    console.log('Sending request to model:', model.provider)
-
-    // 构建基础请求配置
-    const baseHeaders = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${model.apiKey}`
-    }
-
-    // 构建基础消息体
-    const baseMessages = [...context, { role: 'user', content }]
-
-    // 根据不同提供商处理请求
+    // 根据不同的提供商构建请求
     switch (model.provider) {
       case 'openai':
       case 'stepfun':
       case 'mistral':
-        response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
-          method: 'POST',
-          headers: baseHeaders,
-          body: JSON.stringify({
-            model: model.modelId,
-            messages: baseMessages,
-            max_tokens: Number(model.maxTokens),
-            temperature: Number(model.temperature)
-          })
-        })
+        url = `${apiUrl.replace(/\/+$/, '')}/chat/completions`
+        headers['Authorization'] = `Bearer ${model.apiKey}`
+        body = {
+          model: model.modelId,
+          messages: [
+            ...context,
+            { role: 'user', content: message }
+          ],
+          max_tokens: Number(model.maxTokens) || 2048,
+          temperature: Number(model.temperature) || 0.7
+        }
         break
-
-      case 'custom': // 直接使用提供的 URL，不附加路径
-        response = await fetch(model.apiUrl, {
-          method: 'POST',
-          headers: baseHeaders,
-          body: JSON.stringify({
-            model: model.modelId,
-            messages: baseMessages,
-            max_tokens: Number(model.maxTokens),
-            temperature: Number(model.temperature)
-          })
-        })
-        break
-
       case 'gemini':
-        const contents = context.map(msg => ({
-          parts: [{ text: msg.content }],
-          role: msg.role === 'user' ? 'user' : 'model'
-        }))
+        // 修正 Gemini API 请求格式和认证方式
+        // 确保 API 密钥直接作为 URL 参数
+        const cleanApiUrl = apiUrl.replace(/\/+$/, '')
+        url = `${cleanApiUrl}key=${encodeURIComponent(model.apiKey)}`
+        console.log('完整的 Gemini URL:', url)
+        // 构建 Gemini 格式的消息历史
+        const contents = []
         
+        // 处理上下文消息
+        for (const msg of context) {
+          contents.push({
+            parts: [{ text: msg.content }],
+            role: msg.role === 'user' ? 'user' : 'model'
+          })
+        }
+        
+        // 添加当前用户消息
         contents.push({
-          parts: [{ text: content }],
+          parts: [{ text: message }],
           role: 'user'
         })
-
-        response = await fetch(`${model.apiUrl}?key=${model.apiKey}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            contents,
-            generationConfig: {
-              temperature: Number(model.temperature),
-              maxOutputTokens: Number(model.maxTokens)
-            }
-          })
-        })
+        
+        body = {
+          contents,
+          generationConfig: {
+            maxOutputTokens: Number(model.maxTokens) || 2048,
+            temperature: Number(model.temperature) || 0.7
+          }
+        }
+        
+        // 打印完整的 URL 和 API 密钥（仅用于调试，生产环境应移除）
+        console.log('完整的 Gemini URL:', url)
         break
-
+      case 'custom':
+        url = apiUrl
+        headers['Authorization'] = `Bearer ${model.apiKey}`
+        body = {
+          model: model.modelId,
+          messages: [
+            ...context,
+            { role: 'user', content: message }
+          ],
+          max_tokens: Number(model.maxTokens) || 2048,
+          temperature: Number(model.temperature) || 0.7
+        }
+        break
       default:
         throw new Error(`不支持的模型提供商: ${model.provider}`)
     }
 
-    // 检查响应状态
-    if (!response || !response.ok) {
-      const errorData = await response?.json().catch(() => ({}))
-      console.error('API Error Response:', errorData)
+    console.log('发送请求到:', url)
+    console.log('请求头:', headers)
+    console.log('请求体:', JSON.stringify(body, null, 2))
+
+    // 添加终止控制器
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: abortController.value?.signal
+    })
+
+    if (!response.ok) {
+      let errorMessage = `请求失败: ${response.status}`
       
-      // 处理错误响应
-      let errorMessage = '请求失败'
-      if (errorData.error) {
-        if (typeof errorData.error === 'string') {
-          errorMessage = errorData.error
-        } else if (errorData.error.message) {
+      // 尝试解析错误信息
+      const errorData = await response.json().catch(() => ({}))
+      console.error('错误响应数据:', errorData)
+      
+      if (errorData) {
+        if (errorData.error?.message) {
           errorMessage = errorData.error.message
-        } else if (errorData.error.code) {
+        } else if (errorData.error?.code) {
           errorMessage = `服务器错误 (${errorData.error.code})`
         }
       }
+      
+      // 特别处理 Gemini API 认证错误
+      if (model.provider === 'gemini' && response.status === 403) {
+        errorMessage = "Gemini API 认证失败 (403)。请检查您的 API 密钥是否正确，并确保它有权访问 Gemini API。"
+      }
+      
       throw new Error(`${errorMessage}: ${response?.status || 'Unknown Error'}`)
     }
 
-    result = await response.json()
+    const result = await response.json()
+    console.log('API 响应:', result)
     
     // 解析不同提供商的响应
     switch (model.provider) {
@@ -557,14 +638,21 @@ const sendToModel = async (model, content, context = []) => {
       case 'custom': // 将 custom 也使用 OpenAI 格式
         return result.choices[0].message.content
       case 'gemini':
-        return result.candidates[0].content.parts[0].text
+        // 修改 Gemini 响应解析
+        if (result.candidates && result.candidates.length > 0) {
+          const candidate = result.candidates[0]
+          if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+            return candidate.content.parts[0].text
+          }
+        }
+        throw new Error('无法解析 Gemini 响应')
       default:
         throw new Error(`不支持的模型提供商: ${model.provider}`)
     }
 
   } catch (error) {
     console.error('API 请求错误:', error)
-    throw new Error(`发送失败: ${error.message}`)
+    throw error // 直接抛出错误，让调用者处理
   }
 }
 
@@ -1017,6 +1105,26 @@ const importChatSessions = (event) => {
   } catch (error) {
     console.error('导入聊天记录失败:', error)
     showToast('导入聊天记录失败: ' + error.message, 'error')
+  }
+}
+
+// 添加格式化响应时间的方法
+const formatResponseTime = (ms) => {
+  if (ms < 1000) {
+    return `${ms}毫秒`
+  } else {
+    const seconds = (ms / 1000).toFixed(2)
+    return `${seconds}秒`
+  }
+}
+
+// 添加格式化实时计时的方法
+const formatElapsedTime = (ms) => {
+  if (ms < 1000) {
+    return `${ms}毫秒`
+  } else {
+    const seconds = (ms / 1000).toFixed(2)
+    return `${seconds}秒`
   }
 }
 </script>

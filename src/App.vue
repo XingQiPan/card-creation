@@ -1096,11 +1096,6 @@ watch(
   { deep: true }
 )
 
-// 工具函数
-const getInsertCount = (template) => {
-  if (typeof template !== 'string') return 0
-  return (template.match(/{{text}}/g) || []).length
-}
 
 const canInsertText = (prompt) => {
   if (!prompt?.userPrompt) return false
@@ -1112,10 +1107,7 @@ const canSendRequest = (prompt) => {
   return prompt.userPrompt.trim().length > 0
 }
 
-// const getRemainingInserts = () => {
-//   if (!selectedPrompt.value) return 0
-//   return getInsertCount(selectedPrompt.value.template) - selectedCards.value.length
-// }
+
 
 const canInsertSelected = () => {
   if (!selectedPrompt.value) return false
@@ -1420,9 +1412,9 @@ const sendPromptRequest = async (prompt) => {
       currentScene.value.cards.push(newCard)
     }
 
-    // 清理插入内容
-    prompt.insertedContents = []
-    prompt.selectedModel = prompt.defaultModel || ''
+    // 移除这两行代码，不再清除插入内容
+    // prompt.insertedContents = []
+    // prompt.selectedModel = prompt.defaultModel || ''
 
     showToast('发送成功')
 
@@ -2590,10 +2582,30 @@ const selectPromptAndInsert = (prompt) => {
   if (!cardToInsert.value) return
 
   try {
-    // 检查是否已经有插入内容
+    // 使用已存在的 getInsertCount 函数检查提示词中有多少个 {{text}} 占位符
+    const textPlaceholders = getInsertCount(prompt.userPrompt)
+    
+    // 确保 insertedContents 是数组
     if (!prompt.insertedContents) {
       prompt.insertedContents = []
     }
+    
+    // 检查是否已达到最大插入数量
+    if (prompt.insertedContents.length >= textPlaceholders) {
+      showToast(`该提示词最多只能插入 ${textPlaceholders} 个内容`, 'error')
+      return
+    }
+    
+    // 检查是否已经插入过相同内容
+    // const isDuplicate = prompt.insertedContents.some(item => 
+    //   item.content === cardToInsert.value.content && 
+    //   item.cardId === cardToInsert.value.id
+    // )
+    
+    // if (isDuplicate) {
+    //   showToast('该内容已经插入过', 'error')
+    //   return
+    // }
 
     // 添加新的插入内容
     prompt.insertedContents.push({
@@ -2608,12 +2620,24 @@ const selectPromptAndInsert = (prompt) => {
       prompts.value[index] = { ...prompt }
     }
 
-    showToast('内容已插入到提示词')
+    // 保存到本地存储
+    localStorage.setItem('prompts', JSON.stringify(prompts.value))
+    
+    // 关闭模态框
+    showPromptSelectModal.value = false
     cardToInsert.value = null
+    
+    showToast('内容已插入到提示词')
   } catch (error) {
     console.error('插入内容错误:', error)
     showToast('插入失败: ' + error.message, 'error')
   }
+}
+
+// 添加一个辅助函数来计算提示词中的占位符数量
+const getInsertCount = (promptTemplate) => {
+  if (!promptTemplate) return 0
+  return (promptTemplate.match(/{{text}}/g) || []).length
 }
 
 // 修改发送消息的方法
@@ -2796,6 +2820,27 @@ defineExpose({
   handleFilesImport,
   exportScene // 更新导出的函数名
 })
+
+// 修改插入内容到提示词的方法
+const insertContentToPrompt = (prompt, content) => {
+  if (!prompt.insertedContents) {
+    prompt.insertedContents = []
+  }
+  
+  prompt.insertedContents.push({
+    id: Date.now(),
+    content: content
+  })
+  
+  // 保存插入的内容到本地存储
+  promptInsertedContents.value[prompt.id] = prompt.insertedContents
+  localStorage.setItem('promptInsertedContents', JSON.stringify(promptInsertedContents.value))
+  
+  // 关闭选择提示词的模态框
+  showPromptSelectModal.value = false
+  
+  showToast('内容已插入到提示词')
+}
 </script>
 
 <style scoped>

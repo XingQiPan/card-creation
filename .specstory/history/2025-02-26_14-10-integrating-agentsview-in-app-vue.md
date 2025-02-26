@@ -17114,6 +17114,175 @@ _**Assistant**_
 
 
 
+让我们修改 loadData 函数来正确加载和处理模型数据：
+
+```vue:src/App.vue
+// 加载数据的辅助函数
+const loadData = () => {
+  try {
+    // 加载模型配置
+    const savedModels = localStorage.getItem('models')
+    if (savedModels) {
+      // 确保每个模型都有正确的 provider 字段
+      models.value = JSON.parse(savedModels).map(model => ({
+        ...model,
+        provider: model.provider || 'custom', // 如果没有 provider 字段，默认为 custom
+        maxTokens: model.maxTokens || 512,
+        temperature: model.temperature || 0.7
+      }))
+    }
+    
+    // 保存处理后的模型数据
+    localStorage.setItem('models', JSON.stringify(models.value))
+    
+    // 加载提示词
+    const savedPrompts = localStorage.getItem('prompts')
+    if (savedPrompts) {
+      prompts.value = JSON.parse(savedPrompts)
+    }
+    
+    dataLoaded.value = true
+    console.log('数据加载完成，模型:', models.value)
+  } catch (error) {
+    console.error('加载数据失败:', error)
+    showToast('加载数据失败: ' + error.message, 'error')
+  }
+}
+
+// 保存模型的方法
+const saveModels = () => {
+  try {
+    localStorage.setItem('models', JSON.stringify(models.value))
+    showToast('模型配置已保存', 'success')
+  } catch (error) {
+    console.error('保存模型失败:', error)
+    showToast('保存模型失败: ' + error.message, 'error')
+  }
+}
+
+// 创建默认模型的方法
+const createDefaultModel = () => ({
+  id: Date.now().toString(),
+  name: '',
+  provider: 'custom',
+  apiUrl: '',
+  apiKey: '',
+  modelId: '',
+  maxTokens: 512,
+  temperature: 0.7,
+  availableModels: []
+})
+```
+
+主要改进：
+1. 加载时确保每个模型都有必要的字段
+2. 设置默认值（provider、maxTokens、temperature）
+3. 保存处理后的模型数据
+4. 添加日志输出便于调试
+5. 统一使用 'models' 作为存储键名
+6. 添加了保存和创建模型的辅助方法
+
+这样应该能确保：
+1. 模型类型会正确保存和恢复
+2. 所有模型都有完整的配置字段
+3. 新建模型时使用正确的默认值
+4. 数据加载和保存过程更加稳定
+
+---
+
+_**User**_
+
+帮我更新介绍，介绍下智能工作流
+
+---
+
+_**Assistant**_
+
+
+
+让我们更新 README.md 来介绍智能工作流功能：
+
+````markdown:README.md
+# 星卡写作 (AI Prompt Editor)
+
+一个现代化的、功能丰富的提示词编辑和管理系统，基于 Vue 3 + Vite 构建。该系统允许用户创建、编辑和管理 AI 提示词，支持场景管理、文本卡片和智能工作流。
+
+![项目截图占位符]
+
+## ✨ 主要特性
+
+- 📝 多场景管理：支持创建多个场景并在场景间自由切换
+- 🗂️ 文本卡片系统：灵活的卡片式布局，支持拖拽排序和卡片关联
+- 🤖 智能工作流：
+  - 支持创建和管理AI任务流程
+  - 自动关联场景卡片内容
+  - 支持任务嵌套和依赖关系
+  - 智能识别关键词并注入相关上下文
+  - 支持批量执行任务
+  - 自动生成场景卡片
+- 🏷️ 标签管理：支持为卡片添加标签，包括普通标签和关键词标签
+- 📤 导入导出：支持文本文件(.txt)、Markdown(.md)和 JSON(.json)格式的导入导出
+- 🎯 提示词模板：支持创建和管理提示词模板，可插入文本内容
+- 🔗 卡片关联：支持多卡片关联，关联内容自动合并
+- 🎨 现代化 UI：简洁优雅的界面设计，流畅的交互体验
+- 📱 响应式设计：适配不同尺寸的屏幕和设备
+- 📚 拆书工具：提供智能拆书和批量处理功能
+- 💬 智能聊天：支持多模型对话，自动关联卡片内容，智能拆分卡片
+
+## 🤖 智能工作流使用指南
+
+### 创建任务
+1. 在工作流界面点击"新建任务"
+2. 填写任务标题和描述
+3. 选择执行任务的AI成员
+4. 配置任务选项：
+   - 读取场景卡片：自动识别关键词并注入相关卡片内容
+   - 生成场景卡片：将任务结果自动保存为新的场景卡片
+
+### 任务执行
+1. 单任务执行：点击任务右侧的执行按钮
+2. 批量执行：选择多个任务后点击"执行所选"
+3. 执行过程中可以实时查看任务状态和输出
+
+### 场景卡片集成
+- 读取场景卡片：
+  - 系统会自动分析任务内容中的关键词
+  - 匹配相关场景卡片并注入内容
+  - 支持模糊匹配和精确匹配
+- 生成场景卡片：
+  - 任务完成后自动创建新卡片
+  - 支持自动添加序号前缀
+  - 实时更新场景内容
+
+### 最佳实践
+1. 合理组织任务层级，复杂任务可以拆分为子任务
+2. 善用场景卡片集成功能，提高内容复用效率
+3. 使用批量执行处理相关联的任务
+4. 定期整理和归档已完成的任务
+
+... [其他现有内容保持不变] ...
+````
+
+主要更新：
+1. 添加了智能工作流作为主要特性
+2. 详细介绍了工作流的功能和特点
+3. 添加了完整的使用指南
+4. 提供了最佳实践建议
+
+这样的文档更好地展示了系统的智能工作流功能，帮助用户更好地理解和使用这个特性。
+
+---
+
+_**User**_
+
+如何再markdown中增加图片展示
+
+---
+
+_**Assistant**_
+
+
+
 ---
 
 

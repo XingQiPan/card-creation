@@ -1088,8 +1088,19 @@ const saveTags = async () => {
 
 // 修改保存模型的方法
 const saveModels = async () => {
-  localStorage.setItem('aiModels', JSON.stringify(models.value))
-  await syncData() // 改为使用 syncData
+  try {
+    localStorage.setItem('aiModels', JSON.stringify(models.value))
+    showToast('模型配置已保存', 'success')
+    await syncData() // 改为使用 syncData
+  } catch (error) {
+    console.error('保存模型失败:', error)
+    showToast('保存模型失败: ' + error.message, 'error')
+  }
+}
+
+const closeModelEditor = () => {
+  saveModels() // 关闭前自动保存
+  //showModelEditor.value = false
 }
 
 // 在组件挂载时加载数据
@@ -1599,17 +1610,7 @@ const insertablePrompts = computed(() => {
 
 // 模型管理方法
 const addModel = () => {
-  const newModel = {
-    id: Date.now(),
-    name: '',
-    provider: 'custom',
-    apiUrl: '',
-    apiKey: '',
-    modelId: '',
-    maxTokens: 512,
-    temperature: 0.7,
-    availableModels: []
-  }
+  const newModel = createDefaultModel()
   models.value.push(newModel)
 }
 
@@ -1648,7 +1649,37 @@ const fetchModelList = async (model) => {
         }
       })
     }
-    // ... 其他提供商的代码 ...
+    else if(model.provider === 'openai'){
+      const response = await fetch(`${model.apiUrl}/v1/models`, {
+        headers: {
+          'Authorization': `Bearer ${model.apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      console.log('openai', response)
+      if (!response.ok) {
+        throw new Error(`请求失败: ${response.status}`)
+      }
+      
+      const result = await response.json()
+      // OpenAI 返回的是一个对象数组，需要正确解析
+      return result.data.map(model => {
+        // 处理可能是字符串或对象的情况
+        if (typeof model === 'string') {
+          return {
+            id: model,
+            name: model
+          }
+        }
+        // 如果是对象格式，返回正确的模型信息
+        return {
+          id: model.id,
+          name: model.id,
+          created: model.created,
+          owned_by: model.owned_by
+        }
+      })
+    }
   } catch (error) {
     console.error('获取模型列表失败:', error)
     showToast('获取模型列表失败: ' + error.message, 'error')
@@ -2911,8 +2942,17 @@ const loadData = () => {
     // 加载模型配置
     const savedModels = localStorage.getItem('models')
     if (savedModels) {
-      models.value = JSON.parse(savedModels)
+      // 确保每个模型都有正确的 provider 字段
+      models.value = JSON.parse(savedModels).map(model => ({
+        ...model,
+        provider: model.provider || 'custom', // 如果没有 provider 字段，默认为 custom
+        maxTokens: model.maxTokens || 512,
+        temperature: model.temperature || 0.7
+      }))
     }
+    
+    // 保存处理后的模型数据
+    localStorage.setItem('models', JSON.stringify(models.value))
     
     // 加载提示词
     const savedPrompts = localStorage.getItem('prompts')
@@ -2920,14 +2960,16 @@ const loadData = () => {
       prompts.value = JSON.parse(savedPrompts)
     }
     
-    // ... 加载其他必要数据
-    
     dataLoaded.value = true
+    console.log('数据加载完成，模型:', models.value)
   } catch (error) {
     console.error('加载数据失败:', error)
     showToast('加载数据失败: ' + error.message, 'error')
   }
 }
+
+
+
 
 // 监听场景变化
 watch(scenes, (newScenes) => {

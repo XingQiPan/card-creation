@@ -16870,6 +16870,250 @@ _**Assistant**_
 
 
 
+让我们修改任务执行时的卡片查询逻辑：
+
+```vue:src/components/AgentsView.vue
+// 执行单个任务
+const executeTask = async (task) => {
+  // ... 其他代码保持不变 ...
+  
+  try {
+    // ... 其他代码保持不变 ...
+    
+    // 构建提示词
+    let prompt = agent.systemPrompt + '\n\n'
+    
+    // 添加任务描述
+    prompt += `任务: ${task.title}\n`
+    prompt += `描述: ${task.description || ''}\n\n`
+    
+    // 添加场景卡片内容
+    if (task.readSceneCard && task.sourceSceneId) {
+      const targetScene = props.scenes.find(s => s.id === task.sourceSceneId)
+      
+      if (targetScene && targetScene.cards && targetScene.cards.length > 0) {
+        // 从任务描述和标题中提取关键词
+        const searchText = (task.title + ' ' + (task.description || '')).toLowerCase()
+        
+        // 查找匹配的卡片
+        const matchedCards = targetScene.cards.filter(card => {
+          const cardTitle = card.title.toLowerCase()
+          // 检查卡片标题是否包含在任务描述或标题中
+          return searchText.includes(cardTitle) || 
+                 // 或者任务描述/标题中的词是否出现在卡片标题中
+                 searchText.split(/\s+/).some(word => 
+                   word.length > 1 && cardTitle.includes(word)
+                 )
+        })
+        
+        if (matchedCards.length > 0) {
+          prompt += '相关场景卡片内容:\n\n'
+          matchedCards.forEach(card => {
+            prompt += `【${card.title}】\n${card.content}\n\n`
+          })
+          console.log('找到匹配的卡片:', matchedCards.length, '个')
+        }
+      }
+    }
+    
+    // 如果有格式要求，添加到提示词中
+    if (task.responseFormat === 'json') {
+      prompt += `请以JSON格式返回结果，格式如下:\n{"content": "", "isComplete": true}\n其中content字段包含你的回答内容(不需要json格式)，isComplete字段表示任务是否完成。\n\n请注意：直接返回JSON对象，不要使用Markdown代码块包装，确保JSON格式正确且不包含特殊控制字符，只需要这两个字段！！！\n\n`
+    }
+    
+    console.log('发送提示词:', prompt)
+    
+    // ... 其他代码保持不变 ...
+  } catch (error) {
+    // ... 错误处理保持不变 ...
+  }
+}
+```
+
+主要改进：
+
+1. **智能卡片匹配**：
+   - 从任务标题和描述中提取搜索文本
+   - 自动识别关键词
+   - 支持多词匹配
+
+2. **匹配规则**：
+   - 检查卡片标题是否出现在任务文本中
+   - 检查任务文本中的词是否出现在卡片标题中
+   - 忽略单字符的词以减少噪音
+
+3. **提示词构建**：
+   - 只在找到匹配卡片时添加相关内容
+   - 清晰的格式化展示
+   - 添加日志输出便于调试
+
+这样修改后：
+1. 系统会自动分析任务内容
+2. 找到相关的场景卡片
+3. 将卡片内容添加到提示词中
+4. 不需要手动指定搜索关键词
+
+例如，如果任务描述中包含"战斗场景"，系统会自动找到标题包含"战斗"的卡片并将其内容添加到提示词中。
+
+---
+
+_**User**_
+
+这个请求要增加key，怎么弄
+
+---
+
+_**Assistant**_
+
+我们需要在请求头中添加 API Key。让我们修改 OpenAI 的请求代码：
+
+```vue:src/App.vue
+else if(model.provider === 'openai'){
+      const response = await fetch(`${model.apiUrl}/v1/models`, {
+        headers: {
+          'Authorization': `Bearer ${model.apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      console.log('openai', response)
+      if (!response.ok) {
+        throw new Error(`请求失败: ${response.status}`)
+      }
+      
+      const result = await response.json()
+      // OpenAI 返回的是一个对象数组，需要正确解析
+      return result.data.map(model => {
+        // 处理可能是字符串或对象的情况
+        if (typeof model === 'string') {
+          return {
+            id: model,
+            name: model
+          }
+        }
+        // 如果是对象格式，返回正确的模型信息
+        return {
+          id: model.id,
+          name: model.id,
+          created: model.created,
+          owned_by: model.owned_by
+        }
+      })
+```
+
+主要改动：
+1. 添加了 Authorization 请求头，使用 Bearer token 格式
+2. 修正了 OpenAI 响应的解析（使用 result.data 而不是 result.models）
+3. 保留了更多的模型信息（created 和 owned_by 字段）
+
+这样应该就能正确访问 OpenAI 的 API 了。确保在模型配置中填写了正确的 API Key。
+
+---
+
+_**User**_
+
+给保存模型后给一个提示，点击x也得自动保存模型，选择模型类型为什么选到自定义后打开还是openai
+
+---
+
+_**Assistant**_
+
+让我们修复这些问题：
+
+```vue:src/App.vue
+// 修改保存模型的方法
+const saveModels = () => {
+  try {
+    localStorage.setItem('aiModels', JSON.stringify(models.value))
+    showToast('模型配置已保存', 'success')
+  } catch (error) {
+    console.error('保存模型失败:', error)
+    showToast('保存模型失败: ' + error.message, 'error')
+  }
+}
+
+// 修改关闭模型编辑的方法
+const closeModelEditor = () => {
+  saveModels() // 关闭前自动保存
+  showModelEditor.value = false
+}
+
+// 修改创建默认模型的方法
+const createDefaultModel = () => ({
+  id: Date.now(),
+  name: '',
+  provider: 'custom', // 设置默认为自定义
+  apiUrl: '',
+  apiKey: '',
+  modelId: '',
+  maxTokens: 512,
+  temperature: 0.7,
+  availableModels: []
+})
+
+// 修改添加模型的方法
+const addModel = () => {
+  const newModel = createDefaultModel()
+  models.value.push(newModel)
+}
+
+// 修改加载模型的方法
+const loadModels = () => {
+  try {
+    const savedModels = localStorage.getItem('aiModels')
+    if (savedModels) {
+      models.value = JSON.parse(savedModels).map(model => ({
+        ...model,
+        provider: model.provider || 'custom' // 确保有 provider 字段
+      }))
+    }
+  } catch (error) {
+    console.error('加载模型失败:', error)
+    showToast('加载模型失败: ' + error.message, 'error')
+  }
+}
+```
+
+然后在模板部分修改关闭按钮：
+
+```vue:src/App.vue
+<template>
+  <!-- 模型编辑器对话框 -->
+  <div v-if="showModelEditor" class="model-editor-overlay">
+    <div class="model-editor">
+      <div class="editor-header">
+        <h3>模型配置</h3>
+        <button class="close-btn" @click="closeModelEditor">&times;</button>
+      </div>
+      <!-- ... 其他内容 ... -->
+    </div>
+  </div>
+</template>
+```
+
+主要改进：
+1. 添加了保存时的提示消息
+2. 关闭编辑器时自动保存
+3. 确保新建模型时默认为自定义类型
+4. 加载时确保所有模型都有 provider 字段
+5. 修复了模型类型持久化的问题
+
+这样应该能解决：
+1. 保存模型后会有提示
+2. 点击关闭按钮时会自动保存
+3. 模型类型的选择会正确保存和恢复
+
+---
+
+_**User**_
+
+加载模型在这里
+
+---
+
+_**Assistant**_
+
+
+
 ---
 
 

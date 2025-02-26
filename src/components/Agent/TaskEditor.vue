@@ -45,6 +45,48 @@
         </div>
 
         <div class="form-section">
+          <div class="section-title">任务上下文配置</div>
+          
+          <!-- 父任务上下文选项 -->
+          <div class="context-option-group">
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                v-model="formData.includeParentContext"
+              >
+              <span>包含父任务上下文</span>
+            </label>
+          </div>
+
+          <!-- 关联任务选项 -->
+          <div class="context-option-group">
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                v-model="formData.includeRelatedContext"
+              >
+              <span>包含关联任务上下文</span>
+            </label>
+
+            <div v-if="formData.includeRelatedContext" class="related-task-options">
+              <div class="form-group">
+                <label>选择关联任务</label>
+                <select v-model="formData.relatedTaskId" class="form-input">
+                  <option value="">请选择任务</option>
+                  <option 
+                    v-for="task in allTasks" 
+                    :key="task.id" 
+                    :value="task.id"
+                  >
+                    {{ task.title }}
+                  </option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
           <div class="section-title">场景卡片集成</div>
           
           <!-- 读取场景卡片选项 -->
@@ -407,6 +449,18 @@ textarea.form-input {
   border-radius: 12px;
   border: 1px solid #f0f0f0;
 }
+
+.context-option-group {
+  margin-bottom: 16px;
+}
+
+.related-task-options {
+  margin-top: 16px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #f0f0f0;
+}
 </style>
 
 <script setup>
@@ -415,6 +469,10 @@ import { ref, onMounted, computed } from 'vue'
 const props = defineProps({
   task: Object,
   parentTask: Object,
+  allTasks: {
+    type: Array,
+    required: true
+  },
   agents: {
     type: Array,
     required: true
@@ -442,10 +500,9 @@ const formData = ref({
   generateSceneCard: false,
   targetSceneId: '',
   addCardPrefix: false,
-  // 其他配置
+  // 新增的上下文配置
   includeParentContext: false,
   includeRelatedContext: false,
-  includeSceneContext: false,
   relatedTaskId: ''
 })
 
@@ -515,16 +572,6 @@ const generateSceneCard = async (taskResult) => {
   return newCard
 }
 
-// 初始化表单数据
-onMounted(() => {
-  if (props.task) {
-    formData.value = {
-      ...formData.value,
-      ...props.task
-    }
-  }
-})
-
 // 保存任务
 const handleSave = async () => {
   if (!formData.value.title) {
@@ -538,6 +585,27 @@ const handleSave = async () => {
   }
   
   let taskData = { ...formData.value }
+  
+  // 处理父任务上下文
+  if (formData.value.includeParentContext && props.parentTask) {
+    taskData.parentContext = {
+      id: props.parentTask.id,
+      title: props.parentTask.title,
+      description: props.parentTask.description
+    }
+  }
+  
+  // 处理关联任务上下文
+  if (formData.value.includeRelatedContext && formData.value.relatedTaskId) {
+    const relatedTask = props.allTasks.find(task => task.id === formData.value.relatedTaskId)
+    if (relatedTask) {
+      taskData.relatedContext = {
+        id: relatedTask.id,
+        title: relatedTask.title,
+        description: relatedTask.description
+      }
+    }
+  }
   
   // 处理读取场景卡片
   if (formData.value.readSceneCard) {
@@ -574,13 +642,31 @@ const handleSave = async () => {
     }
   }
   
-  // 添加元数据
+  // 更新元数据
   taskData.metadata = {
     hasSceneCardIntegration: formData.value.readSceneCard || formData.value.generateSceneCard,
     searchedCards: formData.value.readSceneCard ? searchSceneCards.value.length : 0,
-    willGenerateCard: formData.value.generateSceneCard
+    willGenerateCard: formData.value.generateSceneCard,
+    // 新增上下文相关元数据
+    hasParentContext: formData.value.includeParentContext && !!props.parentTask,
+    hasRelatedContext: formData.value.includeRelatedContext && !!formData.value.relatedTaskId
   }
   
   emit('save', taskData)
 }
+
+// 初始化表单数据
+onMounted(() => {
+  if (props.task) {
+    formData.value = {
+      ...formData.value,
+      ...props.task
+    }
+  }
+  
+  // 如果有父任务，默认启用父任务上下文
+  if (props.parentTask) {
+    formData.value.includeParentContext = true
+  }
+})
 </script> 

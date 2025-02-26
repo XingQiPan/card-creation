@@ -569,13 +569,19 @@ const executeTask = async (task) => {
     isExecuting.value = true
   }
   
-  task.status = 'running'
-  task.error = null
-  task.output = null
+  // 确保我们使用的是正确的任务对象
+  const currentTask = findTaskById(task.id)
+  if (!currentTask) {
+    throw new Error('未找到指定的任务')
+  }
+  
+  currentTask.status = 'running'
+  currentTask.error = null
+  currentTask.output = null
   
   try {
     // 查找指定的AI成员
-    const agent = agents.value.find(a => a.id === task.assignedTo)
+    const agent = agents.value.find(a => a.id === currentTask.assignedTo)
     
     if (!agent) {
       throw new Error('未找到指定的AI成员')
@@ -592,16 +598,36 @@ const executeTask = async (task) => {
     let prompt = agent.systemPrompt + '\n\n'
     
     // 添加任务描述
-    prompt += `任务: ${task.title}\n`
-    prompt += `描述: ${task.description || ''}\n\n`
+    prompt += `任务: ${currentTask.title}\n`
+    prompt += `描述: ${currentTask.description || ''}\n\n`
+    
+    // 添加父任务上下文 - 修改这部分逻辑
+    const parentTask = findParent(currentTask.id)
+    if (parentTask) {
+      console.log('找到父任务:', parentTask.title)
+      prompt += `父任务信息:\n标题: ${parentTask.title}\n描述: ${parentTask.description || ''}\n`
+      if (parentTask.output) {
+        prompt += `父任务输出:\n${parentTask.output}\n\n`
+      }
+    } else {
+      console.log('未找到父任务')
+    }
+    
+    // 添加关联任务上下文
+    if (currentTask.includeRelatedContext && currentTask.relatedTaskId) {
+      const relatedTask = findTaskById(currentTask.relatedTaskId)
+      if (relatedTask && relatedTask.output) {
+        prompt += `关联任务信息:\n标题: ${relatedTask.title}\n输出: ${relatedTask.output}\n\n`
+      }
+    }
     
     // 添加场景卡片内容
-    if (task.readSceneCard && task.sourceSceneId) {
-      const targetScene = props.scenes.find(s => s.id === task.sourceSceneId)
+    if (currentTask.readSceneCard && currentTask.sourceSceneId) {
+      const targetScene = props.scenes.find(s => s.id === currentTask.sourceSceneId)
       
       if (targetScene && targetScene.cards && targetScene.cards.length > 0) {
         // 从任务描述和标题中提取关键词
-        const searchText = (task.title + ' ' + (task.description || '')).toLowerCase()
+        const searchText = (currentTask.title + ' ' + (currentTask.description || '')).toLowerCase()
         
         // 查找匹配的卡片
         const matchedCards = targetScene.cards.filter(card => {
@@ -625,35 +651,21 @@ const executeTask = async (task) => {
     }
     
     // 如果有格式要求，添加到提示词中
-    if (task.responseFormat === 'json') {
+    if (currentTask.responseFormat === 'json') {
       prompt += `请以JSON格式返回结果，格式如下:\n{"content": "", "isComplete": true}\n其中content字段包含你的回答内容(不需要json格式)，isComplete字段表示任务是否完成。\n\n请注意：直接返回JSON对象，不要使用Markdown代码块包装，确保JSON格式正确且不包含特殊控制字符，只需要这两个字段！！！\n\n`
     }
     
-    // 添加父任务上下文
-    if (task.includeParentContext) {
-      // 首先检查是否有临时存储的父任务输出
-      if (task._parentOutput) {
-        prompt += `父任务输出:\n${task._parentOutput}\n\n`
-      } else {
-        // 如果没有临时存储的输出，则查找父任务
-        const parent = findParentTask(task.id)
-        if (parent && parent.output) {
-          prompt += `父任务输出:\n${parent.output}\n\n`
-        }
-      }
-    }
-    
-    console.log('发送提示词:', prompt)
+    //console.log('发送提示词:', prompt)
     
     // 调用API
     const content = await callAI(model, prompt)
-    console.log('API返回结果:', content)
+   // console.log('API返回结果:', content)
     
     // 解析响应
     let finalContent = ''
     let isComplete = false
     
-    if (task.responseFormat === 'json') {
+    if (currentTask.responseFormat === 'json') {
       try {
         const jsonResponse = parseJsonResponse(content)
         finalContent = jsonResponse.content
@@ -668,20 +680,20 @@ const executeTask = async (task) => {
       isComplete = true
     }
     
-    // 更新任务状态
-    task.output = finalContent
-    task.status = isComplete ? 'completed' : 'pending'
+    // 更新正确的任务对象
+    currentTask.output = finalContent
+    currentTask.status = isComplete ? 'completed' : 'pending'
     
     // 如果任务完成且需要生成场景卡片
-    if (task.status === 'completed' && task.generateSceneCard && task.targetSceneId) {
-      const targetScene = props.scenes.find(s => s.id === task.targetSceneId)
+    if (currentTask.status === 'completed' && currentTask.generateSceneCard && currentTask.targetSceneId) {
+      const targetScene = props.scenes.find(s => s.id === currentTask.targetSceneId)
       
       if (targetScene) {
         const newCard = {
           id: Date.now().toString(),
-          title: task.addCardPrefix ? 
-            `${(targetScene.cards || []).length + 1}. ${task.title}` : 
-            task.title,
+          title: currentTask.addCardPrefix ? 
+            `${(targetScene.cards || []).length + 1}. ${currentTask.title}` : 
+            currentTask.title,
           content: finalContent, // 使用处理后的内容
           tags: [],
           timestamp: new Date().toISOString()
@@ -699,15 +711,15 @@ const executeTask = async (task) => {
     
     // 任务执行完成后，打印状态和输出
     console.log('任务执行完成:', {
-      id: task.id,
-      title: task.title,
-      status: task.status,
+      id: currentTask.id,
+      title: currentTask.title,
+      status: currentTask.status,
       output: finalContent ? finalContent.substring(0, 100) + '...' : null
     })
   } catch (error) {
     console.error('执行任务失败:', error)
-    task.status = 'failed'
-    task.error = error.message
+    currentTask.status = 'failed'
+    currentTask.error = error.message
   } finally {
     // 如果不是批量执行的一部分，重置执行状态
     if (!task._isPartOfBatch) {
@@ -749,46 +761,44 @@ const parseJsonResponse = (content) => {
   }
 }
 
-// 查找父任务
-const findParentTask = (taskId) => {
+// 优化 findParent 函数
+const findParent = (taskId) => {
   if (!rootTask.value) return null
   
-  // 递归查找父任务
-  const findParent = (task, id) => {
-    if (task.subtasks) {
-      for (const subtask of task.subtasks) {
-        if (subtask.id === id) {
-          return task
-        }
-        
-        const parent = findParent(subtask, id)
-        if (parent) {
-          return parent
-        }
+  const findParentRecursive = (task, id) => {
+    if (!task.subtasks) return null
+    
+    // 直接在子任务中查找
+    for (const subtask of task.subtasks) {
+      if (subtask.id === id) {
+        return task
+      }
+    }
+    
+    // 在子任务的子任务中递归查找
+    for (const subtask of task.subtasks) {
+      const parent = findParentRecursive(subtask, id)
+      if (parent) {
+        return parent
       }
     }
     
     return null
   }
   
-  return findParent(rootTask.value, taskId)
+  return findParentRecursive(rootTask.value, taskId)
 }
 
-// 生成唯一ID
-const generateId = () => {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2, 5)
-}
-
-// 根据ID查找任务
+// 优化 findTaskById 函数
 const findTaskById = (taskId) => {
   if (!rootTask.value) return null
   
-  const findTask = (task, id) => {
+  const findTaskRecursive = (task, id) => {
     if (task.id === id) return task
     
     if (task.subtasks) {
       for (const subtask of task.subtasks) {
-        const found = findTask(subtask, id)
+        const found = findTaskRecursive(subtask, id)
         if (found) return found
       }
     }
@@ -796,33 +806,7 @@ const findTaskById = (taskId) => {
     return null
   }
   
-  return findTask(rootTask.value, taskId)
-}
-
-// 查找父任务
-const findParent = (taskId) => {
-  if (!rootTask.value) return null
-  
-  // 如果是根任务，返回null
-  if (rootTask.value.id === taskId) return null
-  
-  const findParentTask = (task, id) => {
-    if (!task.subtasks) return null
-    
-    // 检查直接子任务
-    const directChild = task.subtasks.find(t => t.id === id)
-    if (directChild) return task
-    
-    // 递归检查更深层级的子任务
-    for (const subtask of task.subtasks) {
-      const parent = findParentTask(subtask, id)
-      if (parent) return parent
-    }
-    
-    return null
-  }
-  
-  return findParentTask(rootTask.value, taskId)
+  return findTaskRecursive(rootTask.value, taskId)
 }
 
 // 加载数据

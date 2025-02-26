@@ -90,6 +90,7 @@
       <agent-editor
         :agent="editingAgent"
         :models="models"
+        :scenes="scenes"
         @save="saveAgent"
         @close="showAgentEditor = false"
       />
@@ -117,17 +118,18 @@ import TaskManager from './Agent/TaskManager.vue'
 import AgentEditor from './Agent/AgentEditor.vue'
 import TaskEditor from './Agent/TaskEditor.vue'
 
-// 定义属性
 const props = defineProps({
   models: {
     type: Array,
-    default: () => []
+    required: true
   },
   scenes: {
     type: Array,
-    default: () => []
+    required: true
   }
 })
+
+const emit = defineEmits(['update-scene'])
 
 // 基本状态
 const activeTab = ref('agents')
@@ -584,7 +586,7 @@ const executeTask = async (task) => {
     
     // 如果有格式要求，添加到提示词中
     if (task.responseFormat === 'json') {
-      prompt += `请以JSON格式返回结果，格式如下:\n{"content": "", "isComplete": true}\n其中content字段包含你的回答内容，isComplete字段表示任务是否完成。\n\n请注意：直接返回JSON对象，不要使用Markdown代码块包装，确保JSON格式正确且不包含特殊控制字符。\n\n`
+      prompt += `请以JSON格式返回结果，格式如下:\n{"content": "", "isComplete": true}\n其中content字段包含你的回答内容(不需要json格式)，isComplete字段表示任务是否完成。\n\n请注意：直接返回JSON对象，不要使用Markdown代码块包装，确保JSON格式正确且不包含特殊控制字符，只需要这两个字段！！！\n\n`
     }
     
     // 添加父任务上下文
@@ -640,127 +642,50 @@ const executeTask = async (task) => {
     console.log('API返回结果:', content)
     
     // 解析响应
+    let finalContent = ''
+    let isComplete = false
+    
     if (task.responseFormat === 'json') {
       try {
-        // 尝试提取JSON内容
-        let jsonContent = content
-        
-        // 检查是否包含Markdown代码块
-        const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/
-        const match = content.match(jsonBlockRegex)
-        
-        if (match && match[1]) {
-          console.log('从Markdown代码块中提取JSON')
-          jsonContent = match[1]
-        }
-        
-        // 尝试解析JSON
-        let jsonResponse
-        
-        try {
-          // 尝试直接解析
-          jsonResponse = JSON.parse(jsonContent)
-          console.log('成功直接解析JSON')
-        } catch (parseError) {
-          console.log('直接解析失败，尝试清理内容:', parseError.message)
-          
-          // 尝试使用正则表达式提取内容和isComplete
-          try {
-            // 使用正则表达式提取content和isComplete
-            const contentMatch = jsonContent.match(/"content"\s*:\s*"([\s\S]*?)"\s*,\s*"isComplete"\s*:\s*(true|false)/i)
-            
-            if (contentMatch) {
-              const extractedContent = contentMatch[1]
-              const isComplete = contentMatch[2].toLowerCase() === 'true'
-              
-              jsonResponse = {
-                content: extractedContent,
-                isComplete: isComplete
-              }
-              
-              console.log('使用正则表达式提取的JSON:', jsonResponse)
-            } else {
-              // 如果正则表达式匹配失败，使用原始内容
-              console.log('正则表达式匹配失败，使用原始内容')
-              jsonResponse = {
-                content: content,
-                isComplete: true // 默认设置为完成
-              }
-            }
-          } catch (regexError) {
-            console.error('正则表达式提取失败:', regexError)
-            
-            // 最后的回退方案
-            jsonResponse = {
-              content: content,
-              isComplete: true // 默认设置为完成
-            }
-          }
-        }
-        
-        console.log('最终解析的JSON响应:', jsonResponse)
-        
-        // 更新任务状态
-        task.output = jsonResponse.content
-        task.status = jsonResponse.isComplete ? 'completed' : 'pending'
-        
-        // 如果任务完成，处理生成场景卡片
-        if (jsonResponse.isComplete && task.generateSceneCard) {
-          const targetSceneId = task.targetSceneId || ''
-          const targetScene = props.scenes.find(s => s.id === targetSceneId)
-          
-          if (targetScene) {
-            // 创建新卡片
-            const newCard = {
-              id: generateId(),
-              title: (task.cardTitlePrefix || '') + task.title,
-              content: jsonResponse.content || content,
-              tags: task.cardTags ? task.cardTags.split(',').map(tag => tag.trim()) : [],
-              timestamp: new Date().toISOString()
-            }
-            
-            // 添加到场景
-            if (!targetScene.cards) {
-              targetScene.cards = []
-            }
-            targetScene.cards.push(newCard)
-            
-            console.log('已创建场景卡片:', newCard)
-          }
-        }
+        const jsonResponse = parseJsonResponse(content)
+        finalContent = jsonResponse.content
+        isComplete = jsonResponse.isComplete
       } catch (error) {
         console.error('解析JSON响应失败:', error)
-        // 如果不是有效的JSON，直接使用内容
-        task.output = content
-        task.status = 'completed'
+        finalContent = content
+        isComplete = true
       }
     } else {
-      // 非JSON响应直接使用内容
-      task.output = content
-      task.status = 'completed'
+      finalContent = content
+      isComplete = true
+    }
+    
+    // 更新任务状态
+    task.output = finalContent
+    task.status = isComplete ? 'completed' : 'pending'
+    
+    // 如果任务完成且需要生成场景卡片
+    if (task.status === 'completed' && task.generateSceneCard && task.targetSceneId) {
+      const targetScene = props.scenes.find(s => s.id === task.targetSceneId)
       
-      // 如果需要生成场景卡片
-      if (task.generateSceneCard && task.targetSceneId) {
-        const targetScene = props.scenes.find(s => s.id === task.targetSceneId)
-        
-        if (targetScene) {
-          // 创建新卡片
-          const newCard = {
-            id: generateId(),
-            title: (task.cardTitlePrefix || '') + task.title,
-            content: content,
-            tags: task.cardTags ? task.cardTags.split(',').map(tag => tag.trim()) : [],
-            timestamp: new Date().toISOString()
-          }
-          
-          // 添加到场景
-          if (!targetScene.cards) {
-            targetScene.cards = []
-          }
-          targetScene.cards.push(newCard)
-          
-          console.log('已创建场景卡片:', newCard)
+      if (targetScene) {
+        const newCard = {
+          id: Date.now().toString(),
+          title: task.addCardPrefix ? 
+            `${(targetScene.cards || []).length + 1}. ${task.title}` : 
+            task.title,
+          content: finalContent, // 使用处理后的内容
+          tags: [],
+          timestamp: new Date().toISOString()
         }
+        
+        // 发出更新场景事件
+        emit('update-scene', {
+          ...targetScene,
+          cards: [...(targetScene.cards || []), newCard]
+        })
+        
+        console.log('已生成场景卡片:', newCard)
       }
     }
     
@@ -769,7 +694,7 @@ const executeTask = async (task) => {
       id: task.id,
       title: task.title,
       status: task.status,
-      output: task.output ? task.output.substring(0, 100) + '...' : null
+      output: finalContent ? finalContent.substring(0, 100) + '...' : null
     })
   } catch (error) {
     console.error('执行任务失败:', error)
@@ -783,6 +708,36 @@ const executeTask = async (task) => {
     
     // 保存到本地存储
     localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
+  }
+}
+
+// 辅助函数：解析JSON响应
+const parseJsonResponse = (content) => {
+  let jsonContent = content
+  
+  // 检查是否包含Markdown代码块
+  const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/
+  const match = content.match(jsonBlockRegex)
+  
+  if (match && match[1]) {
+    jsonContent = match[1]
+  }
+  
+  try {
+    return JSON.parse(jsonContent)
+  } catch (parseError) {
+    console.warn('JSON直接解析失败，尝试使用正则提取:', parseError)
+    
+    const contentMatch = jsonContent.match(/"content"\s*:\s*"([\s\S]*?)"\s*,\s*"isComplete"\s*:\s*(true|false)/i)
+    
+    if (contentMatch) {
+      return {
+        content: contentMatch[1],
+        isComplete: contentMatch[2].toLowerCase() === 'true'
+      }
+    }
+    
+    throw new Error('无法解析JSON响应')
   }
 }
 

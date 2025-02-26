@@ -226,6 +226,7 @@
         v-else-if="currentView === 'agents'"
         :models="models"
         :scenes="scenes"
+        @update-scene="handleSceneUpdate"
       />
     </div>
 
@@ -2108,26 +2109,23 @@ provide('moveToScene', (cardData, targetSceneId) => {
 })
 
 // 添加处理添加卡片到场景的方法
-const handleAddCardsToScene = ({ sceneId, cards }) => {
-  const targetScene = scenes.value.find(scene => scene.id === sceneId)
-  if (!targetScene) {
-    console.error('Target scene not found:', sceneId)
-    return
+const handleAddCardsToScene = async (sceneId, cards) => {
+  try {
+    const sceneIndex = scenes.value.findIndex(s => s.id === sceneId)
+    if (sceneIndex !== -1) {
+      const updatedScene = JSON.parse(JSON.stringify(scenes.value[sceneIndex]))
+      if (!updatedScene.cards) {
+        updatedScene.cards = []
+      }
+      updatedScene.cards.push(...cards)
+      
+      // 使用场景更新处理器
+      await handleSceneUpdate(updatedScene)
+    }
+  } catch (error) {
+    console.error('添加卡片失败:', error)
+    showToast('添加卡片失败: ' + error.message, 'error')
   }
-
-  // 确保场景有 cards 属性
-  if (!targetScene.cards) {
-    targetScene.cards = []
-  }
-
-  // 添加卡片到目标场景
-  targetScene.cards.push(...cards)
-  
-  // 确保更新响应式
-  scenes.value = [...scenes.value]
-  
-  // 保存到本地存储
-  saveScenes()
 }
 
 // 添加合并卡片的方法
@@ -2860,6 +2858,91 @@ const insertContentToPrompt = (prompt, content) => {
 watch(currentView, (newView) => {
   localStorage.setItem('currentView', newView)
 })
+
+// 处理场景更新
+const handleSceneUpdate = async (updatedScene) => {
+  try {
+    // 更新本地场景数据
+    const index = scenes.value.findIndex(s => s.id === updatedScene.id)
+    if (index !== -1) {
+      // 创建新的场景数组以触发响应式更新
+      scenes.value = [
+        ...scenes.value.slice(0, index),
+        updatedScene,
+        ...scenes.value.slice(index + 1)
+      ]
+    }
+    
+    // 保存到本地存储
+    localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    
+    // 触发视图更新
+    nextTick(() => {
+      // 如果需要，可以在这里添加额外的更新逻辑
+      console.log('场景已更新:', updatedScene.name)
+    })
+  } catch (error) {
+    console.error('更新场景失败:', error)
+    showToast('更新场景失败: ' + error.message, 'error')
+  }
+}
+
+// 初始化数据
+onMounted(() => {
+  try {
+    // 加载场景
+    const savedScenes = localStorage.getItem('scenes')
+    if (savedScenes) {
+      scenes.value = JSON.parse(savedScenes)
+    }
+    
+    // 加载其他数据
+    loadData()
+  } catch (error) {
+    console.error('初始化数据失败:', error)
+    showToast('初始化数据失败: ' + error.message, 'error')
+  }
+})
+
+// 加载数据的辅助函数
+const loadData = () => {
+  try {
+    // 加载模型配置
+    const savedModels = localStorage.getItem('models')
+    if (savedModels) {
+      models.value = JSON.parse(savedModels)
+    }
+    
+    // 加载提示词
+    const savedPrompts = localStorage.getItem('prompts')
+    if (savedPrompts) {
+      prompts.value = JSON.parse(savedPrompts)
+    }
+    
+    // ... 加载其他必要数据
+    
+    dataLoaded.value = true
+  } catch (error) {
+    console.error('加载数据失败:', error)
+    showToast('加载数据失败: ' + error.message, 'error')
+  }
+}
+
+// 监听场景变化
+watch(scenes, (newScenes) => {
+  // 保存到本地存储
+  localStorage.setItem('scenes', JSON.stringify(newScenes))
+  
+  // 触发所有相关组件的更新
+  nextTick(() => {
+    if (currentView.value === 'main') {
+      // 主视图相关更新
+    } else if (currentView.value === 'agents') {
+      // Agents视图相关更新
+    }
+    // ... 其他视图的更新逻辑
+  })
+}, { deep: true })
 </script>
 
 <style scoped>

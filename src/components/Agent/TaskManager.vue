@@ -26,6 +26,7 @@
               type="file" 
               accept=".json"
               @change="importTasks"
+              style="display: none;"
             >
             <i class="fas fa-file-import"></i> 导入任务
           </label>
@@ -38,19 +39,71 @@
         </div>
       </div>
   
-      <div class="task-map" v-if="rootTask">
-        <task-node 
-          :task="rootTask" 
-          :agents="agents"
-          :scenes="scenes"
-          :is-root="true"
-          :selected-id="selectedTaskId"
-          @execute="$emit('execute', $event)"
-          @add-subtask="handleAddSubtask"
-          @edit="handleEditTask"
-          @delete="handleDeleteTask"
-          @select="selectTask"
-        />
+      <div class="task-content">
+        <div class="task-map" v-if="rootTask">
+          <task-node 
+            :task="rootTask" 
+            :agents="agents"
+            :scenes="scenes"
+            :is-root="true"
+            :selected-id="selectedTaskId"
+            @execute="$emit('execute', $event)"
+            @add-subtask="handleAddSubtask"
+            @edit="handleEditTask"
+            @delete="handleDeleteTask"
+            @select="selectTask"
+          />
+        </div>
+  
+        <div class="task-detail" v-if="selectedTask">
+          <div class="detail-header">
+            <h4>{{ selectedTask.title }}</h4>
+            <button @click="selectedTaskId = null" class="close-btn">&times;</button>
+          </div>
+          <div class="detail-body">
+            <div class="detail-section">
+              <h5>任务描述</h5>
+              <p>{{ selectedTask.description || '无描述' }}</p>
+            </div>
+            <div class="detail-section" v-if="assignedAgent">
+              <h5>指派给</h5>
+              <div class="agent-info">
+                <div class="agent-name">{{ assignedAgent.name }}</div>
+                <div class="agent-skills">
+                  <span v-for="(skill, index) in assignedAgent.skills" :key="index" class="skill-tag">
+                    {{ skill }}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="detail-section" v-if="selectedTask.output">
+              <h5>任务输出</h5>
+              <div class="output-content">{{ selectedTask.output }}</div>
+            </div>
+            <div class="detail-section" v-if="selectedTask.error">
+              <h5>执行错误</h5>
+              <div class="error-content">{{ selectedTask.error }}</div>
+            </div>
+          </div>
+          <div class="detail-footer">
+            <button 
+              @click="$emit('execute', selectedTask)" 
+              :disabled="isExecuting"
+              class="execute-btn"
+            >
+              <i class="fas fa-play"></i> 执行任务
+            </button>
+            <button @click="handleEditTask(selectedTask)" class="edit-btn">
+              <i class="fas fa-edit"></i> 编辑任务
+            </button>
+            <button @click="handleDeleteTask(selectedTask.id)" class="delete-btn">
+              <i class="fas fa-trash"></i> 删除任务
+            </button>
+            <button @click="handleAddSubtask(selectedTask)" class="add-btn">
+              <i class="fas fa-plus"></i> 添加子任务
+            </button>
+          </div>
+        </div>
       </div>
   
       <div class="task-settings" v-if="showSettings">
@@ -96,56 +149,6 @@
         </div>
         <div class="settings-footer">
           <button @click="saveSettings" class="save-btn">保存设置</button>
-        </div>
-      </div>
-  
-      <div class="task-detail" v-if="selectedTask">
-        <div class="detail-header">
-          <h4>{{ selectedTask.title }}</h4>
-          <button @click="selectedTaskId = null" class="close-btn">&times;</button>
-        </div>
-        <div class="detail-body">
-          <div class="detail-section">
-            <h5>任务描述</h5>
-            <p>{{ selectedTask.description || '无描述' }}</p>
-          </div>
-          <div class="detail-section" v-if="assignedAgent">
-            <h5>指派给</h5>
-            <div class="agent-info">
-              <div class="agent-name">{{ assignedAgent.name }}</div>
-              <div class="agent-skills">
-                <span v-for="(skill, index) in assignedAgent.skills" :key="index" class="skill-tag">
-                  {{ skill }}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div class="detail-section" v-if="selectedTask.output">
-            <h5>任务输出</h5>
-            <div class="output-content">{{ selectedTask.output }}</div>
-          </div>
-          <div class="detail-section" v-if="selectedTask.error">
-            <h5>执行错误</h5>
-            <div class="error-content">{{ selectedTask.error }}</div>
-          </div>
-        </div>
-        <div class="detail-footer">
-          <button 
-            @click="$emit('execute', selectedTask)" 
-            :disabled="isExecuting"
-            class="execute-btn"
-          >
-            <i class="fas fa-play"></i> 执行任务
-          </button>
-          <button @click="handleEditTask(selectedTask)" class="edit-btn">
-            <i class="fas fa-edit"></i> 编辑任务
-          </button>
-          <button @click="handleDeleteTask(selectedTask.id)" class="delete-btn">
-            <i class="fas fa-trash"></i> 删除任务
-          </button>
-          <button @click="handleAddSubtask(selectedTask)" class="add-btn">
-            <i class="fas fa-plus"></i> 添加子任务
-          </button>
         </div>
       </div>
     </div>
@@ -383,316 +386,245 @@
   </script>
   
   <style scoped>
+  /* 基础变量 */
+  :root {
+    --primary-color: #1890ff;
+    --success-color: #52c41a;
+    --warning-color: #faad14;
+    --danger-color: #ff4d4f;
+    --border-radius: 8px;
+    --box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+
   .task-manager {
     display: flex;
     flex-direction: column;
     height: 100%;
-    overflow: hidden;
+    background: #f5f5f5;
+    padding: 20px;
   }
-  
+
   .task-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem;
-    border-bottom: 1px solid #e8e8e8;
+    margin-bottom: 20px;
+    background: white;
+    padding: 16px 20px;
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow);
   }
-  
+
+  .task-header h3 {
+    margin: 0;
+    font-size: 18px;
+    color: #333;
+    font-weight: 500;
+  }
+
   .task-actions {
     display: flex;
-    gap: 0.5rem;
+    gap: 12px;
   }
-  
+
+  .task-content {
+    display: flex;
+    gap: 20px;
+    flex: 1;
+    min-height: 0;
+  }
+
   .task-map {
     flex: 1;
-    overflow-y: auto;
-    padding: 1rem;
+    background: white;
+    border-radius: var(--border-radius);
+    padding: 20px;
+    overflow: auto;
+    box-shadow: var(--box-shadow);
   }
-  
-  .task-settings {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background-color: white;
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    padding: 1rem;
-    width: 90%;
-    max-width: 600px;
-    z-index: 1000;
-  }
-  
-  .settings-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem;
-    border-bottom: 1px solid #e8e8e8;
-  }
-  
-  .settings-body {
-    padding: 1rem;
-    overflow-y: auto;
-    flex: 1;
-  }
-  
-  .settings-footer {
-    display: flex;
-    justify-content: flex-end;
-    padding: 1rem;
-    border-top: 1px solid #e8e8e8;
-  }
-  
-  .form-group {
-    margin-bottom: 1rem;
-  }
-  
-  .form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-weight: 500;
-  }
-  
-  .form-group input,
-  .form-group textarea,
-  .form-group select {
-    width: 100%;
-    padding: 0.5rem;
-    border: 1px solid #d9d9d9;
-    border-radius: 4px;
-    font-size: 0.9rem;
-  }
-  
-  .create-btn,
-  .save-btn,
-  .execute-btn {
-    background-color: #1890ff;
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  
-  .export-btn,
-  .import-btn {
-    background-color: #52c41a;
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  
-  .settings-btn {
-    background-color: #faad14;
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  
-  .import-btn {
-    position: relative;
-  }
-  
-  .import-btn input {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    opacity: 0;
-    cursor: pointer;
-  }
-  
-  .cancel-btn {
-    background-color: #fff;
-    border: 1px solid #d9d9d9;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  
-  .execute-btn:disabled {
-    background-color: #d9d9d9;
-    cursor: not-allowed;
-  }
-  
-  .modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-  }
-  
-  .modal-content {
-    background-color: #fff;
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    width: 90%;
-    max-width: 600px;
-    max-height: 90vh;
+
+  .task-detail {
+    width: 400px;
+    background: white;
+    border-radius: 12px;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
   }
-  
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem;
-    border-bottom: 1px solid #e8e8e8;
-  }
-  
-  .modal-body {
-    padding: 1rem;
-    overflow-y: auto;
-    flex: 1;
-  }
-  
-  .modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    padding: 1rem;
-    border-top: 1px solid #e8e8e8;
-    gap: 0.5rem;
-  }
-  
-  .close-btn {
-    background: none;
-    border: none;
-    font-size: 1.2rem;
-    cursor: pointer;
-    color: #999;
-  }
-  
-  .close-btn:hover {
-    color: #333;
-  }
-  
-  .checkbox-group {
-    margin-top: 0.5rem;
-  }
-  
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-  }
-  
-  .task-detail {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-  }
-  
+
   .detail-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #f0f0f0;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem;
-    border-bottom: 1px solid #e8e8e8;
+    background: #fff;
+    border-radius: 12px 12px 0 0;
   }
-  
+
+  .detail-header h4 {
+    margin: 0;
+    font-size: 18px;
+    color: #1f1f1f;
+    font-weight: 600;
+  }
+
   .detail-body {
-    padding: 1rem;
-    overflow-y: auto;
     flex: 1;
+    padding: 24px;
+    overflow-y: auto;
   }
-  
+
   .detail-section {
-    margin-bottom: 1rem;
+    margin-bottom: 24px;
   }
-  
+
+  .detail-section:last-child {
+    margin-bottom: 0;
+  }
+
   .detail-section h5 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: #666;
     font-weight: 500;
-    margin-bottom: 0.5rem;
   }
-  
-  .detail-section p {
-    margin-bottom: 0.5rem;
-  }
-  
+
   .agent-info {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    background: #fafafa;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid #f0f0f0;
   }
-  
+
   .agent-name {
-    font-size: 16px;
     font-weight: 500;
+    margin-bottom: 12px;
+    color: #1f1f1f;
   }
-  
+
   .agent-skills {
     display: flex;
     flex-wrap: wrap;
-    gap: 5px;
+    gap: 8px;
   }
-  
+
   .skill-tag {
-    background-color: #f0f0f0;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 12px;
-    color: #666;
+    background: #e6f7ff;
+    color: #1890ff;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 13px;
   }
-  
+
+  .output-content {
+    background: #fafafa;
+    padding: 16px;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    font-family: monospace;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #f0f0f0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #1f1f1f;
+  }
+
+  .error-content {
+    background: #fff2f0;
+    color: #ff4d4f;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid #ffccc7;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
   .detail-footer {
+    padding: 20px 24px;
+    border-top: 1px solid #f0f0f0;
     display: flex;
     justify-content: flex-end;
-    padding: 1rem;
-    border-top: 1px solid #e8e8e8;
+    gap: 12px;
+    background: #fff;
+    border-radius: 0 0 12px 12px;
   }
-  
-  .edit-btn,
-  .delete-btn,
-  .add-btn {
-    background: none;
-    border: none;
-    color: #999;
+
+  /* 按钮样式统一 */
+  button {
+    padding: 9px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
     cursor: pointer;
-    padding: 0;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
-  
-  .edit-btn:hover,
-  .delete-btn:hover,
+
+  .execute-btn {
+    background: #1890ff;
+    border: 1px solid #1890ff;
+    color: white;
+  }
+
+  .execute-btn:hover:not(:disabled) {
+    background: #40a9ff;
+    border-color: #40a9ff;
+  }
+
+  .edit-btn {
+    background: #52c41a;
+    border: 1px solid #52c41a;
+    color: white;
+  }
+
+  .edit-btn:hover {
+    background: #73d13d;
+    border-color: #73d13d;
+  }
+
+  .delete-btn {
+    background: #ff4d4f;
+    border: 1px solid #ff4d4f;
+    color: white;
+  }
+
+  .delete-btn:hover {
+    background: #ff7875;
+    border-color: #ff7875;
+  }
+
+  .add-btn {
+    background: #faad14;
+    border: 1px solid #faad14;
+    color: white;
+  }
+
   .add-btn:hover {
-    color: #f5222d;
+    background: #ffc53d;
+    border-color: #ffc53d;
   }
-  
-  .output-content {
-    white-space: pre-wrap;
+
+  /* 滚动条样式 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
   }
-  
-  .error-content {
-    color: #ff4d4f;
+
+  ::-webkit-scrollbar-track {
+    background: #f5f5f5;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #ddd;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #bbb;
   }
   </style>

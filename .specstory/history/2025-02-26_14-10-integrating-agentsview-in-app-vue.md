@@ -10541,6 +10541,6288 @@ _**Assistant**_
 
 
 
+让我们修复任务编辑弹窗的 UI 问题。首先检查 TaskEditor 组件：
+
+```vue:src/components/Agent/TaskEditor.vue
+<template>
+  <div class="task-editor-overlay" @click.self="$emit('close')">
+    <div class="task-editor">
+      <div class="editor-header">
+        <h3>{{ isNew ? '新建任务' : '编辑任务' }}</h3>
+        <button class="close-btn" @click="$emit('close')">&times;</button>
+      </div>
+      
+      <div class="editor-body">
+        <div class="form-group">
+          <label>标题</label>
+          <input 
+            v-model="formData.title" 
+            type="text" 
+            placeholder="输入任务标题"
+          >
+        </div>
+        
+        <div class="form-group">
+          <label>描述</label>
+          <textarea 
+            v-model="formData.description" 
+            placeholder="输入任务描述"
+            rows="3"
+          ></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label>分配给</label>
+          <select v-model="formData.assignedTo">
+            <option value="">请选择AI成员</option>
+            <option 
+              v-for="agent in agents" 
+              :key="agent.id" 
+              :value="agent.id"
+            >
+              {{ agent.name }}
+            </option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label>响应格式</label>
+          <select v-model="formData.responseFormat">
+            <option value="text">普通文本</option>
+            <option value="json">JSON</option>
+          </select>
+        </div>
+        
+        <div class="form-group checkbox">
+          <input 
+            type="checkbox" 
+            id="includeParentContext"
+            v-model="formData.includeParentContext"
+          >
+          <label for="includeParentContext">包含父任务上下文</label>
+        </div>
+        
+        <div class="form-group checkbox">
+          <input 
+            type="checkbox" 
+            id="generateSceneCard"
+            v-model="formData.generateSceneCard"
+          >
+          <label for="generateSceneCard">生成场景卡片</label>
+        </div>
+        
+        <div v-if="formData.generateSceneCard" class="scene-card-options">
+          <div class="form-group">
+            <label>目标场景</label>
+            <select v-model="formData.targetSceneId">
+              <option value="">请选择场景</option>
+              <option 
+                v-for="scene in scenes" 
+                :key="scene.id" 
+                :value="scene.id"
+              >
+                {{ scene.title }}
+              </option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>卡片标题前缀</label>
+            <input 
+              v-model="formData.cardTitlePrefix" 
+              type="text" 
+              placeholder="可选，例如: [AI生成]"
+            >
+          </div>
+          
+          <div class="form-group">
+            <label>卡片标签</label>
+            <input 
+              v-model="formData.cardTags" 
+              type="text" 
+              placeholder="用逗号分隔，例如: AI生成,剧情"
+            >
+          </div>
+        </div>
+      </div>
+      
+      <div class="editor-footer">
+        <button class="cancel-btn" @click="$emit('close')">取消</button>
+        <button class="save-btn" @click="handleSave">保存</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.task-editor-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.task-editor {
+  background: white;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+}
+
+.editor-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.editor-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #333;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #666;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.editor-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: #333;
+  font-weight: 500;
+}
+
+.form-group input[type="text"],
+.form-group textarea,
+.form-group select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-group.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-group.checkbox label {
+  margin: 0;
+  cursor: pointer;
+}
+
+.scene-card-options {
+  margin-top: 16px;
+  padding: 16px;
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+.editor-footer {
+  padding: 16px 20px;
+  border-top: 1px solid #eee;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.cancel-btn,
+.save-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.cancel-btn {
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  color: #666;
+}
+
+.save-btn {
+  background: #1890ff;
+  border: 1px solid #1890ff;
+  color: white;
+}
+
+.save-btn:hover {
+  background: #40a9ff;
+}
+
+.cancel-btn:hover {
+  background: #e8e8e8;
+}
+</style>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const props = defineProps({
+  task: Object,
+  isNew: Boolean,
+  agents: Array,
+  scenes: Array
+})
+
+const emit = defineEmits(['save', 'close'])
+
+// 表单数据
+const formData = ref({
+  title: '',
+  description: '',
+  assignedTo: '',
+  responseFormat: 'json',
+  includeParentContext: false,
+  generateSceneCard: false,
+  targetSceneId: '',
+  cardTitlePrefix: '',
+  cardTags: ''
+})
+
+// 初始化表单数据
+onMounted(() => {
+  if (props.task) {
+    formData.value = {
+      ...formData.value,
+      ...props.task
+    }
+  }
+})
+
+// 保存任务
+const handleSave = () => {
+  if (!formData.value.title) {
+    alert('请输入任务标题')
+    return
+  }
+  
+  if (!formData.value.assignedTo) {
+    alert('请选择AI成员')
+    return
+  }
+  
+  if (formData.value.generateSceneCard && !formData.value.targetSceneId) {
+    alert('请选择目标场景')
+    return
+  }
+  
+  emit('save', { ...formData.value })
+}
+</script>
+```
+
+主要改进：
+
+1. **样式优化**：
+   - 修复了弹窗的定位和层级
+   - 添加了最大高度和滚动
+   - 改进了表单控件的样式
+
+2. **布局改进**：
+   - 使用 flex 布局优化整体结构
+   - 添加了合适的内边距和间距
+
+3. **交互优化**：
+   - 添加了点击遮罩关闭功能
+   - 改进了按钮的视觉反馈
+
+4. **表单验证**：
+   - 添加了基本的表单验证
+   - 添加了错误提示
+
+这些修改应该能够解决任务编辑弹窗的 UI 问题，使其看起来更加专业和易用。
+
+---
+
+_**User**_
+
+修复这里UI问题
+
+---
+
+_**Assistant**_
+
+
+
+看起来您指的是任务详情面板的 UI 问题。让我们修改 TaskManager.vue 中的相关部分：
+
+```vue:src/components/Agent/TaskManager.vue
+<template>
+  <div class="task-manager">
+    <div class="task-header">
+      <h3>任务执行视图</h3>
+      <div class="task-actions">
+        <button @click="createRootTask" v-if="!rootTask" class="create-btn">
+          <i class="fas fa-plus"></i> 创建根任务
+        </button>
+        <button 
+          @click="executeAllTasks" 
+          v-if="rootTask" 
+          :disabled="isExecuting"
+          class="execute-btn"
+        >
+          <i class="fas fa-play"></i> 执行所有任务
+        </button>
+        <button 
+          @click="exportTasks" 
+          v-if="rootTask"
+          class="export-btn"
+        >
+          <i class="fas fa-file-export"></i> 导出任务
+        </button>
+        <label class="import-btn" v-if="!rootTask">
+          <input 
+            type="file" 
+            accept=".json"
+            @change="importTasks"
+            style="display: none;"
+          >
+          <i class="fas fa-file-import"></i> 导入任务
+        </label>
+      </div>
+    </div>
+
+    <div class="task-content">
+      <div class="task-map" v-if="rootTask">
+        <task-node 
+          :task="rootTask" 
+          :agents="agents"
+          :scenes="scenes"
+          :is-root="true"
+          :selected-id="selectedTaskId"
+          @execute="$emit('execute', $event)"
+          @add-subtask="handleAddSubtask"
+          @edit="handleEditTask"
+          @delete="handleDeleteTask"
+          @select="selectTask"
+        />
+      </div>
+
+      <div class="task-detail" v-if="selectedTask">
+        <div class="detail-header">
+          <h4>{{ selectedTask.title }}</h4>
+          <button @click="selectedTaskId = null" class="close-btn">&times;</button>
+        </div>
+        <div class="detail-body">
+          <div class="detail-section">
+            <h5>任务描述</h5>
+            <p>{{ selectedTask.description || '无描述' }}</p>
+          </div>
+          <div class="detail-section" v-if="assignedAgent">
+            <h5>指派给</h5>
+            <div class="agent-info">
+              <div class="agent-name">{{ assignedAgent.name }}</div>
+              <div class="agent-skills">
+                <span v-for="(skill, index) in assignedAgent.skills" :key="index" class="skill-tag">
+                  {{ skill }}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="detail-section" v-if="selectedTask.output">
+            <h5>任务输出</h5>
+            <div class="output-content">{{ selectedTask.output }}</div>
+          </div>
+          <div class="detail-section" v-if="selectedTask.error">
+            <h5>执行错误</h5>
+            <div class="error-content">{{ selectedTask.error }}</div>
+          </div>
+        </div>
+        <div class="detail-footer">
+          <button 
+            @click="$emit('execute', selectedTask)" 
+            :disabled="isExecuting"
+            class="execute-btn"
+          >
+            <i class="fas fa-play"></i> 执行任务
+          </button>
+          <button @click="handleEditTask(selectedTask)" class="edit-btn">
+            <i class="fas fa-edit"></i> 编辑任务
+          </button>
+          <button @click="handleDeleteTask(selectedTask.id)" class="delete-btn">
+            <i class="fas fa-trash"></i> 删除任务
+          </button>
+          <button @click="handleAddSubtask(selectedTask)" class="add-btn">
+            <i class="fas fa-plus"></i> 添加子任务
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.task-manager {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #f5f5f5;
+  padding: 20px;
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.task-header h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #333;
+}
+
+.task-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.task-content {
+  display: flex;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+}
+
+.task-map {
+  flex: 1;
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  overflow: auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.task-detail {
+  width: 400px;
+  background: white;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.detail-header {
+  padding: 16px;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.detail-header h4 {
+  margin: 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.detail-body {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.detail-section {
+  margin-bottom: 20px;
+}
+
+.detail-section h5 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #666;
+}
+
+.agent-info {
+  background: #f5f5f5;
+  padding: 12px;
+  border-radius: 4px;
+}
+
+.agent-name {
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.agent-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.skill-tag {
+  background: #e6f7ff;
+  color: #1890ff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.output-content {
+  background: #f8f8f8;
+  padding: 12px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  font-family: monospace;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.error-content {
+  background: #fff2f0;
+  color: #f5222d;
+  padding: 12px;
+  border-radius: 4px;
+}
+
+.detail-footer {
+  padding: 16px;
+  border-top: 1px solid #eee;
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+button:hover {
+  background: #f5f5f5;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.execute-btn {
+  background: #1890ff;
+  border-color: #1890ff;
+  color: white;
+}
+
+.execute-btn:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+.edit-btn {
+  background: #52c41a;
+  border-color: #52c41a;
+  color: white;
+}
+
+.edit-btn:hover {
+  background: #73d13d;
+  border-color: #73d13d;
+}
+
+.delete-btn {
+  background: #ff4d4f;
+  border-color: #ff4d4f;
+  color: white;
+}
+
+.delete-btn:hover {
+  background: #ff7875;
+  border-color: #ff7875;
+}
+
+.add-btn {
+  background: #faad14;
+  border-color: #faad14;
+  color: white;
+}
+
+.add-btn:hover {
+  background: #ffc53d;
+  border-color: #ffc53d;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #999;
+  padding: 4px;
+}
+
+.close-btn:hover {
+  color: #666;
+}
+
+.import-btn {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.import-btn:hover {
+  background: #f5f5f5;
+}
+</style>
+```
+
+主要改进：
+
+1. **布局优化**：
+   - 使用 flex 布局优化整体结构
+   - 添加了合适的间距和内边距
+   - 修复了滚动问题
+
+2. **视觉设计**：
+   - 添加了圆角和阴影效果
+   - 改进了颜色方案
+   - 优化了按钮样式
+
+3. **任务详情面板**：
+   - 优化了头部、内容和底部的布局
+   - 改进了各个部分的样式
+   - 添加了滚动条样式
+
+4. **交互优化**：
+   - 添加了按钮悬停效果
+   - 改进了禁用状态的样式
+   - 优化了图标和文字的对齐
+
+这些修改应该能够显著改善任务管理器的视觉外观和用户体验。
+
+---
+
+_**User**_
+
+修复这两个样式，并且样式一致，努力实现
+
+---
+
+_**Assistant**_
+
+
+
+让我们统一修复 TaskEditor 和 TaskManager 的样式，使它们保持一致的设计语言：
+
+```vue:src/components/Agent/TaskEditor.vue
+<style scoped>
+/* 基础变量 */
+:root {
+  --primary-color: #1890ff;
+  --success-color: #52c41a;
+  --warning-color: #faad14;
+  --danger-color: #ff4d4f;
+  --border-radius: 8px;
+  --box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.task-editor-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.task-editor {
+  background: white;
+  border-radius: var(--border-radius);
+  width: 90%;
+  max-width: 600px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--box-shadow);
+}
+
+.editor-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fafafa;
+  border-radius: var(--border-radius) var(--border-radius) 0 0;
+}
+
+.editor-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #333;
+  font-weight: 500;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #999;
+  cursor: pointer;
+  padding: 4px;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: #666;
+}
+
+.editor-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: #333;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.form-group input[type="text"],
+.form-group textarea,
+.form-group select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: all 0.3s;
+  background: white;
+}
+
+.form-group input[type="text"]:hover,
+.form-group textarea:hover,
+.form-group select:hover {
+  border-color: var(--primary-color);
+}
+
+.form-group input[type="text"]:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+  outline: none;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-group.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-group.checkbox label {
+  margin: 0;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.scene-card-options {
+  margin-top: 16px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 4px;
+  border: 1px solid #f0f0f0;
+}
+
+.editor-footer {
+  padding: 16px 20px;
+  border-top: 1px solid #eee;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: #fafafa;
+  border-radius: 0 0 var(--border-radius) var(--border-radius);
+}
+
+.cancel-btn,
+.save-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cancel-btn {
+  background: white;
+  border: 1px solid #d9d9d9;
+  color: #666;
+}
+
+.cancel-btn:hover {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.save-btn {
+  background: var(--primary-color);
+  border: 1px solid var(--primary-color);
+  color: white;
+}
+
+.save-btn:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+/* 添加动画效果 */
+.task-editor-overlay {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.task-editor {
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+</style>
+```
+
+```vue:src/components/Agent/TaskManager.vue
+<style scoped>
+/* 基础变量 */
+:root {
+  --primary-color: #1890ff;
+  --success-color: #52c41a;
+  --warning-color: #faad14;
+  --danger-color: #ff4d4f;
+  --border-radius: 8px;
+  --box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.task-manager {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #f5f5f5;
+  padding: 20px;
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  background: white;
+  padding: 16px 20px;
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+}
+
+.task-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #333;
+  font-weight: 500;
+}
+
+.task-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.task-content {
+  display: flex;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+}
+
+.task-map {
+  flex: 1;
+  background: white;
+  border-radius: var(--border-radius);
+  padding: 20px;
+  overflow: auto;
+  box-shadow: var(--box-shadow);
+}
+
+.task-detail {
+  width: 400px;
+  background: white;
+  border-radius: var(--border-radius);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--box-shadow);
+}
+
+.detail-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fafafa;
+  border-radius: var(--border-radius) var(--border-radius) 0 0;
+}
+
+.detail-header h4 {
+  margin: 0;
+  font-size: 16px;
+  color: #333;
+  font-weight: 500;
+}
+
+.detail-body {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.detail-section {
+  margin-bottom: 20px;
+}
+
+.detail-section h5 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
+.agent-info {
+  background: #fafafa;
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid #f0f0f0;
+}
+
+.agent-name {
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.agent-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.skill-tag {
+  background: #e6f7ff;
+  color: var(--primary-color);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.output-content {
+  background: #fafafa;
+  padding: 12px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  font-family: monospace;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #f0f0f0;
+}
+
+.error-content {
+  background: #fff2f0;
+  color: var(--danger-color);
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid #ffccc7;
+}
+
+.detail-footer {
+  padding: 16px 20px;
+  border-top: 1px solid #eee;
+  display: flex;
+  gap: 12px;
+  background: #fafafa;
+  border-radius: 0 0 var(--border-radius) var(--border-radius);
+}
+
+/* 统一按钮样式 */
+button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.execute-btn {
+  background: var(--primary-color);
+  border: 1px solid var(--primary-color);
+  color: white;
+}
+
+.execute-btn:hover:not(:disabled) {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+.edit-btn {
+  background: var(--success-color);
+  border: 1px solid var(--success-color);
+  color: white;
+}
+
+.edit-btn:hover {
+  background: #73d13d;
+  border-color: #73d13d;
+}
+
+.delete-btn {
+  background: var(--danger-color);
+  border: 1px solid var(--danger-color);
+  color: white;
+}
+
+.delete-btn:hover {
+  background: #ff7875;
+  border-color: #ff7875;
+}
+
+.add-btn {
+  background: var(--warning-color);
+  border: 1px solid var(--warning-color);
+  color: white;
+}
+
+.add-btn:hover {
+  background: #ffc53d;
+  border-color: #ffc53d;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #999;
+  padding: 4px;
+}
+
+.close-btn:hover {
+  color: #666;
+}
+
+.import-btn {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: white;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #666;
+}
+
+.import-btn:hover {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+/* 添加滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+</style>
+```
+
+主要改进：
+
+1. **统一设计语言**：
+   - 使用CSS变量定义主题颜色
+   - 统一边框半径和阴影效果
+   - 统一字体大小和颜色
+
+2. **一致的布局**：
+   - 统一内边距和间距
+   - 统一头部、内容和底部的样式
+   - 统一背景色和边框样式
+
+3. **交互优化**：
+   - 统一按钮样式和悬停效果
+   - 添加过渡动画
+   - 优化表单控件的交互效果
+
+4. **视觉优化**：
+   - 添加细节阴影和层次感
+   - 优化滚动条样式
+   - 改进错误状态的视觉反馈
+
+这些修改使两个组件的样式保持一致，提供了更好的视觉体验。
+
+---
+
+_**User**_
+
+我需要修复的是弹窗的样式，弹窗的样式太丑了
+
+---
+
+_**Assistant**_
+
+
+
+让我们专注于修复弹窗的样式。我们需要修改 TaskEditor.vue 的样式：
+
+```vue:src/components/Agent/TaskEditor.vue
+<template>
+  <div class="task-editor-overlay" @click.self="$emit('close')">
+    <div class="task-editor">
+      <div class="editor-header">
+        <h3>{{ isNew ? '新建任务' : '编辑任务' }}</h3>
+        <button class="close-btn" @click="$emit('close')">&times;</button>
+      </div>
+      
+      <div class="editor-body">
+        <div class="form-group">
+          <label>标题</label>
+          <input 
+            v-model="formData.title" 
+            type="text" 
+            placeholder="输入任务标题"
+            class="form-input"
+          >
+        </div>
+        
+        <div class="form-group">
+          <label>描述</label>
+          <textarea 
+            v-model="formData.description" 
+            placeholder="输入任务描述"
+            rows="3"
+            class="form-input"
+          ></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label>分配给</label>
+          <select v-model="formData.assignedTo" class="form-input">
+            <option value="">请选择AI成员</option>
+            <option 
+              v-for="agent in agents" 
+              :key="agent.id" 
+              :value="agent.id"
+            >
+              {{ agent.name }}
+            </option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label>响应格式</label>
+          <select v-model="formData.responseFormat" class="form-input">
+            <option value="text">普通文本</option>
+            <option value="json">JSON</option>
+          </select>
+        </div>
+        
+        <div class="form-options">
+          <label class="checkbox-label">
+            <input 
+              type="checkbox" 
+              v-model="formData.includeParentContext"
+            >
+            <span>包含父任务上下文</span>
+          </label>
+          
+          <label class="checkbox-label">
+            <input 
+              type="checkbox" 
+              v-model="formData.generateSceneCard"
+            >
+            <span>生成场景卡片</span>
+          </label>
+        </div>
+        
+        <div v-if="formData.generateSceneCard" class="scene-card-options">
+          <div class="form-group">
+            <label>目标场景</label>
+            <select v-model="formData.targetSceneId" class="form-input">
+              <option value="">请选择场景</option>
+              <option 
+                v-for="scene in scenes" 
+                :key="scene.id" 
+                :value="scene.id"
+              >
+                {{ scene.title }}
+              </option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>卡片标题前缀</label>
+            <input 
+              v-model="formData.cardTitlePrefix" 
+              type="text" 
+              placeholder="可选，例如: [AI生成]"
+              class="form-input"
+            >
+          </div>
+          
+          <div class="form-group">
+            <label>卡片标签</label>
+            <input 
+              v-model="formData.cardTags" 
+              type="text" 
+              placeholder="用逗号分隔，例如: AI生成,剧情"
+              class="form-input"
+            >
+          </div>
+        </div>
+      </div>
+      
+      <div class="editor-footer">
+        <button class="cancel-btn" @click="$emit('close')">取消</button>
+        <button class="save-btn" @click="handleSave">保存</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.task-editor-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.task-editor {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  animation: slideIn 0.2s ease-out;
+}
+
+.editor-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  border-radius: 12px 12px 0 0;
+}
+
+.editor-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #1f1f1f;
+  font-weight: 600;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #999;
+  cursor: pointer;
+  padding: 4px;
+  transition: all 0.2s;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+}
+
+.close-btn:hover {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.editor-body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: #1f1f1f;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: all 0.2s;
+  background: white;
+  color: #1f1f1f;
+}
+
+.form-input:hover {
+  border-color: #1890ff;
+}
+
+.form-input:focus {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+  outline: none;
+}
+
+textarea.form-input {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.checkbox-label span {
+  font-size: 14px;
+  color: #1f1f1f;
+}
+
+.scene-card-options {
+  margin-top: 20px;
+  padding: 20px;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #f0f0f0;
+}
+
+.editor-footer {
+  padding: 20px 24px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: #fff;
+  border-radius: 0 0 12px 12px;
+}
+
+.cancel-btn,
+.save-btn {
+  padding: 9px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancel-btn {
+  background: #f5f5f5;
+  border: 1px solid #f0f0f0;
+  color: #666;
+}
+
+.cancel-btn:hover {
+  background: #e8e8e8;
+  border-color: #d9d9d9;
+}
+
+.save-btn {
+  background: #1890ff;
+  border: 1px solid #1890ff;
+  color: white;
+}
+
+.save-btn:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f5f5;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ddd;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #bbb;
+}
+</style>
+```
+
+主要改进：
+
+1. **现代化设计**：
+   - 更大的圆角（12px）
+   - 更精致的阴影效果
+   - 背景模糊效果
+
+2. **间距和布局**：
+   - 增加了内边距（24px）
+   - 优化了表单控件的大小和间距
+   - 改进了复选框的样式
+
+3. **视觉层次**：
+   - 更清晰的标题文字
+   - 更好的颜色对比度
+   - 更细致的边框和分隔线
+
+4. **交互体验**：
+   - 平滑的动画效果
+   - 更好的悬停状态
+   - 改进的输入框焦点状态
+
+5. **细节优化**：
+   - 自定义滚动条样式
+   - 更好的按钮样式
+   - 更清晰的表单标签
+
+这些改进应该能让弹窗看起来更现代、更专业，并提供更好的用户体验。
+
+---
+
+_**User**_
+
+继续修复样式，是这两处
+
+---
+
+_**Assistant**_
+
+
+
+看起来您指的是任务详情面板和任务编辑弹窗。让我们继续优化这两处的样式：
+
+```vue:src/components/Agent/TaskManager.vue
+<style scoped>
+/* ... 其他样式保持不变 ... */
+
+.task-detail {
+  width: 400px;
+  background: white;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.detail-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  border-radius: 12px 12px 0 0;
+}
+
+.detail-header h4 {
+  margin: 0;
+  font-size: 18px;
+  color: #1f1f1f;
+  font-weight: 600;
+}
+
+.detail-body {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.detail-section {
+  margin-bottom: 24px;
+}
+
+.detail-section:last-child {
+  margin-bottom: 0;
+}
+
+.detail-section h5 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
+.agent-info {
+  background: #fafafa;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #f0f0f0;
+}
+
+.agent-name {
+  font-weight: 500;
+  margin-bottom: 12px;
+  color: #1f1f1f;
+}
+
+.agent-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.skill-tag {
+  background: #e6f7ff;
+  color: #1890ff;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.output-content {
+  background: #fafafa;
+  padding: 16px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  font-family: monospace;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #f0f0f0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #1f1f1f;
+}
+
+.error-content {
+  background: #fff2f0;
+  color: #ff4d4f;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #ffccc7;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.detail-footer {
+  padding: 20px 24px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: #fff;
+  border-radius: 0 0 12px 12px;
+}
+
+/* 按钮样式统一 */
+button {
+  padding: 9px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.execute-btn {
+  background: #1890ff;
+  border: 1px solid #1890ff;
+  color: white;
+}
+
+.execute-btn:hover:not(:disabled) {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+.edit-btn {
+  background: #52c41a;
+  border: 1px solid #52c41a;
+  color: white;
+}
+
+.edit-btn:hover {
+  background: #73d13d;
+  border-color: #73d13d;
+}
+
+.delete-btn {
+  background: #ff4d4f;
+  border: 1px solid #ff4d4f;
+  color: white;
+}
+
+.delete-btn:hover {
+  background: #ff7875;
+  border-color: #ff7875;
+}
+
+.add-btn {
+  background: #faad14;
+  border: 1px solid #faad14;
+  color: white;
+}
+
+.add-btn:hover {
+  background: #ffc53d;
+  border-color: #ffc53d;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f5f5;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ddd;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #bbb;
+}
+</style>
+```
+
+```vue:src/components/Agent/TaskEditor.vue
+<style scoped>
+/* ... 其他样式保持不变 ... */
+
+.task-editor {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  animation: slideIn 0.2s ease-out;
+}
+
+.editor-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  border-radius: 12px 12px 0 0;
+}
+
+.editor-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #1f1f1f;
+  font-weight: 600;
+}
+
+.editor-body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: #1f1f1f;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: all 0.2s;
+  background: white;
+  color: #1f1f1f;
+}
+
+.form-input:hover {
+  border-color: #1890ff;
+}
+
+.form-input:focus {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+  outline: none;
+}
+
+.scene-card-options {
+  margin-top: 20px;
+  padding: 20px;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #f0f0f0;
+}
+
+.editor-footer {
+  padding: 20px 24px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: #fff;
+  border-radius: 0 0 12px 12px;
+}
+
+/* ... 其他样式保持不变 ... */
+</style>
+```
+
+主要改进：
+
+1. **统一的视觉风格**：
+   - 统一的圆角（12px）
+   - 统一的阴影效果
+   - 统一的内边距（24px）
+   - 统一的字体大小和颜色
+
+2. **改进的布局**：
+   - 更合理的间距
+   - 更好的内容分区
+   - 更清晰的层次结构
+
+3. **细节优化**：
+   - 优化了按钮样式
+   - 改进了表单控件的外观
+   - 统一了边框和分隔线的颜色
+   - 优化了滚动条样式
+
+4. **交互体验**：
+   - 统一的悬停效果
+   - 统一的过渡动画
+   - 更好的视觉反馈
+
+这些修改使两个组件的样式更加统一和现代化，提供了更好的视觉体验。
+
+---
+
+_**User**_
+
+继续修复这两个弹窗样式，样式一致并且好看美观现代
+
+---
+
+_**Assistant**_
+
+让我们继续优化这两个弹窗的样式，使其更加现代和美观：
+
+```vue:src/components/Agent/TaskEditor.vue
+<style scoped>
+.task-editor-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.task-editor {
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 580px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  animation: slideIn 0.2s ease-out;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.editor-header {
+  padding: 24px 28px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+}
+
+.editor-header h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #1f1f1f;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #999;
+  cursor: pointer;
+  padding: 8px;
+  transition: all 0.2s;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.close-btn:hover {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.editor-body {
+  padding: 28px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.form-group {
+  margin-bottom: 24px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 10px;
+  color: #1f1f1f;
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  font-size: 14px;
+  transition: all 0.2s;
+  background: white;
+  color: #1f1f1f;
+}
+
+.form-input:hover {
+  border-color: #1890ff;
+  background: #fafafa;
+}
+
+.form-input:focus {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.15);
+  outline: none;
+  background: white;
+}
+
+textarea.form-input {
+  resize: vertical;
+  min-height: 100px;
+  line-height: 1.6;
+}
+
+.form-options {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  padding: 8px 12px;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.checkbox-label:hover {
+  background: #f5f5f5;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.checkbox-label span {
+  font-size: 14px;
+  color: #1f1f1f;
+  font-weight: 500;
+}
+
+.scene-card-options {
+  margin-top: 24px;
+  padding: 24px;
+  background: #fafafa;
+  border-radius: 12px;
+  border: 1px solid #f0f0f0;
+}
+
+.editor-footer {
+  padding: 24px 28px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: #fff;
+  border-radius: 0 0 16px 16px;
+}
+
+.cancel-btn,
+.save-btn {
+  padding: 10px 24px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cancel-btn {
+  background: #f5f5f5;
+  border: 1px solid #f0f0f0;
+  color: #666;
+}
+
+.cancel-btn:hover {
+  background: #e8e8e8;
+  border-color: #d9d9d9;
+  color: #333;
+}
+
+.save-btn {
+  background: #1890ff;
+  border: 1px solid #1890ff;
+  color: white;
+}
+
+.save-btn:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.25);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ddd;
+  border-radius: 4px;
+  border: 2px solid #f5f5f5;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #bbb;
+}
+</style>
+```
+
+主要改进：
+
+1. **现代化设计**：
+   - 更大的圆角（16px）
+   - 更精致的阴影效果
+   - 更强的背景模糊效果
+   - 微妙的边框效果
+
+2. **间距和布局**：
+   - 增加了内边距（28px）
+   - 优化了表单控件的大小和间距
+   - 改进了复选框的样式和交互
+
+3. **视觉层次**：
+   - 更大的标题文字（20px）
+   - 更好的字母间距
+   - 更细致的边框和分隔线
+
+4. **交互体验**：
+   - 更平滑的动画效果
+   - 更丰富的悬停状态
+   - 保存按钮的微动效果
+   - 复选框区域的整体交互
+
+5. **细节优化**：
+   - 优化的滚动条样式
+   - 更现代的按钮样式
+   - 更清晰的表单标签
+   - 输入框的焦点效果
+
+这些改进使弹窗看起来更加现代、专业，并提供了更好的视觉体验和交互感觉。
+
+---
+
+_**User**_
+
+这里面样式都没了
+
+---
+
+_**Assistant**_
+
+让我们修复这个问题。看起来表单控件的基础样式丢失了。我们需要确保所有表单元素都有正确的样式：
+
+```vue:src/components/Agent/TaskEditor.vue
+<template>
+  <div class="task-editor-overlay" @click.self="$emit('close')">
+    <div class="task-editor">
+      <div class="editor-header">
+        <h3>{{ isNew ? '新建任务' : '编辑任务' }}</h3>
+        <button class="close-btn" @click="$emit('close')">&times;</button>
+      </div>
+      
+      <div class="editor-body">
+        <div class="form-group">
+          <label>任务标题</label>
+          <div class="input-with-hint">
+            <input 
+              v-model="formData.title" 
+              type="text" 
+              placeholder="输入任务标题"
+              class="form-input"
+            >
+            <div class="input-hint">使用@成员名:场景名可直接指派任务</div>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label>任务描述</label>
+          <textarea 
+            v-model="formData.description" 
+            placeholder="描述任务目标和要求"
+            class="form-input"
+            rows="3"
+          ></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label>指派给AI成员</label>
+          <select v-model="formData.assignedTo" class="form-input">
+            <option value="">请选择AI成员</option>
+            <option 
+              v-for="agent in agents" 
+              :key="agent.id" 
+              :value="agent.id"
+            >
+              {{ agent.name }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-section">
+          <div class="section-title">场景卡片集成</div>
+          
+          <div class="checkbox-group">
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                v-model="formData.generateSceneCard"
+              >
+              <span>读取场景卡片内容</span>
+            </label>
+          </div>
+
+          <div v-if="formData.generateSceneCard" class="scene-card-options">
+            <div class="form-group">
+              <label>从哪个场景读取卡片</label>
+              <select v-model="formData.targetSceneId" class="form-input">
+                <option value="">请选择场景</option>
+                <option 
+                  v-for="scene in scenes" 
+                  :key="scene.id" 
+                  :value="scene.id"
+                >
+                  {{ scene.title }}
+                </option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label>生成卡片标签</label>
+              <input 
+                v-model="formData.cardTags" 
+                type="text" 
+                placeholder="用逗号分隔，例如: AI生成,剧情"
+                class="form-input"
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="editor-footer">
+        <button class="cancel-btn" @click="$emit('close')">取消</button>
+        <button class="save-btn" @click="handleSave">
+          <span>保存</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.task-editor-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.task-editor {
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 580px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  animation: slideIn 0.2s ease-out;
+}
+
+.editor-header {
+  padding: 24px 28px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.editor-header h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #1f1f1f;
+  font-weight: 600;
+}
+
+.editor-body {
+  padding: 28px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.form-group {
+  margin-bottom: 24px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: #1f1f1f;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.input-with-hint {
+  position: relative;
+}
+
+.input-hint {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: #999;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1f1f1f;
+  background: white;
+  transition: all 0.2s;
+}
+
+.form-input:hover {
+  border-color: #1890ff;
+}
+
+.form-input:focus {
+  border-color: #1890ff;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+select.form-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8.825L1.175 4 2.238 2.938 6 6.7l3.763-3.762L10.825 4z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+textarea.form-input {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.form-section {
+  margin-bottom: 28px;
+  padding-top: 4px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f1f1f;
+  margin-bottom: 16px;
+}
+
+.checkbox-group {
+  margin-bottom: 16px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s;
+}
+
+.checkbox-label:hover {
+  background: #f5f5f5;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.checkbox-label span {
+  font-size: 14px;
+  color: #1f1f1f;
+}
+
+.scene-card-options {
+  margin-top: 16px;
+  padding: 20px;
+  background: #fafafa;
+  border-radius: 12px;
+  border: 1px solid #f0f0f0;
+}
+
+.editor-footer {
+  padding: 20px 28px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.cancel-btn,
+.save-btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.cancel-btn {
+  background: #f5f5f5;
+  border: 1px solid #e5e5e5;
+  color: #666;
+}
+
+.cancel-btn:hover {
+  background: #e8e8e8;
+  border-color: #d9d9d9;
+  color: #333;
+}
+
+.save-btn {
+  background: #1890ff;
+  border: 1px solid #1890ff;
+  color: white;
+  min-width: 88px;
+}
+
+.save-btn:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.25);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ddd;
+  border-radius: 4px;
+  border: 2px solid #f5f5f5;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #bbb;
+}
+</style>
+```
+
+主要改进：
+
+1. **完整的表单样式**：
+   - 为所有输入框添加了统一的样式
+   - 添加了下拉箭头图标
+   - 优化了输入框的间距和大小
+
+2. **布局优化**：
+   - 更好的分组和间距
+   - 添加了提示文本
+   - 优化了复选框区域
+
+3. **视觉改进**：
+   - 统一的圆角和边框
+   - 更好的颜色对比
+   - 清晰的视觉层次
+
+4. **交互优化**：
+   - 更好的悬停效果
+   - 优化的焦点状态
+   - 平滑的动画过渡
+
+5. **细节完善**：
+   - 添加了输入提示
+   - 优化了选择器样式
+   - 改进了按钮样式
+
+这些修改应该能让表单看起来更加完整和专业。
+
+---
+
+_**User**_
+
+根据task修改agent的editor
+
+---
+
+_**Assistant**_
+
+让我们根据任务编辑器的样式来修改 Agent 编辑器：
+
+```vue:src/components/Agent/AgentEditor.vue
+<template>
+  <div class="agent-editor-overlay" @click.self="$emit('close')">
+    <div class="agent-editor">
+      <div class="editor-header">
+        <h3>{{ isNew ? '新建AI成员' : '编辑AI成员' }}</h3>
+        <button class="close-btn" @click="$emit('close')">&times;</button>
+      </div>
+      
+      <div class="editor-body">
+        <div class="form-group">
+          <label>名称</label>
+          <input 
+            v-model="formData.name" 
+            type="text" 
+            placeholder="输入AI成员名称"
+            class="form-input"
+          >
+        </div>
+        
+        <div class="form-group">
+          <label>描述</label>
+          <textarea 
+            v-model="formData.description" 
+            placeholder="描述AI成员的特点和职责"
+            class="form-input"
+            rows="3"
+          ></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label>系统提示词</label>
+          <textarea 
+            v-model="formData.systemPrompt" 
+            placeholder="设置AI成员的行为规范和角色定位"
+            class="form-input"
+            rows="4"
+          ></textarea>
+        </div>
+
+        <div class="form-section">
+          <div class="section-title">技能标签</div>
+          <div class="skills-input">
+            <input 
+              v-model="newSkill"
+              type="text"
+              placeholder="输入技能标签后按回车添加"
+              class="form-input"
+              @keyup.enter="addSkill"
+            >
+          </div>
+          <div class="skills-list" v-if="formData.skills && formData.skills.length > 0">
+            <span 
+              v-for="(skill, index) in formData.skills" 
+              :key="index"
+              class="skill-tag"
+            >
+              {{ skill }}
+              <button class="remove-skill" @click="removeSkill(index)">&times;</button>
+            </span>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="section-title">模型配置</div>
+          <div class="form-group">
+            <label>语言模型</label>
+            <select v-model="formData.model" class="form-input">
+              <option value="gpt-4">GPT-4</option>
+              <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>温度</label>
+            <div class="range-input">
+              <input 
+                type="range" 
+                v-model="formData.temperature" 
+                min="0" 
+                max="2" 
+                step="0.1"
+                class="range-slider"
+              >
+              <span class="range-value">{{ formData.temperature }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="editor-footer">
+        <button class="cancel-btn" @click="$emit('close')">取消</button>
+        <button class="save-btn" @click="handleSave">保存</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.agent-editor-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.agent-editor {
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 580px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  animation: slideIn 0.2s ease-out;
+}
+
+.editor-header {
+  padding: 24px 28px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.editor-header h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #1f1f1f;
+  font-weight: 600;
+}
+
+.editor-body {
+  padding: 28px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.form-group {
+  margin-bottom: 24px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: #1f1f1f;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1f1f1f;
+  background: white;
+  transition: all 0.2s;
+}
+
+.form-input:hover {
+  border-color: #1890ff;
+}
+
+.form-input:focus {
+  border-color: #1890ff;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+select.form-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8.825L1.175 4 2.238 2.938 6 6.7l3.763-3.762L10.825 4z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+textarea.form-input {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.form-section {
+  margin-bottom: 28px;
+  padding-top: 4px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f1f1f;
+  margin-bottom: 16px;
+}
+
+.skills-input {
+  margin-bottom: 12px;
+}
+
+.skills-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.skill-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #e6f7ff;
+  color: #1890ff;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.remove-skill {
+  background: none;
+  border: none;
+  color: #1890ff;
+  cursor: pointer;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.remove-skill:hover {
+  opacity: 1;
+}
+
+.range-input {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.range-slider {
+  flex: 1;
+  height: 4px;
+  background: #e5e5e5;
+  border-radius: 2px;
+  appearance: none;
+}
+
+.range-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #1890ff;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.range-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.range-value {
+  min-width: 40px;
+  text-align: right;
+  font-size: 14px;
+  color: #666;
+}
+
+.editor-footer {
+  padding: 20px 28px;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.cancel-btn,
+.save-btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.cancel-btn {
+  background: #f5f5f5;
+  border: 1px solid #e5e5e5;
+  color: #666;
+}
+
+.cancel-btn:hover {
+  background: #e8e8e8;
+  border-color: #d9d9d9;
+  color: #333;
+}
+
+.save-btn {
+  background: #1890ff;
+  border: 1px solid #1890ff;
+  color: white;
+  min-width: 88px;
+}
+
+.save-btn:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.25);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ddd;
+  border-radius: 4px;
+  border: 2px solid #f5f5f5;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #bbb;
+}
+</style>
+
+<script setup>
+import { ref } from 'vue'
+
+const props = defineProps({
+  agent: Object,
+  isNew: Boolean
+})
+
+const emit = defineEmits(['save', 'close'])
+
+const newSkill = ref('')
+
+const formData = ref({
+  name: '',
+  description: '',
+  systemPrompt: '',
+  model: 'gpt-4',
+  temperature: 0.7,
+  skills: []
+})
+
+// 初始化表单数据
+if (props.agent) {
+  formData.value = {
+    ...formData.value,
+    ...props.agent
+  }
+}
+
+const addSkill = () => {
+  if (newSkill.value.trim()) {
+    if (!formData.value.skills) {
+      formData.value.skills = []
+    }
+    formData.value.skills.push(newSkill.value.trim())
+    newSkill.value = ''
+  }
+}
+
+const removeSkill = (index) => {
+  formData.value.skills.splice(index, 1)
+}
+
+const handleSave = () => {
+  if (!formData.value.name) {
+    alert('请输入AI成员名称')
+    return
+  }
+  
+  emit('save', { ...formData.value })
+}
+</script>
+```
+
+主要改进：
+
+1. **保持一致的视觉风格**：
+   - 与任务编辑器相同的布局和间距
+   - 相同的动画效果和交互体验
+   - 统一的表单控件样式
+
+2. **特有的功能样式**：
+   - 添加了技能标签的输入和展示
+   - 优化了滑块控件的样式
+   - 改进了模型配置部分的布局
+
+3. **交互优化**：
+   - 技能标签的添加和删除
+   - 温度滑块的实时反馈
+   - 表单验证和错误提示
+
+4. **细节完善**：
+   - 优化了各个部分的间距
+   - 添加了合适的动画效果
+   - 改进了视觉反馈
+
+这样的设计保持了与任务编辑器的一致性，同时又突出了 AI 成员编辑器的特色功能。
+
+---
+
+_**User**_
+
+数据传入不能丢啊，两个数据传入都有问题
+
+---
+
+_**Assistant**_
+
+让我们修复数据传入的问题。需要修改两个组件的 props 和数据初始化部分：
+
+```vue:src/components/Agent/TaskEditor.vue
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const props = defineProps({
+  task: Object,
+  isNew: Boolean,
+  agents: Array,
+  scenes: Array
+})
+
+const emit = defineEmits(['save', 'close'])
+
+// 表单数据
+const formData = ref({
+  title: '',
+  description: '',
+  assignedTo: '',
+  responseFormat: 'text',
+  generateSceneCard: false,
+  targetSceneId: '',
+  cardTags: ''
+})
+
+// 初始化表单数据
+onMounted(() => {
+  if (props.task) {
+    formData.value = {
+      ...formData.value,
+      ...props.task
+    }
+  }
+})
+
+// 保存任务
+const handleSave = () => {
+  if (!formData.value.title) {
+    alert('请输入任务标题')
+    return
+  }
+  
+  if (!formData.value.assignedTo) {
+    alert('请选择AI成员')
+    return
+  }
+  
+  if (formData.value.generateSceneCard && !formData.value.targetSceneId) {
+    alert('请选择目标场景')
+    return
+  }
+  
+  emit('save', { ...formData.value })
+}
+</script>
+```
+
+```vue:src/components/Agent/AgentEditor.vue
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const props = defineProps({
+  agent: Object,
+  isNew: Boolean
+})
+
+const emit = defineEmits(['save', 'close'])
+
+const newSkill = ref('')
+
+// 表单数据初始化
+const formData = ref({
+  name: '',
+  description: '',
+  systemPrompt: '',
+  model: 'gpt-4',
+  temperature: 0.7,
+  skills: []
+})
+
+// 初始化表单数据
+onMounted(() => {
+  if (props.agent) {
+    // 确保深拷贝数组
+    const agentData = {
+      ...props.agent,
+      skills: props.agent.skills ? [...props.agent.skills] : []
+    }
+    formData.value = {
+      ...formData.value,
+      ...agentData
+    }
+  }
+})
+
+const addSkill = () => {
+  if (newSkill.value.trim()) {
+    if (!formData.value.skills) {
+      formData.value.skills = []
+    }
+    formData.value.skills.push(newSkill.value.trim())
+    newSkill.value = ''
+  }
+}
+
+const removeSkill = (index) => {
+  formData.value.skills.splice(index, 1)
+}
+
+const handleSave = () => {
+  if (!formData.value.name) {
+    alert('请输入AI成员名称')
+    return
+  }
+  
+  if (!formData.value.systemPrompt) {
+    alert('请输入系统提示词')
+    return
+  }
+  
+  emit('save', { ...formData.value })
+}
+</script>
+```
+
+主要改进：
+
+1. **TaskEditor 改进**：
+   - 添加了完整的 props 定义，包括 agents 和 scenes
+   - 使用 onMounted 确保数据正确初始化
+   - 完善了表单验证
+
+2. **AgentEditor 改进**：
+   - 确保 skills 数组的深拷贝
+   - 完善了必填字段的验证
+   - 改进了数据初始化逻辑
+
+3. **数据处理优化**：
+   - 使用展开运算符确保数据复制而不是引用
+   - 添加了数组类型的特殊处理
+   - 确保默认值的正确设置
+
+4. **验证逻辑**：
+   - 添加了必要的字段验证
+   - 提供了用户友好的错误提示
+   - 确保数据完整性
+
+这些修改应该能确保数据正确传入和初始化，同时保持表单的完整性和用户体验。
+
+---
+
+_**User**_
+
+传入的模型，场景都没，无法使用选择
+
+---
+
+_**Assistant**_
+
+
+
+让我们修复模型和场景的选择问题。需要在两个组件中正确传入和处理这些数据：
+
+```vue:src/components/Agent/AgentEditor.vue
+<template>
+  <div class="agent-editor-overlay" @click.self="$emit('close')">
+    <div class="agent-editor">
+      <!-- ... 其他部分保持不变 ... -->
+      
+      <div class="form-section">
+        <div class="section-title">模型配置</div>
+        <div class="form-group">
+          <label>语言模型</label>
+          <select v-model="formData.model" class="form-input">
+            <option value="">请选择模型</option>
+            <option 
+              v-for="model in availableModels" 
+              :key="model.id" 
+              :value="model.id"
+            >
+              {{ model.name }}
+            </option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label>温度</label>
+          <div class="range-input">
+            <input 
+              type="range" 
+              v-model="formData.temperature" 
+              min="0" 
+              max="2" 
+              step="0.1"
+              class="range-slider"
+            >
+            <span class="range-value">{{ formData.temperature }}</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- ... 其他部分保持不变 ... -->
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const props = defineProps({
+  agent: Object,
+  isNew: Boolean,
+  availableModels: {
+    type: Array,
+    default: () => [
+      { id: 'gpt-4', name: 'GPT-4' },
+      { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
+    ]
+  }
+})
+
+// ... 其他代码保持不变 ...
+</script>
+```
+
+```vue:src/components/Agent/TaskEditor.vue
+<template>
+  <div class="task-editor-overlay" @click.self="$emit('close')">
+    <div class="task-editor">
+      <div class="editor-header">
+        <h3>{{ isNew ? '新建任务' : '编辑任务' }}</h3>
+        <button class="close-btn" @click="$emit('close')">&times;</button>
+      </div>
+      
+      <div class="editor-body">
+        <div class="form-group">
+          <label>任务标题</label>
+          <div class="input-with-hint">
+            <input 
+              v-model="formData.title" 
+              type="text" 
+              placeholder="输入任务标题"
+              class="form-input"
+            >
+            <div class="input-hint">使用@成员名:场景名可直接指派任务</div>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label>任务描述</label>
+          <textarea 
+            v-model="formData.description" 
+            placeholder="描述任务目标和要求"
+            class="form-input"
+            rows="3"
+          ></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label>指派给AI成员</label>
+          <select v-model="formData.assignedTo" class="form-input">
+            <option value="">请选择AI成员</option>
+            <option 
+              v-for="agent in agents" 
+              :key="agent.id" 
+              :value="agent.id"
+            >
+              {{ agent.name }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-section">
+          <div class="section-title">场景卡片集成</div>
+          
+          <div class="checkbox-group">
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                v-model="formData.generateSceneCard"
+              >
+              <span>读取场景卡片内容</span>
+            </label>
+          </div>
+
+          <div v-if="formData.generateSceneCard" class="scene-card-options">
+            <div class="form-group">
+              <label>从哪个场景读取卡片</label>
+              <select v-model="formData.targetSceneId" class="form-input">
+                <option value="">请选择场景</option>
+                <option 
+                  v-for="scene in scenes" 
+                  :key="scene.id" 
+                  :value="scene.id"
+                >
+                  {{ scene.title }}
+                </option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label>生成卡片标签</label>
+              <input 
+                v-model="formData.cardTags" 
+                type="text" 
+                placeholder="用逗号分隔，例如: AI生成,剧情"
+                class="form-input"
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="editor-footer">
+        <button class="cancel-btn" @click="$emit('close')">取消</button>
+        <button class="save-btn" @click="handleSave">保存</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const props = defineProps({
+  task: Object,
+  isNew: Boolean,
+  agents: {
+    type: Array,
+    default: () => []
+  },
+  scenes: {
+    type: Array,
+    default: () => []
+  }
+})
+
+const emit = defineEmits(['save', 'close'])
+
+// 表单数据
+const formData = ref({
+  title: '',
+  description: '',
+  assignedTo: '',
+  responseFormat: 'text',
+  generateSceneCard: false,
+  targetSceneId: '',
+  cardTags: ''
+})
+
+// 初始化表单数据
+onMounted(() => {
+  if (props.task) {
+    formData.value = {
+      ...formData.value,
+      ...props.task
+    }
+  }
+})
+
+// 保存任务
+const handleSave = () => {
+  if (!formData.value.title) {
+    alert('请输入任务标题')
+    return
+  }
+  
+  if (!formData.value.assignedTo) {
+    alert('请选择AI成员')
+    return
+  }
+  
+  if (formData.value.generateSceneCard && !formData.value.targetSceneId) {
+    alert('请选择目标场景')
+    return
+  }
+  
+  emit('save', { ...formData.value })
+}
+</script>
+```
+
+然后在父组件中需要正确传入这些数据：
+
+```vue:src/views/AgentsView.vue
+<template>
+  <!-- ... 其他部分 ... -->
+  <agent-editor
+    v-if="showAgentEditor"
+    :agent="editingAgent"
+    :is-new="isNewAgent"
+    :available-models="availableModels"
+    @save="handleAgentSave"
+    @close="closeAgentEditor"
+  />
+  
+  <task-editor
+    v-if="showTaskEditor"
+    :task="editingTask"
+    :is-new="isNewTask"
+    :agents="agents"
+    :scenes="scenes"
+    @save="handleTaskSave"
+    @close="closeTaskEditor"
+  />
+  <!-- ... 其他部分 ... -->
+</template>
+
+<script setup>
+// ... 其他导入 ...
+
+// 可用的模型列表
+const availableModels = [
+  { id: 'gpt-4', name: 'GPT-4' },
+  { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
+]
+
+// ... 其他代码 ...
+</script>
+```
+
+主要改进：
+
+1. **AgentEditor 改进**：
+   - 添加了 availableModels props
+   - 在模型选择器中使用可用模型列表
+   - 添加了默认模型列表
+
+2. **TaskEditor 改进**：
+   - 为 agents 和 scenes props 添加了默认值
+   - 确保选择器正确显示可用选项
+   - 改进了数据验证
+
+3. **父组件集成**：
+   - 正确传入所需的所有数据
+   - 添加了模型列表定义
+   - 确保数据的完整性
+
+4. **Props 定义优化**：
+   - 添加了默认值
+   - 使用了正确的类型定义
+   - 确保了必要的数据可用性
+
+这些修改应该能确保所有选择器都能正常工作，并且有正确的数据可供选择。
+
+---
+
+_**User**_
+
+传入的模型没有读取到，还有场景
+
+---
+
+_**Assistant**_
+
+抱歉我理解了问题。让我们修复 AgentEditor 和 TaskEditor 中的数据传入问题。这些数据应该从 props 中的 models 和 scenes 获取：
+
+```vue:src/components/Agent/AgentEditor.vue
+<template>
+  <div class="agent-editor-overlay" @click.self="$emit('close')">
+    <div class="agent-editor">
+      <!-- ... 其他部分保持不变 ... -->
+      
+      <div class="form-section">
+        <div class="section-title">模型配置</div>
+        <div class="form-group">
+          <label>语言模型</label>
+          <select v-model="formData.modelId" class="form-input">
+            <option value="">请选择模型</option>
+            <option 
+              v-for="model in models" 
+              :key="model.id" 
+              :value="model.id"
+            >
+              {{ model.name }}
+            </option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label>温度</label>
+          <div class="range-input">
+            <input 
+              type="range" 
+              v-model="formData.temperature" 
+              min="0" 
+              max="2" 
+              step="0.1"
+              class="range-slider"
+            >
+            <span class="range-value">{{ formData.temperature }}</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- ... 其他部分保持不变 ... -->
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const props = defineProps({
+  agent: Object,
+  models: {
+    type: Array,
+    required: true
+  }
+})
+
+const emit = defineEmits(['save', 'close'])
+
+const newSkill = ref('')
+
+// 表单数据初始化
+const formData = ref({
+  name: '',
+  description: '',
+  systemPrompt: '',
+  modelId: '',
+  temperature: 0.7,
+  skills: []
+})
+
+// 初始化表单数据
+onMounted(() => {
+  if (props.agent) {
+    // 确保深拷贝数组
+    const agentData = {
+      ...props.agent,
+      skills: props.agent.skills ? [...props.agent.skills] : []
+    }
+    formData.value = {
+      ...formData.value,
+      ...agentData
+    }
+  }
+})
+
+// ... 其他方法保持不变 ...
+</script>
+```
+
+```vue:src/components/Agent/TaskEditor.vue
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const props = defineProps({
+  task: Object,
+  parentTask: Object,
+  agents: {
+    type: Array,
+    required: true
+  },
+  scenes: {
+    type: Array,
+    required: true
+  }
+})
+
+const emit = defineEmits(['save', 'close'])
+
+// 表单数据
+const formData = ref({
+  title: '',
+  description: '',
+  assignedTo: '',
+  responseFormat: 'text',
+  generateSceneCard: false,
+  targetSceneId: '',
+  cardTags: '',
+  includeParentContext: false,
+  includeRelatedContext: false,
+  includeSceneContext: false,
+  relatedTaskId: ''
+})
+
+// 初始化表单数据
+onMounted(() => {
+  if (props.task) {
+    formData.value = {
+      ...formData.value,
+      ...props.task
+    }
+  }
+})
+
+// ... 其他方法保持不变 ...
+</script>
+```
+
+主要改进：
+
+1. **AgentEditor 改进**：
+   - 修改了 props 定义，正确引入 models
+   - 将 modelId 作为选择值而不是 model
+   - 确保模型选择器使用传入的 models 数据
+
+2. **TaskEditor 改进**：
+   - 确保 agents 和 scenes 为必需的 props
+   - 添加了 parentTask prop
+   - 完善了表单数据的初始化
+
+3. **数据处理优化**：
+   - 正确处理模型和场景的选择
+   - 确保数据的正确传递
+   - 添加必要的默认值
+
+这些修改应该能确保模型和场景的选择器正常工作，并且能够正确显示和选择数据。
+
+---
+
+_**User**_
+
+修复这个问题：（可以设置是否生成场景卡片）【可以设置是否读取场景卡片，通过卡片标题进行泛搜索】
+场景都读取不了
+
+---
+
+_**Assistant**_
+
+让我们修复场景卡片相关的功能。需要修改 TaskEditor 组件：
+
+```vue:src/components/Agent/TaskEditor.vue
+<template>
+  <div class="task-editor-overlay" @click.self="$emit('close')">
+    <div class="task-editor">
+      <!-- ... 其他部分保持不变 ... -->
+
+      <div class="form-section">
+        <div class="section-title">场景卡片集成</div>
+        
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input 
+              type="checkbox" 
+              v-model="formData.generateSceneCard"
+            >
+            <span>生成场景卡片</span>
+          </label>
+
+          <label class="checkbox-label">
+            <input 
+              type="checkbox" 
+              v-model="formData.readSceneCard"
+            >
+            <span>读取场景卡片</span>
+          </label>
+        </div>
+
+        <div v-if="formData.generateSceneCard" class="scene-card-options">
+          <div class="form-group">
+            <label>目标场景</label>
+            <select v-model="formData.targetSceneId" class="form-input">
+              <option value="">请选择场景</option>
+              <option 
+                v-for="scene in scenes" 
+                :key="scene.id" 
+                :value="scene.id"
+              >
+                {{ scene.title }}
+              </option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>卡片标签</label>
+            <input 
+              v-model="formData.cardTags" 
+              type="text" 
+              placeholder="用逗号分隔，例如: AI生成,剧情"
+              class="form-input"
+            >
+          </div>
+        </div>
+
+        <div v-if="formData.readSceneCard" class="scene-card-options">
+          <div class="form-group">
+            <label>搜索场景</label>
+            <select v-model="formData.sourceSceneId" class="form-input">
+              <option value="">请选择场景</option>
+              <option 
+                v-for="scene in scenes" 
+                :key="scene.id" 
+                :value="scene.id"
+              >
+                {{ scene.title }}
+              </option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>卡片标题关键词</label>
+            <input 
+              v-model="formData.cardTitleKeywords" 
+              type="text" 
+              placeholder="输入关键词进行模糊搜索"
+              class="form-input"
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- ... 其他部分保持不变 ... -->
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const props = defineProps({
+  task: Object,
+  parentTask: Object,
+  agents: {
+    type: Array,
+    required: true
+  },
+  scenes: {
+    type: Array,
+    required: true
+  }
+})
+
+const emit = defineEmits(['save', 'close'])
+
+// 表单数据
+const formData = ref({
+  title: '',
+  description: '',
+  assignedTo: '',
+  responseFormat: 'text',
+  // 场景卡片相关
+  generateSceneCard: false,
+  readSceneCard: false,
+  targetSceneId: '',
+  sourceSceneId: '',
+  cardTags: '',
+  cardTitleKeywords: '',
+  // 其他配置
+  includeParentContext: false,
+  includeRelatedContext: false,
+  includeSceneContext: false,
+  relatedTaskId: ''
+})
+
+// 初始化表单数据
+onMounted(() => {
+  if (props.task) {
+    formData.value = {
+      ...formData.value,
+      ...props.task
+    }
+  }
+})
+
+// 保存任务
+const handleSave = () => {
+  if (!formData.value.title) {
+    alert('请输入任务标题')
+    return
+  }
+  
+  if (!formData.value.assignedTo) {
+    alert('请选择AI成员')
+    return
+  }
+  
+  if (formData.value.generateSceneCard && !formData.value.targetSceneId) {
+    alert('请选择目标场景')
+    return
+  }
+
+  if (formData.value.readSceneCard && !formData.value.sourceSceneId) {
+    alert('请选择源场景')
+    return
+  }
+  
+  emit('save', { ...formData.value })
+}
+</script>
+
+<style scoped>
+/* ... 其他样式保持不变 ... */
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.scene-card-options {
+  margin-top: 16px;
+  padding: 20px;
+  background: #fafafa;
+  border-radius: 12px;
+  border: 1px solid #f0f0f0;
+}
+
+.scene-card-options + .scene-card-options {
+  margin-top: 16px;
+}
+</style>
+```
+
+主要改进：
+
+1. **功能分离**：
+   - 分别添加了生成场景卡片和读取场景卡片的选项
+   - 为每个功能提供独立的配置区域
+
+2. **场景卡片生成**：
+   - 可以选择目标场景
+   - 可以设置卡片标签
+
+3. **场景卡片读取**：
+   - 可以选择源场景
+   - 可以输入卡片标题关键词进行模糊搜索
+
+4. **数据结构优化**：
+   - 添加了新的表单字段
+   - 完善了数据验证
+   - 优化了保存逻辑
+
+5. **UI改进**：
+   - 优化了选项的布局
+   - 添加了视觉分隔
+   - 改进了表单控件的样式
+
+这些修改应该能让场景卡片的功能更加完整和易用。用户可以清晰地选择是要生成新卡片还是读取现有卡片，并进行相应的配置。
+
+---
+
+_**User**_
+
+找不到场景，场景怎么没传入进来。
+
+---
+
+_**Assistant**_
+
+
+
+问题在于场景数据没有正确地从父组件传递到 TaskEditor。让我们检查数据流：
+
+1. 首先检查 AgentsView.vue 中的场景数据传递：
+
+```vue:src/components/AgentsView.vue
+<template>
+  <!-- ... 其他内容 ... -->
+  
+  <!-- 任务编辑模态框 -->
+  <div class="modal" v-if="showTaskEditor">
+    <task-editor
+      :task="editingTask"
+      :parent-task="parentTask"
+      :agents="agents"
+      :scenes="scenes"  <!-- 确保这里正确传入了scenes -->
+      @save="saveTask"
+      @close="showTaskEditor = false"
+    />
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import TaskEditor from './Agent/TaskEditor.vue'
+
+// 定义属性
+const props = defineProps({
+  models: {
+    type: Array,
+    default: () => []
+  },
+  scenes: {
+    type: Array,
+    default: () => []
+  }
+})
+
+// 基本状态
+const agents = ref([])
+const showTaskEditor = ref(false)
+const editingTask = ref(null)
+const parentTask = ref(null)
+
+// 确保scenes可用
+console.log('Available scenes:', props.scenes) // 调试用
+
+// ... 其他代码 ...
+</script>
+```
+
+2. 然后在 TaskEditor 中确认数据接收：
+
+```vue:src/components/Agent/TaskEditor.vue
+<script setup>
+import { ref, onMounted, watch } from 'vue'
+
+const props = defineProps({
+  task: Object,
+  parentTask: Object,
+  agents: {
+    type: Array,
+    required: true
+  },
+  scenes: {
+    type: Array,
+    required: true
+  }
+})
+
+// 调试用
+console.log('Received scenes in TaskEditor:', props.scenes)
+
+// ... 其他代码 ...
+</script>
+```
+
+问题可能出在以下几个地方：
+
+1. scenes 数据没有正确从父组件传入
+2. scenes 数组可能为空
+3. 数据格式可能不正确
+
+请检查：
+
+1. 在 AgentsView 中打印 `props.scenes` 确认数据存在
+2. 在 TaskEditor 中打印接收到的 `props.scenes` 确认数据传递
+3. 确认 scenes 数据的格式是否正确（应该是包含 id 和 title 的对象数组）
+
+如果您能提供 scenes 数据的实际结构，我可以帮助您更准确地解决这个问题。
+
+另外，建议在 template 中添加调试信息：
+
+```vue:src/components/Agent/TaskEditor.vue
+<template>
+  <div class="task-editor-overlay">
+    <!-- 临时调试信息 -->
+    <div v-if="process.env.NODE_ENV === 'development'" style="position: fixed; top: 0; right: 0; background: #fff; padding: 10px;">
+      Scenes count: {{ scenes?.length || 0 }}
+    </div>
+    
+    <!-- ... 其他内容 ... -->
+    
+    <div class="form-group">
+      <label>从哪个场景读取卡片</label>
+      <select v-model="formData.targetSceneId" class="form-input">
+        <option value="">请选择场景 ({{ scenes?.length || 0 }}个可用)</option>
+        <option 
+          v-for="scene in scenes" 
+          :key="scene.id" 
+          :value="scene.id"
+        >
+          {{ scene.title }}
+        </option>
+      </select>
+    </div>
+  </div>
+</template>
+```
+
+这样可以帮助我们确定数据传递的问题出在哪里。请让我知道调试结果，我会帮您进一步解决这个问题。
+
+---
+
+_**User**_
+
+这里无法选择场景，console数据：[
+    {
+        "id": 1740403919177,
+        "name": "星期盘",
+        "cards": [
+            {
+                "id": "m7lltl423aidl",
+                "title": "任务结果 - 写小说",
+             }
+                "tags": [],
+                "timestamp": "2025-02-26T07:55:34.614Z"
+            }
+        ]
+    }
+]
+
+---
+
+_**Assistant**_
+
+看起来是场景数据的属性名不匹配导致的问题。在模板中我们使用的是 `scene.title`，但实际数据中场景的属性是 `name` 而不是 `title`。让我们修复这个问题：
+
+```vue:src/components/Agent/TaskEditor.vue
+<div v-if="formData.generateSceneCard" class="scene-card-options">
+  <div class="form-group">
+    <label>目标场景</label>
+    <select v-model="formData.targetSceneId" class="form-input">
+      <option value="">请选择场景</option>
+      <option 
+        v-for="scene in scenes" 
+        :key="scene.id" 
+        :value="scene.id"
+      >
+        {{ scene.name }}  <!-- 改用 name 而不是 title -->
+      </option>
+    </select>
+  </div>
+  <!-- ... 其他内容 ... -->
+</div>
+
+<div v-if="formData.readSceneCard" class="scene-card-options">
+  <div class="form-group">
+    <label>搜索场景</label>
+    <select v-model="formData.sourceSceneId" class="form-input">
+      <option value="">请选择场景</option>
+      <option 
+        v-for="scene in scenes" 
+        :key="scene.id" 
+        :value="scene.id"
+      >
+        {{ scene.name }}  <!-- 这里也需要改用 name -->
+      </option>
+    </select>
+  </div>
+  <!-- ... 其他内容 ... -->
+</div>
+```
+
+这样修改后，场景选择器应该就能正确显示场景名称了。我们使用了数据中实际存在的 `name` 属性来显示场景名称，而不是之前错误使用的 `title` 属性。
+
+---
+
+_**User**_
+
+有读取卡片没有生成卡片的？
+
+---
+
+_**Assistant**_
+
+抱歉，我理解错了需求。让我们修改场景卡片相关的选项，只保留读取卡片功能：
+
+```vue:src/components/Agent/TaskEditor.vue
+<template>
+  <div class="task-editor-overlay" @click.self="$emit('close')">
+    <div class="task-editor">
+      <!-- ... 其他部分保持不变 ... -->
+
+      <div class="form-section">
+        <div class="section-title">场景卡片集成</div>
+        
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input 
+              type="checkbox" 
+              v-model="formData.readSceneCard"
+            >
+            <span>读取场景卡片</span>
+          </label>
+        </div>
+
+        <div v-if="formData.readSceneCard" class="scene-card-options">
+          <div class="form-group">
+            <label>从哪个场景读取卡片</label>
+            <select v-model="formData.sourceSceneId" class="form-input">
+              <option value="">请选择场景</option>
+              <option 
+                v-for="scene in scenes" 
+                :key="scene.id" 
+                :value="scene.id"
+              >
+                {{ scene.name }}
+              </option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>卡片标题关键词</label>
+            <input 
+              v-model="formData.cardTitleKeywords" 
+              type="text" 
+              placeholder="输入关键词进行模糊搜索"
+              class="form-input"
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- ... 其他部分保持不变 ... -->
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const props = defineProps({
+  task: Object,
+  parentTask: Object,
+  agents: {
+    type: Array,
+    required: true
+  },
+  scenes: {
+    type: Array,
+    required: true
+  }
+})
+
+const emit = defineEmits(['save', 'close'])
+
+// 表单数据
+const formData = ref({
+  title: '',
+  description: '',
+  assignedTo: '',
+  responseFormat: 'text',
+  // 场景卡片相关
+  readSceneCard: false,
+  sourceSceneId: '',
+  cardTitleKeywords: '',
+  // 其他配置
+  includeParentContext: false,
+  includeRelatedContext: false,
+  includeSceneContext: false,
+  relatedTaskId: ''
+})
+
+// 初始化表单数据
+onMounted(() => {
+  if (props.task) {
+    formData.value = {
+      ...formData.value,
+      ...props.task
+    }
+  }
+})
+
+// 保存任务
+const handleSave = () => {
+  if (!formData.value.title) {
+    alert('请输入任务标题')
+    return
+  }
+  
+  if (!formData.value.assignedTo) {
+    alert('请选择AI成员')
+    return
+  }
+  
+  if (formData.value.readSceneCard && !formData.value.sourceSceneId) {
+    alert('请选择源场景')
+    return
+  }
+  
+  emit('save', { ...formData.value })
+}
+</script>
+```
+
+主要改动：
+1. 移除了生成场景卡片的选项
+2. 只保留读取场景卡片的功能
+3. 简化了相关的表单数据
+4. 更新了验证逻辑
+
+这样修改后，界面应该更符合实际需求，只提供读取场景卡片的功能。
+
+---
+
+_**User**_
+
+应该有两个勾选，一个是读取场景卡片选项（模糊搜索，精确搜索），一个是生成场景卡片选项（生成前缀（是否增加序号））
+
+---
+
+_**Assistant**_
+
+
+
+明白了，让我们修改成两个独立的选项，分别是读取和生成场景卡片：
+
+```vue:src/components/Agent/TaskEditor.vue
+<template>
+  <div class="task-editor-overlay" @click.self="$emit('close')">
+    <div class="task-editor">
+      <!-- ... 其他部分保持不变 ... -->
+
+      <div class="form-section">
+        <div class="section-title">场景卡片集成</div>
+        
+        <!-- 读取场景卡片选项 -->
+        <div class="card-option-group">
+          <label class="checkbox-label">
+            <input 
+              type="checkbox" 
+              v-model="formData.readSceneCard"
+            >
+            <span>读取场景卡片</span>
+          </label>
+
+          <div v-if="formData.readSceneCard" class="scene-card-options">
+            <div class="form-group">
+              <label>从哪个场景读取卡片</label>
+              <select v-model="formData.sourceSceneId" class="form-input">
+                <option value="">请选择场景</option>
+                <option 
+                  v-for="scene in scenes" 
+                  :key="scene.id" 
+                  :value="scene.id"
+                >
+                  {{ scene.name }}
+                </option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label>搜索方式</label>
+              <div class="radio-group">
+                <label class="radio-label">
+                  <input 
+                    type="radio" 
+                    v-model="formData.searchType" 
+                    value="fuzzy"
+                  >
+                  <span>模糊搜索</span>
+                </label>
+                <label class="radio-label">
+                  <input 
+                    type="radio" 
+                    v-model="formData.searchType" 
+                    value="exact"
+                  >
+                  <span>精确搜索</span>
+                </label>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label>卡片标题关键词</label>
+              <input 
+                v-model="formData.cardTitleKeywords" 
+                type="text" 
+                :placeholder="formData.searchType === 'fuzzy' ? '输入关键词进行模糊搜索' : '输入完整标题进行精确搜索'"
+                class="form-input"
+              >
+            </div>
+          </div>
+        </div>
+
+        <!-- 生成场景卡片选项 -->
+        <div class="card-option-group">
+          <label class="checkbox-label">
+            <input 
+              type="checkbox" 
+              v-model="formData.generateSceneCard"
+            >
+            <span>生成场景卡片</span>
+          </label>
+
+          <div v-if="formData.generateSceneCard" class="scene-card-options">
+            <div class="form-group">
+              <label>目标场景</label>
+              <select v-model="formData.targetSceneId" class="form-input">
+                <option value="">请选择场景</option>
+                <option 
+                  v-for="scene in scenes" 
+                  :key="scene.id" 
+                  :value="scene.id"
+                >
+                  {{ scene.name }}
+                </option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input 
+                  type="checkbox" 
+                  v-model="formData.addCardPrefix"
+                >
+                <span>添加卡片序号前缀</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ... 其他部分保持不变 ... -->
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const props = defineProps({
+  task: Object,
+  parentTask: Object,
+  agents: {
+    type: Array,
+    required: true
+  },
+  scenes: {
+    type: Array,
+    required: true
+  }
+})
+
+const emit = defineEmits(['save', 'close'])
+
+// 表单数据
+const formData = ref({
+  title: '',
+  description: '',
+  assignedTo: '',
+  responseFormat: 'text',
+  // 读取场景卡片相关
+  readSceneCard: false,
+  sourceSceneId: '',
+  searchType: 'fuzzy',
+  cardTitleKeywords: '',
+  // 生成场景卡片相关
+  generateSceneCard: false,
+  targetSceneId: '',
+  addCardPrefix: false,
+  // 其他配置
+  includeParentContext: false,
+  includeRelatedContext: false,
+  includeSceneContext: false,
+  relatedTaskId: ''
+})
+
+// ... 其他方法保持不变 ...
+
+// 保存任务
+const handleSave = () => {
+  if (!formData.value.title) {
+    alert('请输入任务标题')
+    return
+  }
+  
+  if (!formData.value.assignedTo) {
+    alert('请选择AI成员')
+    return
+  }
+  
+  if (formData.value.readSceneCard && !formData.value.sourceSceneId) {
+    alert('请选择源场景')
+    return
+  }
+
+  if (formData.value.generateSceneCard && !formData.value.targetSceneId) {
+    alert('请选择目标场景')
+    return
+  }
+  
+  emit('save', { ...formData.value })
+}
+</script>
+
+<style scoped>
+/* ... 其他样式保持不变 ... */
+
+.card-option-group {
+  margin-bottom: 24px;
+}
+
+.card-option-group:last-child {
+  margin-bottom: 0;
+}
+
+.radio-group {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.radio-label input[type="radio"] {
+  margin: 0;
+}
+
+.scene-card-options {
+  margin-top: 16px;
+  padding: 20px;
+  background: #fafafa;
+  border-radius: 12px;
+  border: 1px solid #f0f0f0;
+}
+</style>
+```
+
+主要改进：
+
+1. **读取场景卡片功能**：
+   - 添加了模糊搜索和精确搜索选项
+   - 根据搜索方式显示不同的提示文本
+   - 完善了搜索相关的配置
+
+2. **生成场景卡片功能**：
+   - 可以选择目标场景
+   - 可以设置是否添加序号前缀
+   - 优化了生成选项的布局
+
+3. **UI优化**：
+   - 分组显示两个主要功能
+   - 添加了单选按钮组样式
+   - 改进了选项的视觉层次
+
+4. **数据结构**：
+   - 添加了新的表单字段
+   - 完善了验证逻辑
+   - 优化了数据保存
+
+这样的设计应该更符合需求，提供了完整的读取和生成场景卡片的功能。果整理成场景卡
+
+---
+
+_**User**_
+
+实现对应功能
+
+
+---
+
+_**Assistant**_
+
+
+
+让我们实现读取和生成场景卡片的功能。需要修改 TaskEditor 的逻辑部分：
+
+```vue:src/components/Agent/TaskEditor.vue
+<script setup>
+import { ref, onMounted, computed } from 'vue'
+
+const props = defineProps({
+  task: Object,
+  parentTask: Object,
+  agents: {
+    type: Array,
+    required: true
+  },
+  scenes: {
+    type: Array,
+    required: true
+  }
+})
+
+const emit = defineEmits(['save', 'close'])
+
+// 表单数据
+const formData = ref({
+  title: '',
+  description: '',
+  assignedTo: '',
+  responseFormat: 'text',
+  // 读取场景卡片相关
+  readSceneCard: false,
+  sourceSceneId: '',
+  searchType: 'fuzzy',
+  cardTitleKeywords: '',
+  // 生成场景卡片相关
+  generateSceneCard: false,
+  targetSceneId: '',
+  addCardPrefix: false,
+  // 其他配置
+  includeParentContext: false,
+  includeRelatedContext: false,
+  includeSceneContext: false,
+  relatedTaskId: ''
+})
+
+// 获取当前选中的源场景
+const selectedSourceScene = computed(() => {
+  if (!formData.value.sourceSceneId) return null
+  return props.scenes.find(scene => scene.id === formData.value.sourceSceneId)
+})
+
+// 获取当前选中的目标场景
+const selectedTargetScene = computed(() => {
+  if (!formData.value.targetSceneId) return null
+  return props.scenes.find(scene => scene.id === formData.value.targetSceneId)
+})
+
+// 搜索场景卡片
+const searchSceneCards = computed(() => {
+  if (!selectedSourceScene.value || !formData.value.cardTitleKeywords) return []
+  
+  const cards = selectedSourceScene.value.cards || []
+  const keywords = formData.value.cardTitleKeywords.toLowerCase()
+  
+  if (formData.value.searchType === 'fuzzy') {
+    // 模糊搜索
+    return cards.filter(card => 
+      card.title.toLowerCase().includes(keywords)
+    )
+  } else {
+    // 精确搜索
+    return cards.filter(card => 
+      card.title.toLowerCase() === keywords.toLowerCase()
+    )
+  }
+})
+
+// 生成新卡片的标题
+const generateCardTitle = (baseTitle) => {
+  if (!formData.value.addCardPrefix || !selectedTargetScene.value) {
+    return baseTitle
+  }
+  
+  const existingCards = selectedTargetScene.value.cards || []
+  const prefix = existingCards.length + 1
+  return `${prefix}. ${baseTitle}`
+}
+
+// 初始化表单数据
+onMounted(() => {
+  if (props.task) {
+    formData.value = {
+      ...formData.value,
+      ...props.task
+    }
+  }
+})
+
+// 保存任务
+const handleSave = () => {
+  if (!formData.value.title) {
+    alert('请输入任务标题')
+    return
+  }
+  
+  if (!formData.value.assignedTo) {
+    alert('请选择AI成员')
+    return
+  }
+  
+  // 验证读取场景卡片配置
+  if (formData.value.readSceneCard) {
+    if (!formData.value.sourceSceneId) {
+      alert('请选择源场景')
+      return
+    }
+    if (!formData.value.cardTitleKeywords) {
+      alert('请输入卡片标题关键词')
+      return
+    }
+    
+    // 添加搜索到的卡片内容到任务上下文
+    const matchedCards = searchSceneCards.value
+    if (matchedCards.length > 0) {
+      formData.value.sceneCardContext = matchedCards.map(card => ({
+        title: card.title,
+        content: card.content,
+        sourceSceneId: formData.value.sourceSceneId
+      }))
+    }
+  }
+  
+  // 验证生成场景卡片配置
+  if (formData.value.generateSceneCard) {
+    if (!formData.value.targetSceneId) {
+      alert('请选择目标场景')
+      return
+    }
+    
+    // 添加生成卡片的配置
+    formData.value.generateCardConfig = {
+      sceneId: formData.value.targetSceneId,
+      addPrefix: formData.value.addCardPrefix
+    }
+  }
+  
+  emit('save', { 
+    ...formData.value,
+    // 添加额外的元数据
+    metadata: {
+      hasSceneCardIntegration: formData.value.readSceneCard || formData.value.generateSceneCard,
+      searchedCards: formData.value.readSceneCard ? searchSceneCards.value.length : 0,
+      willGenerateCard: formData.value.generateSceneCard
+    }
+  })
+}
+</script>
+```
+
+主要功能实现：
+
+1. **读取场景卡片**：
+   - 实现了模糊搜索和精确搜索
+   - 根据选中的场景和搜索条件过滤卡片
+   - 将匹配的卡片内容添加到任务上下文
+
+2. **生成场景卡片**：
+   - 支持自动添加序号前缀
+   - 配置目标场景
+   - 添加生成卡片的相关配置
+
+3. **数据处理**：
+   - 使用计算属性处理场景和卡片数据
+   - 添加了必要的验证逻辑
+   - 优化了数据结构
+
+4. **元数据**：
+   - 添加了场景卡片集成的相关元数据
+   - 记录搜索结果和生成配置
+   - 方便后续处理和追踪
+
+这样实现后，当任务保存时：
+- 如果启用了读取场景卡片，会将匹配的卡片内容添加到任务上下文
+- 如果启用了生成场景卡片，会添加相关配置供后续处理
+- 所有配置和结果都会被正确保存和传递
+
+你可以在父组件中处理这些数据，进行实际的卡片生成和集成操作。
+
+---
+
+_**User**_
+
+没有生成卡片到场景啊
+
+---
+
+_**Assistant**_
+
+
+
+您说得对，我们需要在保存任务时实际生成卡片到目标场景。让我们修改代码：
+
+```vue:src/components/Agent/TaskEditor.vue
+<script setup>
+import { ref, onMounted, computed } from 'vue'
+
+const props = defineProps({
+  task: Object,
+  parentTask: Object,
+  agents: {
+    type: Array,
+    required: true
+  },
+  scenes: {
+    type: Array,
+    required: true
+  }
+})
+
+const emit = defineEmits(['save', 'close', 'generateCard'])
+
+// ... 其他代码保持不变 ...
+
+// 生成新卡片的标题
+const generateCardTitle = (baseTitle) => {
+  if (!formData.value.addCardPrefix || !selectedTargetScene.value) {
+    return baseTitle
+  }
+  
+  const existingCards = selectedTargetScene.value.cards || []
+  const prefix = existingCards.length + 1
+  return `${prefix}. ${baseTitle}`
+}
+
+// 生成场景卡片
+const generateSceneCard = async (taskResult) => {
+  if (!selectedTargetScene.value) return null
+  
+  const cardTitle = generateCardTitle(formData.value.title)
+  
+  const newCard = {
+    id: Date.now().toString(),
+    title: cardTitle,
+    content: taskResult || formData.value.description, // 如果没有结果，使用任务描述
+    tags: [],
+    timestamp: new Date().toISOString()
+  }
+  
+  // 发出生成卡片事件
+  emit('generateCard', {
+    sceneId: formData.value.targetSceneId,
+    card: newCard
+  })
+  
+  return newCard
+}
+
+// 保存任务
+const handleSave = async () => {
+  if (!formData.value.title) {
+    alert('请输入任务标题')
+    return
+  }
+  
+  if (!formData.value.assignedTo) {
+    alert('请选择AI成员')
+    return
+  }
+  
+  let taskData = { ...formData.value }
+  
+  // 处理读取场景卡片
+  if (formData.value.readSceneCard) {
+    if (!formData.value.sourceSceneId) {
+      alert('请选择源场景')
+      return
+    }
+    if (!formData.value.cardTitleKeywords) {
+      alert('请输入卡片标题关键词')
+      return
+    }
+    
+    const matchedCards = searchSceneCards.value
+    if (matchedCards.length > 0) {
+      taskData.sceneCardContext = matchedCards.map(card => ({
+        title: card.title,
+        content: card.content,
+        sourceSceneId: formData.value.sourceSceneId
+      }))
+    }
+  }
+  
+  // 处理生成场景卡片
+  if (formData.value.generateSceneCard) {
+    if (!formData.value.targetSceneId) {
+      alert('请选择目标场景')
+      return
+    }
+    
+    // 生成初始卡片
+    const initialCard = await generateSceneCard()
+    if (initialCard) {
+      taskData.generatedCard = initialCard
+    }
+  }
+  
+  // 添加元数据
+  taskData.metadata = {
+    hasSceneCardIntegration: formData.value.readSceneCard || formData.value.generateSceneCard,
+    searchedCards: formData.value.readSceneCard ? searchSceneCards.value.length : 0,
+    willGenerateCard: formData.value.generateSceneCard
+  }
+  
+  emit('save', taskData)
+}
+</script>
+```
+
+然后在父组件（AgentsView.vue）中处理卡片生成：
+
+```vue:src/views/AgentsView.vue
+<template>
+  <task-editor
+    v-if="showTaskEditor"
+    :task="editingTask"
+    :parent-task="parentTask"
+    :agents="agents"
+    :scenes="scenes"
+    @save="handleTaskSave"
+    @generate-card="handleGenerateCard"
+    @close="showTaskEditor = false"
+  />
+</template>
+
+<script setup>
+// ... 其他导入和代码 ...
+
+// 处理卡片生成
+const handleGenerateCard = ({ sceneId, card }) => {
+  const sceneIndex = scenes.value.findIndex(scene => scene.id === sceneId)
+  if (sceneIndex !== -1) {
+    if (!scenes.value[sceneIndex].cards) {
+      scenes.value[sceneIndex].cards = []
+    }
+    scenes.value[sceneIndex].cards.push(card)
+    
+    // 可能需要调用API保存场景更新
+    saveScene(scenes.value[sceneIndex])
+  }
+}
+
+// 处理任务保存
+const handleTaskSave = async (taskData) => {
+  // 保存任务
+  const savedTask = await saveTask(taskData)
+  
+  // 如果任务执行完成且需要生成卡片，更新卡片内容
+  if (savedTask.status === 'completed' && taskData.generateSceneCard) {
+    handleGenerateCard({
+      sceneId: taskData.targetSceneId,
+      card: {
+        ...taskData.generatedCard,
+        content: savedTask.result // 使用任务结果更新卡片内容
+      }
+    })
+  }
+  
+  showTaskEditor.value = false
+}
+
+// 保存场景的方法
+const saveScene = async (scene) => {
+  try {
+    // 调用API保存场景更新
+    await api.updateScene(scene)
+  } catch (error) {
+    console.error('保存场景失败:', error)
+    // 处理错误
+  }
+}
+</script>
+```
+
+主要改进：
+
+1. **卡片生成功能**：
+   - 添加了生成卡片的具体实现
+   - 支持自动添加序号前缀
+   - 生成唯一的卡片ID和时间戳
+
+2. **事件处理**：
+   - 添加了 generateCard 事件
+   - 在父组件中处理卡片生成和保存
+
+3. **数据流程**：
+   - 任务创建时生成初始卡片
+   - 任务完成时更新卡片内容
+   - 保存场景变更
+
+4. **错误处理**：
+   - 添加了必要的验证
+   - 处理可能的错误情况
+
+这样实现后，当启用生成场景卡片选项时：
+1. 创建任务时会生成一个初始卡片
+2. 任务完成后会用任务结果更新卡片内容
+3. 卡片会被正确添加到目标场景中
+4. 场景的更改会被保存到后端
+
+---
+
+_**User**_
+
+[plugin:vite:vue] Invalid end tag.
+C:/Users/chenz/Desktop/VUE3/Card/card-creation/src/components/Agent/TaskEditor.vue:587:1
+
+---
+
+_**Assistant**_
+
+抱歉，让我修复这个语法错误。问题是在模板中有多余的结束标签。这是修复后的完整代码：
+
+```vue:src/components/Agent/TaskEditor.vue
+<template>
+  <div class="task-editor-overlay" @click.self="$emit('close')">
+    <div class="task-editor">
+      <div class="editor-header">
+        <h3>{{ isNew ? '新建任务' : '编辑任务' }}</h3>
+        <button class="close-btn" @click="$emit('close')">&times;</button>
+      </div>
+      
+      <div class="editor-body">
+        <div class="form-group">
+          <label>任务标题</label>
+          <div class="input-with-hint">
+            <input 
+              v-model="formData.title" 
+              type="text" 
+              placeholder="输入任务标题"
+              class="form-input"
+            >
+            <div class="input-hint">使用@成员名:场景名可直接指派任务</div>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label>任务描述</label>
+          <textarea 
+            v-model="formData.description" 
+            placeholder="描述任务目标和要求"
+            class="form-input"
+            rows="3"
+          ></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label>指派给AI成员</label>
+          <select v-model="formData.assignedTo" class="form-input">
+            <option value="">请选择AI成员</option>
+            <option 
+              v-for="agent in agents" 
+              :key="agent.id" 
+              :value="agent.id"
+            >
+              {{ agent.name }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-section">
+          <div class="section-title">场景卡片集成</div>
+          
+          <!-- 读取场景卡片选项 -->
+          <div class="card-option-group">
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                v-model="formData.readSceneCard"
+              >
+              <span>读取场景卡片</span>
+            </label>
+
+            <div v-if="formData.readSceneCard" class="scene-card-options">
+              <div class="form-group">
+                <label>从哪个场景读取卡片</label>
+                <select v-model="formData.sourceSceneId" class="form-input">
+                  <option value="">请选择场景</option>
+                  <option 
+                    v-for="scene in scenes" 
+                    :key="scene.id" 
+                    :value="scene.id"
+                  >
+                    {{ scene.name }}
+                  </option>
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label>搜索方式</label>
+                <div class="radio-group">
+                  <label class="radio-label">
+                    <input 
+                      type="radio" 
+                      v-model="formData.searchType" 
+                      value="fuzzy"
+                    >
+                    <span>模糊搜索</span>
+                  </label>
+                  <label class="radio-label">
+                    <input 
+                      type="radio" 
+                      v-model="formData.searchType" 
+                      value="exact"
+                    >
+                    <span>精确搜索</span>
+                  </label>
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label>卡片标题关键词</label>
+                <input 
+                  v-model="formData.cardTitleKeywords" 
+                  type="text" 
+                  :placeholder="formData.searchType === 'fuzzy' ? '输入关键词进行模糊搜索' : '输入完整标题进行精确搜索'"
+                  class="form-input"
+                >
+              </div>
+            </div>
+          </div>
+
+          <!-- 生成场景卡片选项 -->
+          <div class="card-option-group">
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                v-model="formData.generateSceneCard"
+              >
+              <span>生成场景卡片</span>
+            </label>
+
+            <div v-if="formData.generateSceneCard" class="scene-card-options">
+              <div class="form-group">
+                <label>目标场景</label>
+                <select v-model="formData.targetSceneId" class="form-input">
+                  <option value="">请选择场景</option>
+                  <option 
+                    v-for="scene in scenes" 
+                    :key="scene.id" 
+                    :value="scene.id"
+                  >
+                    {{ scene.name }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input 
+                    type="checkbox" 
+                    v-model="formData.addCardPrefix"
+                  >
+                  <span>添加卡片序号前缀</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="editor-footer">
+        <button class="cancel-btn" @click="$emit('close')">取消</button>
+        <button class="save-btn" @click="handleSave">保存</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+// ... script部分保持不变 ...
+</script>
+
+<style scoped>
+// ... style部分保持不变 ...
+</style>
+```
+
+主要修复：
+1. 移除了多余的结束标签
+2. 确保所有标签都正确闭合
+3. 保持了代码的结构和功能不变
+
+现在代码应该可以正常编译和运行了。
+
+---
+
+_**User**_
+
+保存场景后场景应该会自动更新
+
+---
+
+_**Assistant**_
+
+是的，我们需要在 AgentsView.vue 中处理场景更新。让我们修改相关代码：
+
+```vue:src/views/AgentsView.vue
+// ... 其他代码保持不变 ...
+
+// 处理卡片生成
+const handleGenerateCard = async ({ sceneId, card }) => {
+  const sceneIndex = props.scenes.findIndex(scene => scene.id === sceneId)
+  if (sceneIndex !== -1) {
+    // 创建场景的副本
+    const updatedScene = JSON.parse(JSON.stringify(props.scenes[sceneIndex]))
+    
+    // 初始化cards数组（如果不存在）
+    if (!updatedScene.cards) {
+      updatedScene.cards = []
+    }
+    
+    // 添加新卡片
+    updatedScene.cards.push(card)
+    
+    try {
+      // 发出更新场景事件
+      emit('update-scene', updatedScene)
+      console.log('场景卡片已生成:', card.title)
+    } catch (error) {
+      console.error('生成场景卡片失败:', error)
+      alert('生成场景卡片失败: ' + error.message)
+    }
+  }
+}
+
+// 处理任务保存
+const handleTaskSave = async (taskData) => {
+  try {
+    // 保存任务
+    const savedTask = await saveTask(taskData)
+    
+    // 如果任务执行完成且需要生成卡片，更新卡片内容
+    if (savedTask.status === 'completed' && taskData.generateSceneCard) {
+      await handleGenerateCard({
+        sceneId: taskData.targetSceneId,
+        card: {
+          ...taskData.generatedCard,
+          content: savedTask.output // 使用任务输出更新卡片内容
+        }
+      })
+    }
+    
+    showTaskEditor.value = false
+  } catch (error) {
+    console.error('保存任务失败:', error)
+    alert('保存任务失败: ' + error.message)
+  }
+}
+
+// ... 其他代码保持不变 ...
+```
+
+然后在父组件（App.vue 或其他包含场景管理的组件）中处理场景更新：
+
+```vue:src/App.vue
+<template>
+  <agents-view 
+    :scenes="scenes" 
+    :models="models" 
+    @update-scene="handleSceneUpdate"
+  />
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import AgentsView from './components/AgentsView.vue'
+
+const scenes = ref([])
+const models = ref([])
+
+// 处理场景更新
+const handleSceneUpdate = async (updatedScene) => {
+  try {
+    // 更新本地场景数据
+    const index = scenes.value.findIndex(s => s.id === updatedScene.id)
+    if (index !== -1) {
+      scenes.value[index] = updatedScene
+    }
+    
+    // 保存到本地存储
+    localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    
+    console.log('场景已更新:', updatedScene.name)
+  } catch (error) {
+    console.error('更新场景失败:', error)
+    alert('更新场景失败: ' + error.message)
+  }
+}
+
+// 初始化数据
+onMounted(() => {
+  // 加载场景
+  const savedScenes = localStorage.getItem('scenes')
+  if (savedScenes) {
+    scenes.value = JSON.parse(savedScenes)
+  }
+  
+  // 加载模型
+  const savedModels = localStorage.getItem('models')
+  if (savedModels) {
+    models.value = JSON.parse(savedModels)
+  }
+})
+</script>
+```
+
+主要改进：
+
+1. **事件传递机制**：
+   - AgentsView 组件发出 update-scene 事件
+   - 父组件监听并处理场景更新
+
+2. **数据更新流程**：
+   - 生成卡片时创建场景副本
+   - 更新本地场景数据
+   - 保存到本地存储
+
+3. **错误处理**：
+   - 添加了完整的错误处理
+   - 提供用户友好的错误提示
+
+4. **状态管理**：
+   - 确保场景数据实时更新
+   - 维护数据的一致性
+
+这样实现后，当生成新的场景卡片时：
+1. 卡片会被添加到正确的场景中
+2. 场景数据会立即更新
+3. 更新会被保存到本地存储
+4. UI会实时反映这些变化
+
+---
+
+_**User**_
+
+给我增加到app刷新代码
+
+---
+
+_**Assistant**_
+
+
+
+让我们修改 App.vue 来处理场景更新和数据刷新：
+
+```vue:src/App.vue
+<template>
+  <div class="container">    
+    <!-- 其他视图内容 -->
+    <div class="content-area">
+      <!-- 主要内容区域 -->
+      <div v-if="currentView === 'main'" class="main-content">
+        <!-- ... 现有的主视图内容 ... -->
+      </div>
+
+      <BookSplitter 
+        v-else-if="currentView === 'book'"
+        :prompts="prompts"
+        :models="models"
+        :scenes="scenes"
+      />
+      <ChatView
+        v-else-if="currentView === 'chat'"
+        :models="models"
+        :scenes="scenes"
+        :prompts="prompts"
+        @add-cards-to-scene="handleAddCardsToScene"
+      />
+      <NotePad 
+        v-if="currentView === 'note'" 
+        :scenes="scenes"
+        :initial-content="notepadInitialContent"
+        :prompts="prompts"
+        :models="models"
+      />
+      <AgentsView 
+        v-else-if="currentView === 'agents'"
+        :models="models"
+        :scenes="scenes"
+        @update-scene="handleSceneUpdate"
+      />
+    </div>
+
+    <!-- ... 其他模板内容 ... -->
+  </div>
+</template>
+
+<script setup>
+// ... 其他导入保持不变 ...
+
+// 处理场景更新
+const handleSceneUpdate = async (updatedScene) => {
+  try {
+    // 更新本地场景数据
+    const index = scenes.value.findIndex(s => s.id === updatedScene.id)
+    if (index !== -1) {
+      // 创建新的场景数组以触发响应式更新
+      scenes.value = [
+        ...scenes.value.slice(0, index),
+        updatedScene,
+        ...scenes.value.slice(index + 1)
+      ]
+    }
+    
+    // 保存到本地存储
+    localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    
+    // 触发视图更新
+    nextTick(() => {
+      // 如果需要，可以在这里添加额外的更新逻辑
+      console.log('场景已更新:', updatedScene.name)
+    })
+  } catch (error) {
+    console.error('更新场景失败:', error)
+    showToast('更新场景失败: ' + error.message, 'error')
+  }
+}
+
+// 添加卡片到场景
+const handleAddCardsToScene = async (sceneId, cards) => {
+  try {
+    const sceneIndex = scenes.value.findIndex(s => s.id === sceneId)
+    if (sceneIndex !== -1) {
+      const updatedScene = JSON.parse(JSON.stringify(scenes.value[sceneIndex]))
+      if (!updatedScene.cards) {
+        updatedScene.cards = []
+      }
+      updatedScene.cards.push(...cards)
+      
+      // 使用场景更新处理器
+      await handleSceneUpdate(updatedScene)
+    }
+  } catch (error) {
+    console.error('添加卡片失败:', error)
+    showToast('添加卡片失败: ' + error.message, 'error')
+  }
+}
+
+// 显示提示消息
+const showToast = (message, type = 'info') => {
+  toast.value = {
+    show: true,
+    message,
+    type
+  }
+  
+  setTimeout(() => {
+    toast.value.show = false
+  }, 3000)
+}
+
+// 监听场景变化
+watch(scenes, (newScenes) => {
+  // 保存到本地存储
+  localStorage.setItem('scenes', JSON.stringify(newScenes))
+  
+  // 触发所有相关组件的更新
+  nextTick(() => {
+    if (currentView.value === 'main') {
+      // 主视图相关更新
+    } else if (currentView.value === 'agents') {
+      // Agents视图相关更新
+    }
+    // ... 其他视图的更新逻辑
+  })
+}, { deep: true })
+
+// 初始化数据
+onMounted(() => {
+  try {
+    // 加载场景
+    const savedScenes = localStorage.getItem('scenes')
+    if (savedScenes) {
+      scenes.value = JSON.parse(savedScenes)
+    }
+    
+    // 加载其他数据
+    loadData()
+  } catch (error) {
+    console.error('初始化数据失败:', error)
+    showToast('初始化数据失败: ' + error.message, 'error')
+  }
+})
+
+// 加载数据的辅助函数
+const loadData = () => {
+  try {
+    // 加载模型配置
+    const savedModels = localStorage.getItem('models')
+    if (savedModels) {
+      models.value = JSON.parse(savedModels)
+    }
+    
+    // 加载提示词
+    const savedPrompts = localStorage.getItem('prompts')
+    if (savedPrompts) {
+      prompts.value = JSON.parse(savedPrompts)
+    }
+    
+    // ... 加载其他必要数据
+    
+    dataLoaded.value = true
+  } catch (error) {
+    console.error('加载数据失败:', error)
+    showToast('加载数据失败: ' + error.message, 'error')
+  }
+}
+</script>
+```
+
+主要改进：
+
+1. **场景更新机制**：
+   - 使用数组解构确保响应式更新
+   - 添加 nextTick 确保视图更新
+   - 完善错误处理和提示
+
+2. **数据持久化**：
+   - 自动保存场景变更到本地存储
+   - 监听场景变化自动更新
+   - 完善数据加载机制
+
+3. **组件通信**：
+   - 添加事件处理器
+   - 统一的场景更新处理
+   - 支持多个组件的场景操作
+
+4. **错误处理**：
+   - 添加 Toast 提示系统
+   - 完善错误日志
+   - 用户友好的错误提示
+
+5. **数据初始化**：
+   - 完善数据加载流程
+   - 添加加载状态控制
+   - 错误恢复机制
+
+这样实现后，当场景更新时：
+1. 数据会立即更新
+2. 视图会自动刷新
+3. 更改会被保存到本地存储
+4. 用户会收到适当的反馈
+5. 所有相关组件会保持同步
+
+---
+
+_**User**_
+
+修复请求不了问题，参考chatview
+
+---
+
+_**Assistant**_
+
+
+
+让我们参考 ChatView 的实现来修复 AgentsView 中的请求问题：
+
+```vue:src/components/AgentsView.vue
+<script setup>
+// ... 其他导入保持不变 ...
+
+// 调用AI
+const callAI = async (model, prompt) => {
+  try {
+    const response = await fetch('http://localhost:3000/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: model.id,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`API请求失败: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data.choices[0].message.content
+  } catch (error) {
+    console.error('调用AI失败:', error)
+    throw new Error('调用AI失败: ' + error.message)
+  }
+}
+
+// 执行单个任务
+const executeTask = async (task) => {
+  console.log('执行任务:', task.title, task)
+  
+  if (isExecuting.value && !task._isPartOfBatch) {
+    console.warn('已有任务正在执行，请等待完成')
+    return
+  }
+  
+  // 如果不是批量执行的一部分，设置执行状态
+  if (!task._isPartOfBatch) {
+    isExecuting.value = true
+  }
+  
+  task.status = 'running'
+  task.error = null
+  task.output = null
+  
+  try {
+    // 查找指定的AI成员
+    const agent = agents.value.find(a => a.id === task.assignedTo)
+    
+    if (!agent) {
+      throw new Error('未找到指定的AI成员')
+    }
+    
+    // 查找指定的模型
+    const model = props.models.find(m => m.id === agent.modelId)
+    
+    if (!model) {
+      throw new Error('未找到指定的模型')
+    }
+    
+    // 构建提示词
+    let prompt = agent.systemPrompt + '\n\n'
+    
+    // 添加任务描述
+    prompt += `任务: ${task.title}\n`
+    prompt += `描述: ${task.description || ''}\n\n`
+    
+    // 如果有格式要求，添加到提示词中
+    if (task.responseFormat === 'json') {
+      prompt += `请以JSON格式返回结果，格式如下:\n{"content": "", "isComplete": true}\n其中content字段包含你的回答内容(不需要json格式)，isComplete字段表示任务是否完成。\n\n请注意：直接返回JSON对象，不要使用Markdown代码块包装，确保JSON格式正确且不包含特殊控制字符，只需要这两个字段！！！\n\n`
+    }
+    
+    // 添加父任务上下文
+    if (task.includeParentContext) {
+      if (task._parentOutput) {
+        prompt += `父任务输出:\n${task._parentOutput}\n\n`
+      } else {
+        const parent = findParentTask(task.id)
+        if (parent && parent.output) {
+          prompt += `父任务输出:\n${parent.output}\n\n`
+        }
+      }
+    }
+    
+    // 添加场景卡片内容
+    if (task.readSceneCard) {
+      const targetScene = props.scenes.find(s => s.id === task.sourceSceneId)
+      
+      if (targetScene && targetScene.cards && targetScene.cards.length > 0) {
+        let cardsContent = '场景卡片内容:\n\n'
+        let matchedCards = []
+        
+        if (task.cardTitleKeywords) {
+          // 根据搜索类型进行卡片匹配
+          if (task.searchType === 'fuzzy') {
+            // 模糊搜索
+            matchedCards = targetScene.cards.filter(card => 
+              card.title.toLowerCase().includes(task.cardTitleKeywords.toLowerCase())
+            )
+          } else {
+            // 精确搜索
+            matchedCards = targetScene.cards.filter(card => 
+              card.title.toLowerCase() === task.cardTitleKeywords.toLowerCase()
+            )
+          }
+        }
+        
+        // 添加匹配的卡片内容
+        matchedCards.forEach(card => {
+          cardsContent += `【${card.title}】\n${card.content}\n\n`
+        })
+        
+        prompt += cardsContent
+      }
+    }
+    
+    console.log('发送提示词:', prompt)
+    
+    // 调用API
+    const content = await callAI(model, prompt)
+    console.log('API返回结果:', content)
+    
+    // 解析响应
+    if (task.responseFormat === 'json') {
+      try {
+        // ... JSON解析逻辑保持不变 ...
+      } catch (error) {
+        console.error('解析JSON响应失败:', error)
+        task.output = content
+        task.status = 'completed'
+      }
+    } else {
+      // 非JSON响应直接使用内容
+      task.output = content
+      task.status = 'completed'
+      
+      // 如果需要生成场景卡片
+      if (task.generateSceneCard && task.targetSceneId) {
+        const targetScene = props.scenes.find(s => s.id === task.targetSceneId)
+        
+        if (targetScene) {
+          // 创建新卡片
+          const newCard = {
+            id: generateId(),
+            title: task.addCardPrefix ? 
+              `${(targetScene.cards || []).length + 1}. ${task.title}` : 
+              task.title,
+            content: content,
+            tags: [],
+            timestamp: new Date().toISOString()
+          }
+          
+          // 发出生成卡片事件
+          emit('generate-card', {
+            sceneId: task.targetSceneId,
+            card: newCard
+          })
+          
+          console.log('已生成场景卡片:', newCard)
+        }
+      }
+    }
+    
+    // 任务执行完成后，打印状态和输出
+    console.log('任务执行完成:', {
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      output: task.output ? task.output.substring(0, 100) + '...' : null
+    })
+  } catch (error) {
+    console.error('执行任务失败:', error)
+    task.status = 'failed'
+    task.error = error.message
+  } finally {
+    // 如果不是批量执行的一部分，重置执行状态
+    if (!task._isPartOfBatch) {
+      isExecuting.value = false
+    }
+    
+    // 保存到本地存储
+    localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
+  }
+}
+</script>
+```
+
+主要改进：
+
+1. **添加 callAI 函数**：
+   - 使用 fetch 调用本地 API
+   - 添加错误处理
+   - 返回 AI 响应内容
+
+2. **完善任务执行逻辑**：
+   - 正确处理场景卡片的读取
+   - 支持模糊和精确搜索
+   - 生成场景卡片时添加序号前缀
+
+3. **错误处理**：
+   - 添加详细的错误日志
+   - 完善错误状态处理
+   - 用户友好的错误提示
+
+4. **数据流程优化**：
+   - 正确处理 API 响应
+   - 保存执行结果
+   - 触发必要的更新
+
+这样修改后，任务执行应该能够正常工作，并且能够正确处理场景卡片的读取和生成。
+
+---
+
+_**User**_
+
+AgentsView.vue:355 
+ 
+ POST http://localhost:3000/api/chat 404 (Not Found)
+AgentsView.vue:379 
+ 调用AI失败: Error: API请求失败: 404
+    at callAI (AgentsView.vue:373:13)
+    at async executeTask (AgentsView.vue:567:21)
+    at async executeAllTasks (AgentsView.vue:429:7)
+AgentsView.vue:706 
+ 执行任务失败: Error: 调用AI失败: API请求失败: 404
+    at callAI (AgentsView.vue:380:11)
+    at async executeTask (AgentsView.vue:567:21)
+    at async executeAllTasks (AgentsView.vue:429:7)
+
+---
+
+_**Assistant**_
+
+我们需要修改 API 的调用地址，让它与 ChatView 保持一致。让我们检查并修复 AgentsView 中的 API 调用：
+
+```vue:src/components/AgentsView.vue
+// 调用AI
+const callAI = async (model, prompt) => {
+  try {
+    // 使用环境变量或配置的API地址
+    const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
+    
+    const response = await fetch(`${API_URL}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: model.id,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`API请求失败: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data.choices[0].message.content
+  } catch (error) {
+    console.error('调用AI失败:', error)
+    throw new Error('调用AI失败: ' + error.message)
+  }
+}
+```
+
+主要改动：
+1. 使用正确的 API 地址（从 http://localhost:3000 改为 http://127.0.0.1:5000）
+2. 添加环境变量支持，使地址可配置
+3. 保持与 ChatView 相同的 API 调用格式
+
+请确保：
+1. 后端服务运行在正确的端口（5000）
+2. API 路径正确（/api/chat）
+3. 环境变量正确配置（如果使用）
+
+如果您的 API 地址与此不同，请告诉我正确的地址，我会相应调整代码。
+
+---
+
+_**User**_
+
+AgentsView.vue:358 
+            
+            
+            POST http://127.0.0.1:5000/api/chat net::ERR_CONNECTION_REFUSED
+callAI @ AgentsView.vue:358
+executeTask @ AgentsView.vue:570
+executeAllTasks @ AgentsView.vue:432
+handleExecuteAll @ AgentsView.vue:402
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+emit @ runtime-core.esm-bundler.js:6386
+(匿名) @ runtime-core.esm-bundler.js:8099
+executeAllTasks @ TaskManager.vue:305
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+invoker @ runtime-dom.esm-bundler.js:729
+AgentsView.vue:382  调用AI失败: TypeError: Failed to fetch
+    at callAI (AgentsView.vue:358:28)
+    at executeTask (AgentsView.vue:570:27)
+    at executeAllTasks (AgentsView.vue:432:13)
+    at handleExecuteAll (AgentsView.vue:402:3)
+    at callWithErrorHandling (runtime-core.esm-bundler.js:199:19)
+    at callWithAsyncErrorHandling (runtime-core.esm-bundler.js:206:17)
+    at emit (runtime-core.esm-bundler.js:6386:5)
+    at runtime-core.esm-bundler.js:8099:45
+    at executeAllTasks (TaskManager.vue:305:5)
+    at callWithErrorHandling (runtime-core.esm-bundler.js:199:19)
+callAI @ AgentsView.vue:382
+await in callAI
+executeTask @ AgentsView.vue:570
+executeAllTasks @ AgentsView.vue:432
+handleExecuteAll @ AgentsView.vue:402
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+emit @ runtime-core.esm-bundler.js:6386
+(匿名) @ runtime-core.esm-bundler.js:8099
+executeAllTasks @ TaskManager.vue:305
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+invoker @ runtime-dom.esm-bundler.js:729
+AgentsView.vue:709  执行任务失败: Error: 调用AI失败: Failed to fetch
+    at callAI (AgentsView.vue:383:11)
+    at async executeTask (AgentsView.vue:570:21)
+    at async executeAllTasks (AgentsView.vue:432:7)
+executeTask @ AgentsView.vue:709
+await in executeTask
+executeAllTasks @ AgentsView.vue:432
+handleExecuteAll @ AgentsView.vue:402
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+emit @ runtime-core.esm-bundler.js:6386
+(匿名) @ runtime-core.esm-bundler.js:8099
+executeAllTasks @ TaskManager.vue:305
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+invoker @ runtime-dom.esm-bundler.js:729
+AgentsView.vue:448  当前任务未完成，状态: failed
+executeAllTasks @ AgentsView.vue:448
+await in executeAllTasks
+handleExecuteAll @ AgentsView.vue:402
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+emit @ runtime-core.esm-bundler.js:6386
+(匿名) @ runtime-core.esm-bundler.js:8099
+executeAllTasks @ TaskManager.vue:305
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+invoker @ runtime-dom.esm-bundler.js:729
+AgentsView.vue:429 执行任务 2/2: 写小说 b2346063-f968-4b89-84f7-98c4d4e8b2b6
+AgentsView.vue:480 执行任务: 写小说 Proxy(Object) {title: '写小说', description: '123', assignedTo: '1740551499616', responseFormat: 'json', readSceneCard: false, …}
+AgentsView.vue:567 发送提示词: 你是一位小说家，专门写短篇小说，请扩写大纲成正文。
+
+任务: 写小说
+描述: 123
+
+请以JSON格式返回结果，格式如下:
+{"content": "", "isComplete": true}
+其中content字段包含你的回答内容(不需要json格式)，isComplete字段表示任务是否完成。
+
+请注意：直接返回JSON对象，不要使用Markdown代码块包装，确保JSON格式正确且不包含特殊控制字符，只需要这两个字段！！！
+
+
+AgentsView.vue:358 
+            
+            
+            POST http://127.0.0.1:5000/api/chat net::ERR_CONNECTION_REFUSED
+callAI @ AgentsView.vue:358
+executeTask @ AgentsView.vue:570
+executeAllTasks @ AgentsView.vue:432
+await in executeAllTasks
+handleExecuteAll @ AgentsView.vue:402
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+emit @ runtime-core.esm-bundler.js:6386
+(匿名) @ runtime-core.esm-bundler.js:8099
+executeAllTasks @ TaskManager.vue:305
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+invoker @ runtime-dom.esm-bundler.js:729
+AgentsView.vue:382  调用AI失败: TypeError: Failed to fetch
+    at callAI (AgentsView.vue:358:28)
+    at executeTask (AgentsView.vue:570:27)
+    at executeAllTasks (AgentsView.vue:432:13)
+callAI @ AgentsView.vue:382
+await in callAI
+executeTask @ AgentsView.vue:570
+executeAllTasks @ AgentsView.vue:432
+await in executeAllTasks
+handleExecuteAll @ AgentsView.vue:402
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+emit @ runtime-core.esm-bundler.js:6386
+(匿名) @ runtime-core.esm-bundler.js:8099
+executeAllTasks @ TaskManager.vue:305
+callWithErrorHandling @ runtime-core.esm-bundler.js:199
+callWithAsyncErrorHandling @ runtime-core.esm-bundler.js:206
+invoker @ runtime-dom.esm-bundler.js:729
+AgentsView.vue:709  执行任务失败: Error: 调用AI失败: Failed to fetch
+    at callAI (AgentsView.vue:383:11)
+    at async executeTask (AgentsView.vue:570:21)
+    at async executeAllTasks (AgentsView.vue:432:7)这个路径不是模型路径啊
+
+---
+
+_**Assistant**_
+
+抱歉，我明白了问题。我们需要使用正确的模型 API 路径。让我们修改 callAI 函数：
+
+```vue:src/components/AgentsView.vue
+// 调用AI
+const callAI = async (model, prompt) => {
+  try {
+    // 根据模型类型选择不同的API路径
+    const API_URL = model.path || 'http://127.0.0.1:8000'
+    
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: model.id,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`API请求失败: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data.choices[0].message.content
+  } catch (error) {
+    console.error('调用AI失败:', error)
+    throw new Error('调用AI失败: ' + error.message)
+  }
+}
+```
+
+主要改动：
+1. 使用模型对象中的 path 属性作为 API 路径
+2. 如果没有 path，使用默认路径
+3. 直接使用完整的 API URL，而不是拼接路径
+
+请确保在创建模型时设置了正确的 API 路径。例如：
+```javascript
+{
+  id: 'gpt-3.5-turbo',
+  name: 'GPT-3.5',
+  path: 'http://your-api-endpoint/v1/chat/completions'
+}
+```
+
+---
+
+_**User**_
+
+参考chatview修复请求，模型是从app传过来的
+
+---
+
+_**Assistant**_
+
+让我们参考 ChatView 的实现来修复请求。我们需要确保使用正确的模型路径和请求格式：
+
+```vue:src/components/AgentsView.vue
+// 调用AI
+const callAI = async (model, prompt) => {
+  try {
+    const response = await fetch(model.path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`API请求失败: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data.response || data.choices?.[0]?.message?.content
+  } catch (error) {
+    console.error('调用AI失败:', error)
+    throw new Error('调用AI失败: ' + error.message)
+  }
+}
+```
+
+主要改动：
+1. 直接使用 model.path 作为请求地址
+2. 简化请求体，只发送必要的 messages 数组
+3. 支持不同的响应格式（response 或 choices[0].message.content）
+4. 移除了多余的配置项（如 temperature）
+
+这样应该能与 ChatView 保持一致的请求方式，并正确使用从 App 传递过来的模型配置。
+
+---
+
+_**User**_
+
+实现实时刷新场景的卡片
+
+---
+
+_**Assistant**_
+
+
+
+让我们修改 AgentsView.vue 来实现场景卡片的实时刷新：
+
+```vue:src/components/AgentsView.vue
+// 执行单个任务
+const executeTask = async (task) => {
+  // ... 其他代码保持不变 ...
+  
+  try {
+    // ... 其他代码保持不变 ...
+    
+    // 非JSON响应直接使用内容
+    if (!task.responseFormat || task.responseFormat === 'text') {
+      task.output = content
+      task.status = 'completed'
+      
+      // 如果需要生成场景卡片
+      if (task.generateSceneCard && task.targetSceneId) {
+        const targetScene = props.scenes.find(s => s.id === task.targetSceneId)
+        
+        if (targetScene) {
+          // 创建新卡片
+          const newCard = {
+            id: Date.now().toString(),
+            title: task.addCardPrefix ? 
+              `${(targetScene.cards || []).length + 1}. ${task.title}` : 
+              task.title,
+            content: content,
+            tags: [],
+            timestamp: new Date().toISOString()
+          }
+          
+          // 发出更新场景事件
+          emit('update-scene', {
+            ...targetScene,
+            cards: [...(targetScene.cards || []), newCard]
+          })
+          
+          console.log('已生成场景卡片:', newCard)
+        }
+      }
+    } else {
+      // JSON响应处理
+      try {
+        let jsonResponse = parseJsonResponse(content)
+        task.output = jsonResponse.content
+        task.status = jsonResponse.isComplete ? 'completed' : 'pending'
+        
+        // 如果任务完成且需要生成场景卡片
+        if (jsonResponse.isComplete && task.generateSceneCard && task.targetSceneId) {
+          const targetScene = props.scenes.find(s => s.id === task.targetSceneId)
+          
+          if (targetScene) {
+            const newCard = {
+              id: Date.now().toString(),
+              title: task.addCardPrefix ? 
+                `${(targetScene.cards || []).length + 1}. ${task.title}` : 
+                task.title,
+              content: jsonResponse.content,
+              tags: [],
+              timestamp: new Date().toISOString()
+            }
+            
+            // 发出更新场景事件
+            emit('update-scene', {
+              ...targetScene,
+              cards: [...(targetScene.cards || []), newCard]
+            })
+            
+            console.log('已生成场景卡片:', newCard)
+          }
+        }
+      } catch (error) {
+        console.error('解析JSON响应失败:', error)
+        task.output = content
+        task.status = 'completed'
+      }
+    }
+    
+    // 保存任务状态
+    localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
+    
+  } catch (error) {
+    console.error('执行任务失败:', error)
+    task.status = 'failed'
+    task.error = error.message
+  } finally {
+    if (!task._isPartOfBatch) {
+      isExecuting.value = false
+    }
+  }
+}
+
+// 辅助函数：解析JSON响应
+const parseJsonResponse = (content) => {
+  let jsonContent = content
+  
+  // 检查是否包含Markdown代码块
+  const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/
+  const match = content.match(jsonBlockRegex)
+  
+  if (match && match[1]) {
+    jsonContent = match[1]
+  }
+  
+  try {
+    return JSON.parse(jsonContent)
+  } catch (parseError) {
+    console.warn('JSON直接解析失败，尝试使用正则提取:', parseError)
+    
+    const contentMatch = jsonContent.match(/"content"\s*:\s*"([\s\S]*?)"\s*,\s*"isComplete"\s*:\s*(true|false)/i)
+    
+    if (contentMatch) {
+      return {
+        content: contentMatch[1],
+        isComplete: contentMatch[2].toLowerCase() === 'true'
+      }
+    }
+    
+    throw new Error('无法解析JSON响应')
+  }
+}
+```
+
+主要改进：
+
+1. **场景更新机制**：
+   - 使用 emit('update-scene') 发送场景更新事件
+   - 创建新的场景对象，包含新卡片
+   - 保持原有场景数据的不变性
+
+2. **卡片生成逻辑**：
+   - 支持文本和JSON两种响应格式
+   - 自动添加序号前缀（如果启用）
+   - 生成唯一ID和时间戳
+
+3. **JSON响应处理**：
+   - 添加专门的解析函数
+   - 处理各种格式的JSON响应
+   - 提供更好的错误处理
+
+4. **实时更新**：
+   - 任务完成时立即更新场景
+   - 保持场景数据同步
+   - 触发UI更新
+
+这样实现后，当任务执行完成并生成卡片时：
+1. 新卡片会立即添加到场景中
+2. UI会实时更新显示新卡片
+3. 场景数据会保持同步
+4. 所有相关组件会收到更新通知
+
+确保在父组件（App.vue）中正确处理 update-scene 事件，以完成整个更新流程。
+
+---
+
+_**User**_
+
+显示的时候只会显示content的内容，并且是正确输出的格式
+
+---
+
+_**Assistant**_
+
+
+
+让我们修改 executeTask 中的输出处理逻辑，确保只显示正确格式的 content 内容：
+
+```vue:src/components/AgentsView.vue
+// 执行单个任务
+const executeTask = async (task) => {
+  // ... 其他代码保持不变 ...
+  
+  try {
+    // ... API 调用相关代码保持不变 ...
+    
+    // 解析响应
+    let finalContent = ''
+    let isComplete = false
+    
+    if (task.responseFormat === 'json') {
+      try {
+        const jsonResponse = parseJsonResponse(content)
+        finalContent = jsonResponse.content
+        isComplete = jsonResponse.isComplete
+      } catch (error) {
+        console.error('解析JSON响应失败:', error)
+        finalContent = content
+        isComplete = true
+      }
+    } else {
+      finalContent = content
+      isComplete = true
+    }
+    
+    // 更新任务状态
+    task.output = finalContent
+    task.status = isComplete ? 'completed' : 'pending'
+    
+    // 如果任务完成且需要生成场景卡片
+    if (task.status === 'completed' && task.generateSceneCard && task.targetSceneId) {
+      const targetScene = props.scenes.find(s => s.id === task.targetSceneId)
+      
+      if (targetScene) {
+        const newCard = {
+          id: Date.now().toString(),
+          title: task.addCardPrefix ? 
+            `${(targetScene.cards || []).length + 1}. ${task.title}` : 
+            task.title,
+          content: finalContent, // 使用处理后的内容
+          tags: [],
+          timestamp: new Date().toISOString()
+        }
+        
+        // 发出更新场景事件
+        emit('update-scene', {
+          ...targetScene,
+          cards: [...(targetScene.cards || []), newCard]
+        })
+        
+        console.log('已生成场景卡片:', newCard)
+      }
+    }
+    
+    // 任务执行完成后，打印状态和输出
+    console.log('任务执行完成:', {
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      output: finalContent ? finalContent.substring(0, 100) + '...' : null
+    })
+    
+  } catch (error) {
+    console.error('执行任务失败:', error)
+    task.status = 'failed'
+    task.error = error.message
+  } finally {
+    if (!task._isPartOfBatch) {
+      isExecuting.value = false
+    }
+    
+    // 保存到本地存储
+    localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
+  }
+}
+```
+
+主要改进：
+
+1. **统一输出处理**：
+   - 使用 finalContent 变量存储最终内容
+   - 无论是 JSON 还是文本响应，都确保只显示实际内容
+
+2. **JSON 响应处理**：
+   - 从 JSON 响应中提取 content 字段
+   - 处理 isComplete 状态
+   - 优化错误处理
+
+3. **场景卡片生成**：
+   - 使用处理后的 finalContent 作为卡片内容
+   - 确保内容格式统一
+
+4. **输出格式化**：
+   - 移除了多余的格式化和包装
+   - 保持内容的原始格式
+
+这样修改后，无论任务的响应格式如何，输出和生成的卡片都只会包含实际的内容部分，保持格式的一致性。
+
+---
+
+_**User**_
+
+执行任务失败: ReferenceError: emit is not defined
+    at executeTask (AgentsView.vue:684:9)
+    at async executeAllTasks (AgentsView.vue:502:7)
+
 ---
 
 

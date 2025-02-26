@@ -25,18 +25,31 @@
       {{ task.description }}
     </div>
     
+    <div class="task-actions">
+      <button 
+        @click.stop="$emit('execute', task)"
+        :disabled="task.status === 'running'"
+        class="action-btn execute-btn"
+      >
+        <i class="fas fa-play"></i> 执行
+      </button>
+      <button @click.stop="$emit('add-subtask', task)" class="action-btn add-btn">
+        <i class="fas fa-plus"></i> 添加子任务
+      </button>
+      <button @click.stop="$emit('edit', task)" class="action-btn edit-btn">
+        <i class="fas fa-edit"></i> 编辑
+      </button>
+      <button @click.stop="$emit('delete', task.id)" class="action-btn delete-btn">
+        <i class="fas fa-trash"></i> 删除
+      </button>
+    </div>
+    
     <div class="task-output" v-if="task.output">
       <div class="output-header">
         <h5>任务输出</h5>
         <div class="output-actions">
-          <button @click.stop="copyOutput" title="复制输出">
+          <button @click.stop="copyOutput" title="复制输出" class="icon-btn">
             <i class="fas fa-copy"></i>
-          </button>
-          <button @click.stop="rewriteOutput" title="重写输出">
-            <i class="fas fa-sync-alt"></i>
-          </button>
-          <button @click.stop="summarizeOutput" title="总结输出">
-            <i class="fas fa-compress-alt"></i>
           </button>
         </div>
       </div>
@@ -48,24 +61,6 @@
         <h5>执行错误</h5>
       </div>
       <div class="error-content">{{ task.error }}</div>
-    </div>
-    
-    <div class="task-actions">
-      <button 
-        @click.stop="$emit('execute', task)"
-        :disabled="task.status === 'running'"
-      >
-        <i class="fas fa-play"></i> 执行
-      </button>
-      <button @click.stop="$emit('add-subtask', task)">
-        <i class="fas fa-plus"></i> 添加子任务
-      </button>
-      <button @click.stop="$emit('edit', task)">
-        <i class="fas fa-edit"></i> 编辑
-      </button>
-      <button @click.stop="$emit('delete', task.id)">
-        <i class="fas fa-trash"></i> 删除
-      </button>
     </div>
     
     <div class="subtasks" v-if="task.subtasks && task.subtasks.length > 0">
@@ -225,9 +220,9 @@ watch(() => props.task.title, (newTitle) => {
 <style scoped>
 .task-node {
   border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  padding: 15px;
-  margin-bottom: 15px;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
   background-color: white;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   transition: all 0.3s;
@@ -279,7 +274,7 @@ watch(() => props.task.title, (newTitle) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .task-title {
@@ -288,9 +283,15 @@ watch(() => props.task.title, (newTitle) => {
   gap: 10px;
 }
 
+.task-title h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+
 .status-indicator {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background-color: #d9d9d9;
 }
@@ -317,18 +318,62 @@ watch(() => props.task.title, (newTitle) => {
   display: flex;
   align-items: center;
   gap: 5px;
+  background-color: #f5f5f5;
+  padding: 4px 8px;
+  border-radius: 4px;
 }
 
 .task-description {
-  margin-bottom: 15px;
+  margin-bottom: 16px;
   color: #666;
   font-size: 14px;
+  line-height: 1.5;
+}
+
+.task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.action-btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  border: none;
+  color: white;
+}
+
+.execute-btn {
+  background-color: #52c41a;
+}
+
+.add-btn {
+  background-color: #722ed1;
+}
+
+.edit-btn {
+  background-color: #1890ff;
+}
+
+.delete-btn {
+  background-color: #f5222d;
+}
+
+.action-btn:disabled {
+  background-color: #d9d9d9;
+  cursor: not-allowed;
 }
 
 .task-output, .task-error {
-  margin-bottom: 15px;
+  margin-bottom: 16px;
   background-color: #f5f5f5;
-  padding: 10px;
+  padding: 12px;
   border-radius: 4px;
 }
 
@@ -336,7 +381,13 @@ watch(() => props.task.title, (newTitle) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+}
+
+.output-header h5, .error-header h5 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .output-actions {
@@ -344,63 +395,41 @@ watch(() => props.task.title, (newTitle) => {
   gap: 5px;
 }
 
-.output-actions button {
+.icon-btn {
   background: none;
   border: none;
   color: #666;
   cursor: pointer;
-  padding: 5px;
+  padding: 4px;
+}
+
+.icon-btn:hover {
+  color: #1890ff;
 }
 
 .output-content, .error-content {
   white-space: pre-wrap;
   font-family: monospace;
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .error-content {
   color: #f5222d;
 }
 
-.task-actions {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 15px;
-}
-
-.task-actions button {
-  padding: 5px 10px;
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  background-color: white;
-  color: #666;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-}
-
-.task-actions button:hover {
-  color: #1890ff;
-  border-color: #1890ff;
-}
-
-.task-actions button:disabled {
-  color: #d9d9d9;
-  border-color: #d9d9d9;
-  cursor: not-allowed;
-}
-
 .subtasks {
-  margin-left: 20px;
-  padding-left: 15px;
-  border-left: 1px dashed #d9d9d9;
+  margin-top: 16px;
+  margin-left: 24px;
+  padding-left: 16px;
+  border-left: 2px dashed #d9d9d9;
 }
 
 .subtask-list {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 16px;
 }
 </style>

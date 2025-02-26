@@ -259,10 +259,47 @@
     emit('save-tasks', newTask);
   };
   
-  const executeAllTasks = () => {
-    if (props.rootTask) {
-      emit('execute', props.rootTask);
+  const executeAllTasks = async () => {
+    console.log('TaskManager: 执行所有任务')
+    
+    if (props.isExecuting) {
+      console.warn('已有任务正在执行，请等待完成')
+      return
     }
+    
+    if (!props.rootTask) {
+      console.warn('没有根任务可执行')
+      return
+    }
+    
+    // 收集所有任务
+    const allTasks = []
+    
+    // 递归收集任务
+    const collectTasks = (task) => {
+      // 添加当前任务
+      allTasks.push(task)
+      
+      // 如果有子任务，递归收集
+      if (task.subtasks && task.subtasks.length > 0) {
+        task.subtasks.forEach(subtask => {
+          collectTasks(subtask)
+        })
+      }
+    }
+    
+    // 从根任务开始收集
+    collectTasks(props.rootTask)
+    
+    console.log(`TaskManager: 收集到 ${allTasks.length} 个任务，包括子任务`)
+    
+    // 打印所有收集到的任务，便于调试
+    allTasks.forEach((task, index) => {
+      console.log(`TaskManager: 任务 ${index+1}: ID=${task.id}, 标题=${task.title}`)
+    })
+    
+    // 发出执行所有任务的事件
+    emit('execute-all', allTasks)
   };
   
   const exportTasks = () => {

@@ -25,7 +25,7 @@
       </div>
       
       <div class="form-group">
-        <label>指派给</label>
+        <label>指派给AI成员</label>
         <select v-model="form.assignedTo">
           <option value="">未指派</option>
           <option 
@@ -38,63 +38,147 @@
         </select>
       </div>
       
-      <div class="form-group">
-        <label>场景</label>
-        <select v-model="form.sceneId">
-          <option value="">无场景</option>
-          <option 
-            v-for="scene in scenes" 
-            :key="scene.id" 
-            :value="scene.id"
-          >
-            {{ scene.name }}
-          </option>
-        </select>
-      </div>
-      
-      <div class="form-group">
-        <label>相关任务</label>
-        <select v-model="form.relatedTaskId">
-          <option value="">无相关任务</option>
-          <option 
-            v-for="task in availableTasks" 
-            :key="task.id" 
-            :value="task.id"
-          >
-            {{ task.title }}
-          </option>
-        </select>
-      </div>
-      
-      <div class="form-group">
-        <label>上下文设置</label>
-        <div class="checkbox-group">
+      <div class="form-section">
+        <div class="form-section-title">场景卡片集成</div>
+        
+        <div class="form-group">
           <label class="checkbox-label">
-            <input 
-              type="checkbox" 
-              v-model="form.includeParentContext"
+            <input type="checkbox" v-model="form.readSceneCards">
+            读取场景卡片内容
+          </label>
+          <div class="form-hint">任务执行时将读取场景中的卡片内容作为上下文</div>
+        </div>
+        
+        <div class="form-group" v-if="form.readSceneCards">
+          <label>卡片搜索方式</label>
+          <select v-model="form.cardSearchMethod">
+            <option value="title">按标题搜索</option>
+            <option value="tag">按标签搜索</option>
+            <option value="all">读取所有卡片</option>
+          </select>
+        </div>
+        
+        <div class="form-group" v-if="form.readSceneCards && form.cardSearchMethod !== 'all'">
+          <label>{{ form.cardSearchMethod === 'title' ? '卡片标题关键词' : '卡片标签关键词' }}</label>
+          <input 
+            v-model="form.cardSearchQuery" 
+            :placeholder="form.cardSearchMethod === 'title' ? '输入标题关键词，多个关键词用逗号分隔' : '输入标签关键词，多个标签用逗号分隔'"
+          >
+        </div>
+        
+        <div class="form-group">
+          <label>从哪个场景读取卡片</label>
+          <select v-model="form.sourceSceneId">
+            <option value="">不指定场景</option>
+            <option 
+              v-for="scene in scenes" 
+              :key="scene.id" 
+              :value="scene.id"
             >
-            包含父任务输出作为上下文
+              {{ scene.name }}
+            </option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="form.generateSceneCard">
+            生成场景卡片
+          </label>
+          <div class="form-hint">任务执行完成后将结果生成为场景卡片</div>
+        </div>
+        
+        <div class="form-group" v-if="form.generateSceneCard">
+          <label>生成卡片到场景</label>
+          <select v-model="form.targetSceneId">
+            <option value="">选择目标场景</option>
+            <option 
+              v-for="scene in scenes" 
+              :key="scene.id" 
+              :value="scene.id"
+            >
+              {{ scene.name }}
+            </option>
+          </select>
+        </div>
+        
+        <div class="form-group" v-if="form.generateSceneCard">
+          <label>生成卡片标题前缀</label>
+          <input 
+            v-model="form.cardTitlePrefix" 
+            placeholder="例如: 任务结果 - "
+          >
+          <div class="form-hint">将自动添加任务标题作为后缀</div>
+        </div>
+        
+        <div class="form-group" v-if="form.generateSceneCard">
+          <label>卡片标签</label>
+          <input 
+            v-model="form.cardTags" 
+            placeholder="输入标签，多个标签用逗号分隔"
+          >
+        </div>
+      </div>
+      
+      <div class="form-section">
+        <div class="form-section-title">上下文设置</div>
+        
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="form.includeParentContext">
+            包含父任务上下文
+          </label>
+          <div class="form-hint">任务执行时将包含父任务的输出作为上下文</div>
+        </div>
+        
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="form.includeRelatedContext">
+            包含相关任务上下文
           </label>
         </div>
-        <div class="checkbox-group">
-          <label class="checkbox-label">
-            <input 
-              type="checkbox" 
-              v-model="form.includeRelatedContext"
+        
+        <div class="form-group" v-if="form.includeRelatedContext">
+          <label>相关任务</label>
+          <select v-model="form.relatedTaskId">
+            <option value="">选择相关任务</option>
+            <option 
+              v-for="task in availableTasks" 
+              :key="task.id" 
+              :value="task.id"
             >
-            包含相关任务输出作为上下文
-          </label>
+              {{ task.title }}
+            </option>
+          </select>
         </div>
       </div>
       
-      <div class="form-group">
-        <label>自定义提示词</label>
-        <textarea 
-          v-model="form.customPrompt" 
-          placeholder="可选：为此任务设置自定义提示词"
-          rows="3"
-        ></textarea>
+      <div class="form-section">
+        <div class="form-section-title">响应格式</div>
+        
+        <div class="form-group">
+          <label>响应格式</label>
+          <select v-model="form.responseFormat">
+            <option value="text">纯文本</option>
+            <option value="json">JSON</option>
+            <option value="markdown">Markdown</option>
+          </select>
+        </div>
+        
+        <div class="form-group" v-if="form.responseFormat === 'json'">
+          <label>JSON响应模板</label>
+          <textarea 
+            v-model="form.jsonTemplate" 
+            rows="5"
+            placeholder='例如: {"content": "", "isComplete": false}'
+          ></textarea>
+          <div class="form-hint">
+            建议使用包含 content 和 isComplete 字段的JSON格式，以便系统判断任务是否完成
+          </div>
+          <div class="json-template">
+            <pre>{"content": "任务生成的内容", "isComplete": true}</pre>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -147,7 +231,23 @@ const form = ref({
   status: 'pending',
   output: '',
   error: '',
-  subtasks: []
+  subtasks: [],
+  
+  // 场景卡片读取设置
+  readSceneCards: false,
+  cardSearchMethod: 'title',
+  cardSearchQuery: '',
+  sourceSceneId: '',
+  
+  // 场景卡片生成设置
+  generateSceneCard: false,
+  targetSceneId: '',
+  cardTitlePrefix: '任务结果 - ',
+  cardTags: '',
+  
+  // 响应格式设置
+  responseFormat: 'text',
+  jsonTemplate: '{"content": "", "isComplete": false}'
 });
 
 // 可选的相关任务（排除自己和子任务）
@@ -225,6 +325,28 @@ const saveTask = () => {
     
     // 移除标题中的@语法
     taskData.title = taskData.title.replace(/@([^:]+)::([^\s]+)/, '').trim();
+  }
+  
+  // 处理标签字符串转换为数组
+  if (taskData.generateSceneCard && taskData.cardTags) {
+    const tagsArray = taskData.cardTags
+      .split(',')
+      .map(tag => tag.trim())
+      .filter(tag => tag);
+    
+    // 保存为字符串，但在使用时转换为数组
+    taskData.cardTagsArray = tagsArray;
+  }
+  
+  // 处理卡片搜索关键词
+  if (taskData.readSceneCards && taskData.cardSearchQuery) {
+    const queryArray = taskData.cardSearchQuery
+      .split(',')
+      .map(q => q.trim())
+      .filter(q => q);
+    
+    // 保存为字符串，但在使用时转换为数组
+    taskData.cardSearchQueryArray = queryArray;
   }
   
   emit('save', taskData);

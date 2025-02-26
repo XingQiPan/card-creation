@@ -2,16 +2,16 @@
   <div class="agents-view">
     <div class="view-tabs">
       <button 
-        @click="activeTab = 'agents'" 
         :class="{ active: activeTab === 'agents' }"
+        @click="activeTab = 'agents'"
       >
-        <i class="fas fa-users"></i> AI团队管理
+        AI成员管理
       </button>
       <button 
-        @click="activeTab = 'tasks'" 
         :class="{ active: activeTab === 'tasks' }"
+        @click="activeTab = 'tasks'"
       >
-        <i class="fas fa-tasks"></i> 任务执行图
+        任务执行视图
       </button>
     </div>
 
@@ -57,30 +57,31 @@
     <!-- 任务执行图视图 -->
     <div v-if="activeTab === 'tasks'" class="tasks-container">
       <div class="tasks-header">
-        <h2>任务执行图</h2>
+        <h3>任务执行视图</h3>
         <div class="header-actions">
-          <button @click="createRootTask" class="create-btn">
+          <button @click="createRootTask" class="create-btn" v-if="!rootTask">
             <i class="fas fa-plus"></i> 创建根任务
           </button>
         </div>
       </div>
 
-      <div class="task-tree">
-        <task-manager 
-          v-if="showTaskManager"
-          :root-task="rootTask"
-          :agents="agents"
-          :scenes="scenes"
-          :models="models"
-          @save-tasks="handleTasksSaved"
-          @execute="executeTask"
-          @delete-task="deleteTask"
-          @add-subtask="addSubtask"
-          @edit-task="editTask"
-        />
-        <div v-else class="empty-state">
-          <p>还没有任务，点击"创建根任务"开始</p>
-        </div>
+      <task-manager 
+        v-if="showTaskManager"
+        :root-task="rootTask"
+        :agents="agents"
+        :scenes="scenes"
+        :models="models"
+        :is-executing="isExecuting"
+        @save-tasks="handleTasksSaved"
+        @execute="executeTask"
+        @execute-all="handleExecuteAll"
+        @delete-task="deleteTask"
+        @add-subtask="addSubtask"
+        @edit-task="editTask"
+      />
+      
+      <div v-else class="empty-state">
+        暂无任务，点击"创建根任务"按钮开始创建
       </div>
     </div>
 
@@ -332,183 +333,507 @@ const handleTasksSaved = (savedRootTask) => {
   localStorage.setItem('rootTask', JSON.stringify(rootTask.value));
 };
 
-// 执行任务
-const executeTask = async (task) => {
-  console.log('执行任务:', task)
-  
-  if (isExecuting.value) {
-    alert('已有任务正在执行，请等待完成')
-    return
-  }
-  
-  if (!task.assignedTo) {
-    alert('请先指派任务给AI成员')
-    return
-  }
+// 调用AI模型API - 参考ChatView组件的实现
+const callAI = async (model, prompt) => {
+  console.log('调用AI模型:', model.name, '提示词长度:', prompt.length)
   
   try {
-    isExecuting.value = true
-    task.status = 'running'
+    const apiUrl = model.apiUrl || ''
+    let url = ''
+    let body = {}
+    let headers = {
+      'Content-Type': 'application/json'
+    }
+
+    // 根据不同的提供商构建请求
+    switch (model.provider) {
+      case 'openai':
+      case 'stepfun':
+      case 'mistral':
+        url = `${apiUrl.replace(/\/+$/, '')}/chat/completions`
+        headers['Authorization'] = `Bearer ${model.apiKey}`
+        body = {
+          model: model.modelId,
+          messages: [
+            { role: 'user', content: prompt }
+          ],
+          max_tokens: Number(model.maxTokens) || 2048,
+          temperature: Number(model.temperature) || 0.7
+        }
+        break
+      case 'gemini':
+        // 修正 Gemini API 请求格式和认证方式
+        const cleanApiUrl = apiUrl.replace(/\/+$/, '')
+        url = `${cleanApiUrl}key=${encodeURIComponent(model.apiKey)}`
+        
+        body = {
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt }]
+            }
+          ],
+          generationConfig: {
+            maxOutputTokens: Number(model.maxTokens) || 2048,
+            temperature: Number(model.temperature) || 0.7
+          }
+        }
+        break
+      case 'custom':
+        url = apiUrl
+        headers['Authorization'] = `Bearer ${model.apiKey}`
+        body = {
+          model: model.modelId,
+          messages: [
+            { role: 'user', content: prompt }
+          ],
+          max_tokens: Number(model.maxTokens) || 2048,
+          temperature: Number(model.temperature) || 0.7
+        }
+        break
+      default:
+        throw new Error(`不支持的模型提供商: ${model.provider}`)
+    }
+
+    // 发送请求
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
+    })
+
+    if (!response.ok) {
+      let errorMessage = `请求失败: ${response.status}`
+      
+      // 尝试解析错误信息
+      const errorData = await response.json().catch(() => ({}))
+      console.error('错误响应数据:', errorData)
+      
+      if (errorData) {
+        if (errorData.error?.message) {
+          errorMessage = errorData.error.message
+        } else if (errorData.error?.code) {
+          errorMessage = `服务器错误 (${errorData.error.code})`
+        }
+      }
+      
+      // 特别处理 Gemini API 认证错误
+      if (model.provider === 'gemini' && response.status === 403) {
+        errorMessage = "Gemini API 认证失败 (403)。请检查您的 API 密钥是否正确，并确保它有权访问 Gemini API。"
+      }
+      
+      throw new Error(`API错误: ${errorMessage}`)
+    }
+
+    const result = await response.json()
     
-    // 查找指派的AI成员
+    // 解析不同提供商的响应
+    switch (model.provider) {
+      case 'openai':
+      case 'stepfun':
+      case 'mistral':
+      case 'custom':
+        return result.choices[0].message.content
+      case 'gemini':
+        if (result.candidates && result.candidates.length > 0) {
+          const candidate = result.candidates[0]
+          if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+            return candidate.content.parts[0].text
+          }
+        }
+        throw new Error('无法解析 Gemini 响应')
+      default:
+        throw new Error(`不支持的模型提供商: ${model.provider}`)
+    }
+  } catch (error) {
+    console.error('调用AI API失败:', error)
+    throw new Error(`调用AI失败: ${error.message}`)
+  }
+}
+
+// 处理来自TaskManager的执行所有任务请求
+const handleExecuteAll = (allTasks) => {
+  console.log('收到执行所有任务请求，任务数量:', allTasks.length)
+  
+  // 打印所有任务的ID和标题，便于调试
+  allTasks.forEach((task, index) => {
+    console.log(`任务 ${index+1}: ID=${task.id}, 标题=${task.title}`)
+    if (task.subtasks && task.subtasks.length > 0) {
+      console.log(`- 包含 ${task.subtasks.length} 个子任务:`)
+      task.subtasks.forEach(subtask => {
+        console.log(`  - ${subtask.title} (${subtask.id})`)
+      })
+    }
+  })
+  
+  executeAllTasks(allTasks)
+}
+
+// 执行所有任务
+const executeAllTasks = async (allTasks) => {
+  console.log('开始执行所有任务，共', allTasks.length, '个任务')
+  
+  if (!allTasks || allTasks.length === 0) {
+    console.warn('没有任务可执行')
+    return
+  }
+  
+  isExecuting.value = true
+  
+  try {
+    // 标记所有任务为批量执行的一部分
+    allTasks.forEach(task => {
+      task._isPartOfBatch = true
+      // 重置任务状态，确保重新执行
+      task.status = 'pending'
+      task.output = null
+      task.error = null
+    })
+    
+    // 按顺序执行所有任务
+    for (let i = 0; i < allTasks.length; i++) {
+      const task = allTasks[i]
+      console.log(`执行任务 ${i+1}/${allTasks.length}:`, task.title, task.id)
+      
+      // 执行任务
+      await executeTask(task)
+      
+      // 检查任务是否成功完成
+      if (task.status === 'completed') {
+        // 查找下一个任务
+        const nextTask = allTasks[i + 1]
+        if (nextTask) {
+          console.log('当前任务完成，准备执行下一个任务:', nextTask.title)
+          
+          // 如果下一个任务需要包含父任务上下文，将当前任务的输出传递给它
+          if (nextTask.includeParentContext) {
+            console.log('下一个任务需要父任务上下文，传递当前任务输出')
+            nextTask._parentOutput = task.output
+          }
+        }
+      } else {
+        console.warn('当前任务未完成，状态:', task.status)
+      }
+      
+      // 保存状态
+      localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
+      
+      // 给UI一点时间更新
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    
+    // 清除批量执行标记和临时数据
+    allTasks.forEach(task => {
+      delete task._isPartOfBatch
+      delete task._parentOutput
+    })
+    
+    console.log('所有任务执行完成')
+  } catch (error) {
+    console.error('执行所有任务失败:', error)
+    
+    // 清除批量执行标记和临时数据
+    allTasks.forEach(task => {
+      delete task._isPartOfBatch
+      delete task._parentOutput
+    })
+  } finally {
+    isExecuting.value = false
+  }
+}
+
+// 执行单个任务
+const executeTask = async (task) => {
+  console.log('执行任务:', task.title, task)
+  
+  if (isExecuting.value && !task._isPartOfBatch) {
+    console.warn('已有任务正在执行，请等待完成')
+    return
+  }
+  
+  // 如果不是批量执行的一部分，设置执行状态
+  if (!task._isPartOfBatch) {
+    isExecuting.value = true
+  }
+  
+  task.status = 'running'
+  task.error = null
+  task.output = null
+  
+  try {
+    // 查找指定的AI成员
     const agent = agents.value.find(a => a.id === task.assignedTo)
     
     if (!agent) {
-      throw new Error('找不到指派的AI成员')
+      throw new Error('未找到指定的AI成员')
     }
     
-    // 查找模型
+    // 查找指定的模型
     const model = props.models.find(m => m.id === agent.modelId)
     
     if (!model) {
-      throw new Error('找不到AI成员使用的模型')
+      throw new Error('未找到指定的模型')
     }
     
     // 构建提示词
     let prompt = agent.systemPrompt + '\n\n'
     
     // 添加任务描述
-    prompt += `任务: ${task.title}\n${task.description}\n\n`
+    prompt += `任务: ${task.title}\n`
+    prompt += `描述: ${task.description || ''}\n\n`
+    
+    // 如果有格式要求，添加到提示词中
+    if (task.responseFormat === 'json') {
+      prompt += `请以JSON格式返回结果，格式如下:\n{"content": "", "isComplete": true}\n其中content字段包含你的回答内容，isComplete字段表示任务是否完成。\n\n请注意：直接返回JSON对象，不要使用Markdown代码块包装，确保JSON格式正确且不包含特殊控制字符。\n\n`
+    }
     
     // 添加父任务上下文
     if (task.includeParentContext) {
-      const parent = findParent(task.id)
-      if (parent && parent.output) {
-        prompt += `父任务输出:\n${parent.output}\n\n`
+      // 首先检查是否有临时存储的父任务输出
+      if (task._parentOutput) {
+        prompt += `父任务输出:\n${task._parentOutput}\n\n`
+      } else {
+        // 如果没有临时存储的输出，则查找父任务
+        const parent = findParentTask(task.id)
+        if (parent && parent.output) {
+          prompt += `父任务输出:\n${parent.output}\n\n`
+        }
       }
     }
     
-    // 添加相关任务上下文
-    if (task.includeRelatedContext && task.relatedTaskId) {
-      const relatedTask = allTasks.value.find(t => t.id === task.relatedTaskId)
-      if (relatedTask && relatedTask.output) {
-        prompt += `相关任务输出:\n${relatedTask.output}\n\n`
+    // 添加场景卡片内容
+    if (task.readSceneCards) {
+      const targetSceneId = task.targetSceneId || ''
+      const scene = props.scenes.find(s => s.id === targetSceneId)
+      
+      if (scene && scene.cards && scene.cards.length > 0) {
+        let cardsContent = '场景卡片内容:\n\n'
+        let matchedCards = []
+        
+        if (task.cardSearchQuery) {
+          const queries = task.cardSearchQuery.split(',').map(q => q.trim().toLowerCase())
+          
+          matchedCards = scene.cards.filter(card => {
+            return queries.some(query => 
+              card.title.toLowerCase().includes(query) || 
+              (card.tags && card.tags.some(tag => tag.toLowerCase().includes(query)))
+            )
+          })
+        } else {
+          // 如果没有搜索条件，使用所有卡片
+          matchedCards = scene.cards
+        }
+        
+        // 添加卡片内容
+        matchedCards.forEach(card => {
+          cardsContent += `【${card.title}】\n${card.content}\n\n`
+        })
+        
+        prompt += cardsContent
       }
     }
     
-    // 添加场景上下文
-    if (task.includeSceneContext && task.sceneId) {
-      const scene = props.scenes.find(s => s.id === task.sceneId)
-      if (scene) {
-        const sceneContent = scene.cards.map(card => `${card.title}: ${card.content}`).join('\n\n')
-        prompt += `场景内容:\n${sceneContent}\n\n`
-      }
-    }
-    
-    // 添加响应格式要求
-    prompt += `请以JSON格式返回结果，包含以下字段：
-{
-  "content": "你的回答内容",
-  "isComplete": true/false (任务是否完成)
-}
-`
+    console.log('发送提示词:', prompt)
     
     // 调用API
-    let response
+    const content = await callAI(model, prompt)
+    console.log('API返回结果:', content)
     
-    if (model.provider === 'openai') {
-      response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${model.apiKey}`
-        },
-        body: JSON.stringify({
-          model: model.modelId,
-          messages: [
-            {
-              role: "system",
-              content: agent.systemPrompt
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          temperature: Number(agent.temperature)
-        })
-      })
-    } else if (model.provider === 'gemini') {
-      response = await fetch(`${model.apiUrl}/v1/models/${model.modelId}:generateContent`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': model.apiKey
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: prompt }]
-            }
-          ],
-          generationConfig: {
-            temperature: Number(agent.temperature)
-          }
-        })
-      })
-    } else {
-      throw new Error('不支持的模型提供商')
-    }
-    
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.message || `请求失败: ${response.status}`)
-    }
-    
-    const result = await response.json()
-    
-    let content
-    
-    if (model.provider === 'openai') {
-      content = result.choices[0].message.content
-    } else if (model.provider === 'gemini') {
-      content = result.candidates[0].content.parts[0].text
-    }
-    
-    // 解析JSON响应
-    try {
-      const jsonResponse = JSON.parse(content)
-      task.output = jsonResponse.content
-      
-      // 检查任务是否完成
-      if (!jsonResponse.isComplete) {
-        task.status = 'pending'
-        throw new Error('任务未完成，需要重新执行')
-      }
-      
-      // 如果有场景ID，创建结果卡片
-      if (task.sceneId && jsonResponse.content) {
-        const scene = props.scenes.find(s => s.id === task.sceneId)
+    // 解析响应
+    if (task.responseFormat === 'json') {
+      try {
+        // 尝试提取JSON内容
+        let jsonContent = content
         
-        if (scene) {
+        // 检查是否包含Markdown代码块
+        const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/
+        const match = content.match(jsonBlockRegex)
+        
+        if (match && match[1]) {
+          console.log('从Markdown代码块中提取JSON')
+          jsonContent = match[1]
+        }
+        
+        // 尝试解析JSON
+        let jsonResponse
+        
+        try {
+          // 尝试直接解析
+          jsonResponse = JSON.parse(jsonContent)
+          console.log('成功直接解析JSON')
+        } catch (parseError) {
+          console.log('直接解析失败，尝试清理内容:', parseError.message)
+          
+          // 尝试使用正则表达式提取内容和isComplete
+          try {
+            // 使用正则表达式提取content和isComplete
+            const contentMatch = jsonContent.match(/"content"\s*:\s*"([\s\S]*?)"\s*,\s*"isComplete"\s*:\s*(true|false)/i)
+            
+            if (contentMatch) {
+              const extractedContent = contentMatch[1]
+              const isComplete = contentMatch[2].toLowerCase() === 'true'
+              
+              jsonResponse = {
+                content: extractedContent,
+                isComplete: isComplete
+              }
+              
+              console.log('使用正则表达式提取的JSON:', jsonResponse)
+            } else {
+              // 如果正则表达式匹配失败，使用原始内容
+              console.log('正则表达式匹配失败，使用原始内容')
+              jsonResponse = {
+                content: content,
+                isComplete: true // 默认设置为完成
+              }
+            }
+          } catch (regexError) {
+            console.error('正则表达式提取失败:', regexError)
+            
+            // 最后的回退方案
+            jsonResponse = {
+              content: content,
+              isComplete: true // 默认设置为完成
+            }
+          }
+        }
+        
+        console.log('最终解析的JSON响应:', jsonResponse)
+        
+        // 更新任务状态
+        task.output = jsonResponse.content
+        task.status = jsonResponse.isComplete ? 'completed' : 'pending'
+        
+        // 如果任务完成，处理生成场景卡片
+        if (jsonResponse.isComplete && task.generateSceneCard) {
+          const targetSceneId = task.targetSceneId || ''
+          const targetScene = props.scenes.find(s => s.id === targetSceneId)
+          
+          if (targetScene) {
+            // 创建新卡片
+            const newCard = {
+              id: generateId(),
+              title: (task.cardTitlePrefix || '') + task.title,
+              content: jsonResponse.content || content,
+              tags: task.cardTags ? task.cardTags.split(',').map(tag => tag.trim()) : [],
+              timestamp: new Date().toISOString()
+            }
+            
+            // 添加到场景
+            if (!targetScene.cards) {
+              targetScene.cards = []
+            }
+            targetScene.cards.push(newCard)
+            
+            console.log('已创建场景卡片:', newCard)
+          }
+        }
+      } catch (error) {
+        console.error('解析JSON响应失败:', error)
+        // 如果不是有效的JSON，直接使用内容
+        task.output = content
+        task.status = 'completed'
+      }
+    } else {
+      // 非JSON响应直接使用内容
+      task.output = content
+      task.status = 'completed'
+      
+      // 如果需要生成场景卡片
+      if (task.generateSceneCard && task.targetSceneId) {
+        const targetScene = props.scenes.find(s => s.id === task.targetSceneId)
+        
+        if (targetScene) {
           // 创建新卡片
           const newCard = {
-            id: uuidv4(),
-            title: `${task.title} - 结果`,
-            content: jsonResponse.content,
-            tags: []
+            id: generateId(),
+            title: (task.cardTitlePrefix || '') + task.title,
+            content: content,
+            tags: task.cardTags ? task.cardTags.split(',').map(tag => tag.trim()) : [],
+            timestamp: new Date().toISOString()
           }
           
           // 添加到场景
-          scene.cards.push(newCard)
+          if (!targetScene.cards) {
+            targetScene.cards = []
+          }
+          targetScene.cards.push(newCard)
+          
+          console.log('已创建场景卡片:', newCard)
         }
       }
-      
-      task.status = 'completed'
-    } catch (error) {
-      // 如果不是有效的JSON，直接使用内容
-      task.output = content
-      task.status = 'completed'
     }
+    
+    // 任务执行完成后，打印状态和输出
+    console.log('任务执行完成:', {
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      output: task.output ? task.output.substring(0, 100) + '...' : null
+    })
   } catch (error) {
     console.error('执行任务失败:', error)
     task.status = 'failed'
     task.error = error.message
   } finally {
-    isExecuting.value = false
+    // 如果不是批量执行的一部分，重置执行状态
+    if (!task._isPartOfBatch) {
+      isExecuting.value = false
+    }
+    
+    // 保存到本地存储
     localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
   }
+}
+
+// 查找父任务
+const findParentTask = (taskId) => {
+  if (!rootTask.value) return null
+  
+  // 递归查找父任务
+  const findParent = (task, id) => {
+    if (task.subtasks) {
+      for (const subtask of task.subtasks) {
+        if (subtask.id === id) {
+          return task
+        }
+        
+        const parent = findParent(subtask, id)
+        if (parent) {
+          return parent
+        }
+      }
+    }
+    
+    return null
+  }
+  
+  return findParent(rootTask.value, taskId)
+}
+
+// 生成唯一ID
+const generateId = () => {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2, 5)
+}
+
+// 根据ID查找任务
+const findTaskById = (taskId) => {
+  if (!rootTask.value) return null
+  
+  const findTask = (task, id) => {
+    if (task.id === id) return task
+    
+    if (task.subtasks) {
+      for (const subtask of task.subtasks) {
+        const found = findTask(subtask, id)
+        if (found) return found
+      }
+    }
+    
+    return null
+  }
+  
+  return findTask(rootTask.value, taskId)
 }
 
 // 查找父任务

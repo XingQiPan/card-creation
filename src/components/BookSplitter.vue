@@ -473,52 +473,56 @@ const canProcess = (scene) => {
 
 // 修改处理文件上传的方法
 const handleBookUpload = async (event, scene) => {
-  const file = event.target.files[0]
-  if (!file) return
+  const file = event.target.files[0];
+  if (!file) return;
 
   try {
-    isLoading.value = true
+    isLoading.value = true;
     
-    // 创建 FormData 对象
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('sceneId', scene.id)
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('sceneId', scene.id);
 
-    // 发送到后端处理
-    const response = await fetch('/api/split-book', {
+    const response = await fetch('http://localhost:3000/api/split-book', {
       method: 'POST',
-      body: formData
-    })
+      body: formData,
+      // 不要设置 Content-Type header，让浏览器自动设置
+    });
 
-    const result = await response.json()
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`上传失败 (${response.status}): ${errorText}`);
+    }
+
+    const result = await response.json();
     
     if (!result.success) {
-      throw new Error(result.error || '处理失败')
+      throw new Error(result.error || '处理失败');
     }
 
     // 更新场景的原始卡片
     scene.originalCards = result.chapters.map((chapter, index) => ({
       id: Date.now() + index,
-      chapterNumber: index + 1,
+      chapterNumber: chapter.chapterNumber || (index + 1),
       title: chapter.title || `第${index + 1}章`,
       content: chapter.content,
       selected: false,
       uploadTime: new Date().toISOString()
-    }))
+    }));
 
     // 清空文件输入
-    event.target.value = ''
+    event.target.value = '';
     
     // 保存场景数据
-    await saveScenes()
-    showToast(`成功导入 ${result.chapters.length} 个章节主人~`, 'success')
+    await saveScenes();
+    showToast(`成功导入 ${result.chapters.length} 个章节`, 'success');
   } catch (error) {
-    console.error('文件处理错误:', error)
-    showToast('文件处理失败: ' + error.message, 'error')
+    console.error('文件处理错误:', error);
+    showToast(error.message || '文件处理失败', 'error');
   } finally {
-    isLoading.value = false
+    isLoading.value = false;
   }
-}
+};
 
 // 修改暂停/继续功能
 const toggleProcessing = (scene) => {

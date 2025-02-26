@@ -56,7 +56,7 @@
           ></textarea>
         </div>
 
-        <div class="form-group">
+        <!-- <div class="form-group">
           <label for="system-prompt">系统提示词</label>
           <textarea 
             id="system-prompt" 
@@ -72,7 +72,7 @@
             <input type="checkbox" v-model="agent.enabled" />
             <span>启用助手</span>
           </label>
-        </div>
+        </div> -->
       </div>
 
       <div v-if="activeTab === 'flow'" class="flow-section">

@@ -1,78 +1,84 @@
 <template>
   <div 
-    class="flow-node" 
-    :class="[nodeData.type, { 'selected': selected }]"
+    class="flow-node"
+    :class="[
+      `node-type-${nodeData.type}`,
+      { selected, dragging: isDragging }
+    ]"
     :data-node-id="nodeId"
-    @click.stop="selectNode"
+    @click.stop="$emit('select', nodeId)"
   >
-    <div class="node-header">
-      <div class="node-type">
-        <i :class="getNodeIcon(nodeData.type)"></i>
-        {{ getNodeTypeName(nodeData.type) }}
-      </div>
+    <!-- 节点头部 -->
+    <div class="node-header" @mousedown.stop="startDrag">
+      <i :class="getNodeIcon()"></i>
+      <span class="node-title">{{ nodeData.name || getDefaultNodeName() }}</span>
       <div class="node-actions">
-        <button @click.stop="$emit('configure', nodeData)" class="config-btn">
-          <i class="fas fa-cog"></i>
-        </button>
-        <button @click.stop="$emit('delete', nodeId)" class="delete-btn">
-          <i class="fas fa-trash"></i>
+        <button 
+          v-if="!isStartNode && !isEndNode"
+          @click.stop="$emit('delete', nodeId)" 
+          class="delete-btn"
+        >
+          <i class="fas fa-times"></i>
         </button>
       </div>
     </div>
-    
+
+    <!-- 节点内容 -->
     <div class="node-content">
-      <h4>{{ nodeData.name || `${getNodeTypeName(nodeData.type)} ${nodeId.slice(0, 4)}` }}</h4>
-      <div v-if="nodeData.description" class="node-description">
-        {{ nodeData.description }}
+      <!-- 消息节点 -->
+      <div v-if="nodeData.type === 'message'" class="message-content">
+        <div class="message-preview">{{ getMessagePreview() }}</div>
+      </div>
+
+      <!-- 条件节点 -->
+      <div v-if="nodeData.type === 'condition'" class="condition-content">
+        <div class="condition-preview">{{ getConditionPreview() }}</div>
+      </div>
+
+      <!-- API调用节点 -->
+      <div v-if="nodeData.type === 'api'" class="api-content">
+        <div class="api-preview">{{ getApiPreview() }}</div>
+      </div>
+      
+      <!-- 大模型调用节点 -->
+      <div v-if="nodeData.type === 'llm'" class="llm-content">
+        <div class="llm-preview">{{ getLLMPreview() }}</div>
+      </div>
+      
+      <!-- 函数节点 -->
+      <div v-if="nodeData.type === 'function'" class="function-content">
+        <div class="function-preview">{{ getFunctionPreview() }}</div>
+      </div>
+      
+      <!-- 延时节点 -->
+      <div v-if="nodeData.type === 'delay'" class="delay-content">
+        <div class="delay-preview">{{ getDelayPreview() }}</div>
       </div>
     </div>
-    
+
     <!-- 连接点 -->
-    <div class="connection-points">
-      <!-- 输出连接点 -->
-      <div 
-        v-if="nodeData.type !== 'end'" 
-        class="connection-point output"
-        @mousedown.stop="startConnectionOutput"
-        data-connection-type="output"
-      >
-        <i class="fas fa-arrow-right"></i>
-      </div>
-      
-      <!-- 条件节点的额外连接点 -->
-      <div 
-        v-if="nodeData.type === 'condition'" 
-        class="connection-point true-output"
-        @mousedown.stop="startConnectionTrue"
-        data-connection-type="true-output"
-      >
-        <span>✓</span>
-      </div>
-      
-      <div 
-        v-if="nodeData.type === 'condition'" 
-        class="connection-point false-output"
-        @mousedown.stop="startConnectionFalse"
-        data-connection-type="false-output"
-      >
-        <span>✗</span>
-      </div>
-      
-      <!-- 输入连接点 -->
-      <div 
-        v-if="nodeData.type !== 'start'" 
-        class="connection-point input"
-        data-connection-type="input"
-        data-node-id="nodeId"
-      >
-        <i class="fas fa-arrow-left"></i>
-      </div>
-    </div>
+    <div 
+      v-if="!isStartNode"
+      class="connection-point input"
+      @mousedown.stop="$emit('connection-start', { nodeId, pointType: 'input' })"
+    ></div>
+    
+    <div 
+      v-if="!isEndNode"
+      class="connection-point output"
+      @mousedown.stop="$emit('connection-start', { nodeId, pointType: 'output' })"
+    ></div>
+    
+    <div 
+      v-if="nodeData.type === 'condition'"
+      class="connection-point output-false"
+      @mousedown.stop="$emit('connection-start', { nodeId, pointType: 'output-false' })"
+    ></div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 
 const props = defineProps({
   nodeId: {
@@ -89,241 +95,283 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['select', 'configure', 'delete', 'connection-start']);
+const emit = defineEmits(['select', 'delete', 'connection-start', 'update-position']);
 
-const selectNode = () => {
-  emit('select', props.nodeId);
+// 计算属性
+const isStartNode = computed(() => props.nodeData.type === 'start');
+const isEndNode = computed(() => props.nodeData.type === 'end');
+
+// 拖拽状态
+const isDragging = ref(false);
+let startX = 0;
+let startY = 0;
+let startNodeX = 0;
+let startNodeY = 0;
+
+// 开始拖拽
+const startDrag = (event) => {
+  if (event.button !== 0) return; // 只响应左键
+  
+  isDragging.value = true;
+  
+  // 记录起始位置
+  startX = event.clientX;
+  startY = event.clientY;
+  startNodeX = props.nodeData.position.x;
+  startNodeY = props.nodeData.position.y;
+  
+  // 添加全局事件监听
+  window.addEventListener('mousemove', handleDrag);
+  window.addEventListener('mouseup', stopDrag);
+  
+  // 阻止文本选择
+  event.preventDefault();
 };
 
-// 开始从默认输出点创建连接
-const startConnectionOutput = (event) => {
-  const rect = event.target.getBoundingClientRect();
-  const point = {
-    x: rect.left + rect.width / 2,
-    y: rect.top + rect.height / 2
-  };
+// 处理拖拽
+const handleDrag = (event) => {
+  if (!isDragging.value) return;
   
-  emit('connection-start', {
-    nodeId: props.nodeId,
-    point,
-    type: 'default'
+  // 计算偏移量
+  const dx = event.clientX - startX;
+  const dy = event.clientY - startY;
+  
+  // 计算新位置
+  const newX = Math.max(0, startNodeX + dx);
+  const newY = Math.max(0, startNodeY + dy);
+  
+  // 发送位置更新事件
+  emit('update-position', {
+    id: props.nodeId,
+    position: { x: newX, y: newY }
   });
 };
 
-// 开始从"真"输出点创建连接
-const startConnectionTrue = (event) => {
-  const rect = event.target.getBoundingClientRect();
-  const point = {
-    x: rect.left + rect.width / 2,
-    y: rect.top + rect.height / 2
-  };
+// 停止拖拽
+const stopDrag = () => {
+  isDragging.value = false;
   
-  emit('connection-start', {
-    nodeId: props.nodeId,
-    point,
-    type: 'true'
-  });
+  // 移除全局事件监听
+  window.removeEventListener('mousemove', handleDrag);
+  window.removeEventListener('mouseup', stopDrag);
 };
 
-// 开始从"假"输出点创建连接
-const startConnectionFalse = (event) => {
-  const rect = event.target.getBoundingClientRect();
-  const point = {
-    x: rect.left + rect.width / 2,
-    y: rect.top + rect.height / 2
-  };
-  
-  emit('connection-start', {
-    nodeId: props.nodeId,
-    point,
-    type: 'false'
-  });
-};
-
-// 获取节点类型图标
-const getNodeIcon = (type) => {
-  switch (type) {
-    case 'start':
-      return 'fas fa-play-circle';
-    case 'end':
-      return 'fas fa-stop-circle';
-    case 'condition':
-      return 'fas fa-code-branch';
-    case 'message':
-      return 'fas fa-comment';
-    default:
-      return 'fas fa-square';
+// 获取节点图标
+const getNodeIcon = () => {
+  switch (props.nodeData.type) {
+    case 'start': return 'fas fa-play-circle';
+    case 'end': return 'fas fa-stop-circle';
+    case 'message': return 'fas fa-comment';
+    case 'condition': return 'fas fa-code-branch';
+    case 'api': return 'fas fa-cloud';
+    case 'function': return 'fas fa-code';
+    case 'llm': return 'fas fa-brain';
+    case 'delay': return 'fas fa-clock';
+    default: return 'fas fa-circle';
   }
 };
 
-// 获取节点类型名称
-const getNodeTypeName = (type) => {
-  switch (type) {
-    case 'start':
-      return '开始';
-    case 'end':
-      return '结束';
-    case 'condition':
-      return '条件';
-    case 'message':
-      return '消息';
-    default:
-      return '节点';
+// 获取默认节点名称
+const getDefaultNodeName = () => {
+  switch (props.nodeData.type) {
+    case 'start': return '开始';
+    case 'end': return '结束';
+    case 'message': return '消息';
+    case 'condition': return '条件';
+    case 'api': return 'API调用';
+    case 'function': return '函数';
+    case 'llm': return '大模型调用';
+    case 'delay': return '延时';
+    default: return '节点';
   }
+};
+
+// 获取消息预览
+const getMessagePreview = () => {
+  const message = props.nodeData.data?.message || '';
+  return message.length > 50 ? message.substring(0, 50) + '...' : message;
+};
+
+// 获取条件预览
+const getConditionPreview = () => {
+  const condition = props.nodeData.data?.condition || '';
+  return condition.length > 50 ? condition.substring(0, 50) + '...' : condition;
+};
+
+// 获取API预览
+const getApiPreview = () => {
+  const method = props.nodeData.data?.method || 'GET';
+  const endpoint = props.nodeData.data?.endpoint || '';
+  return `${method} ${endpoint}`;
+};
+
+// 获取大模型调用预览
+const getLLMPreview = () => {
+  const modelId = props.nodeData.data?.modelId || '未选择模型';
+  const prompt = props.nodeData.data?.prompt || '';
+  const promptPreview = prompt.length > 30 ? prompt.substring(0, 30) + '...' : prompt;
+  return `${modelId}: ${promptPreview}`;
+};
+
+// 获取函数预览
+const getFunctionPreview = () => {
+  const functionName = props.nodeData.data?.functionName || '未指定函数';
+  return `函数: ${functionName}`;
+};
+
+// 获取延时预览
+const getDelayPreview = () => {
+  const duration = props.nodeData.data?.duration || 0;
+  const unit = props.nodeData.data?.unit || 'ms';
+  return `等待: ${duration}${unit}`;
 };
 </script>
 
 <style scoped>
 .flow-node {
-  width: 200px;
-  background-color: white;
+  position: absolute;
+  background: white;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  position: relative;
+  min-width: 150px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   user-select: none;
-  transition: box-shadow 0.2s;
+  z-index: 1;
 }
 
 .flow-node.selected {
-  box-shadow: 0 0 0 2px #3b82f6, 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+.flow-node.dragging {
+  opacity: 0.8;
+  z-index: 1000;
 }
 
 .node-header {
-  padding: 12px;
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
-  background-color: #f3f4f6;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  padding: 8px 12px;
+  background: #f3f4f6;
+  border-bottom: 1px solid #e5e7eb;
+  border-radius: 8px 8px 0 0;
+  cursor: move;
 }
 
-.node-type {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.node-header i {
+  margin-right: 8px;
+  color: #6b7280;
+}
+
+.node-title {
+  flex: 1;
   font-size: 14px;
   font-weight: 500;
+  color: #374151;
 }
 
 .node-actions {
   display: flex;
-  gap: 4px;
 }
 
-.config-btn, .delete-btn {
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.delete-btn {
+  padding: 4px;
   background: none;
   border: none;
+  color: #9ca3af;
   cursor: pointer;
-  color: #6b7280;
-}
-
-.config-btn:hover, .delete-btn:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
 }
 
 .delete-btn:hover {
   color: #ef4444;
+  background: #fee2e2;
 }
 
 .node-content {
   padding: 12px;
+  min-height: 40px;
 }
 
-.node-content h4 {
-  margin: 0 0 8px 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.node-description {
+.message-preview,
+.condition-preview,
+.api-preview,
+.llm-preview,
+.function-preview,
+.delay-preview {
   font-size: 12px;
   color: #6b7280;
+  white-space: pre-wrap;
   word-break: break-word;
-}
-
-/* 连接点样式 */
-.connection-points {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  top: 0;
-  left: 0;
-  pointer-events: none;
 }
 
 .connection-point {
   position: absolute;
-  width: 20px;
-  height: 20px;
-  background-color: white;
+  width: 12px;
+  height: 12px;
+  background: white;
   border: 2px solid #3b82f6;
   border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  color: #3b82f6;
-  cursor: pointer;
-  pointer-events: auto;
-  z-index: 10;
+  cursor: crosshair;
+  z-index: 2;
 }
 
 .connection-point:hover {
-  background-color: #eff6ff;
-  transform: scale(1.1);
-}
-
-.connection-point.output {
-  top: 50%;
-  right: -10px;
-  transform: translateY(-50%);
+  background: #3b82f6;
 }
 
 .connection-point.input {
+  left: -6px;
   top: 50%;
-  left: -10px;
   transform: translateY(-50%);
 }
 
-.connection-point.true-output {
-  bottom: -10px;
-  right: 30%;
-  color: #10b981;
-  border-color: #10b981;
+.connection-point.output {
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
-.connection-point.false-output {
-  bottom: -10px;
-  left: 30%;
-  color: #ef4444;
-  border-color: #ef4444;
+.connection-point.output-false {
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
-/* 节点类型特殊样式 */
-.flow-node.start .node-header {
-  background-color: #dcfce7;
-  color: #15803d;
+/* 节点类型特定样式 */
+.node-type-start .node-header {
+  background: #dcfce7;
+  border-color: #86efac;
 }
 
-.flow-node.end .node-header {
-  background-color: #fee2e2;
-  color: #b91c1c;
+.node-type-end .node-header {
+  background: #fee2e2;
+  border-color: #fca5a5;
 }
 
-.flow-node.condition .node-header {
-  background-color: #dbeafe;
-  color: #1d4ed8;
+.node-type-condition .node-header {
+  background: #dbeafe;
+  border-color: #93c5fd;
 }
 
-.flow-node.message .node-header {
-  background-color: #f3f4f6;
-  color: #4b5563;
+.node-type-api .node-header {
+  background: #f3e8ff;
+  border-color: #c084fc;
+}
+
+.node-type-llm .node-header {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+.node-type-function .node-header {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.node-type-delay .node-header {
+  background: #fef3c7;
+  border-color: #fcd34d;
 }
 </style>

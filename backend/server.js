@@ -9,7 +9,27 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const app = express()
-const upload = multer({ dest: 'uploads/' })
+
+// 修改 multer 配置，添加错误处理
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    // 确保上传目录存在
+    if (!fs.existsSync(UPLOADS_DIR)) {
+      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    }
+    cb(null, UPLOADS_DIR)
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + '-' + file.originalname)
+  }
+})
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 限制文件大小为 10MB
+  }
+})
 
 // 启用 CORS 和 JSON 解析
 app.use(cors())
@@ -314,11 +334,17 @@ function splitIntoChapters(text) {
   return chapters
 }
 
-// 处理文件上传和分割
+// 修改文件上传处理路由
 app.post('/api/split-book', upload.single('file'), async (req, res) => {
   try {
+    if (!req.file) {
+      throw new Error('没有接收到文件')
+    }
+
     const file = req.file
     const sceneId = req.body.sceneId
+    
+    console.log('接收到文件:', file.originalname, '大小:', file.size)
     
     // 读取文件内容
     const content = fs.readFileSync(file.path, 'utf8')
@@ -327,20 +353,26 @@ app.post('/api/split-book', upload.single('file'), async (req, res) => {
     const chapters = splitIntoChapters(content)
     
     // 删除临时文件
-    fs.unlinkSync(file.path)
+    fs.unlink(file.path, (err) => {
+      if (err) console.error('删除临时文件失败:', err)
+    })
     
     // 返回处理结果
     res.json({
       success: true,
       sceneId,
-      chapters
+      chapters: chapters.map((chapter, index) => ({
+        title: chapter.title,
+        content: chapter.content,
+        chapterNumber: index + 1
+      }))
     })
     
   } catch (error) {
-    console.error('Error processing file:', error)
+    console.error('处理文件失败:', error)
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message || '文件处理失败'
     })
   }
 })

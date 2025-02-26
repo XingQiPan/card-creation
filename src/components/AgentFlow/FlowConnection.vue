@@ -1,36 +1,28 @@
 <template>
-  <svg class="flow-connection" :style="svgStyle">
-    <defs>
-      <marker
-        :id="`arrowhead-${id}`"
-        markerWidth="10"
-        markerHeight="7"
-        refX="9"
-        refY="3.5"
-        orient="auto"
-      >
-        <polygon points="0 0, 10 3.5, 0 7" :fill="connectionColor" />
-      </marker>
-    </defs>
+  <svg 
+    class="flow-connection"
+    :class="{ selected, 'connection-temp': connectionType === 'temp' }"
+    @click.stop="$emit('select', connectionId)"
+  >
     <path
-      :d="pathData"
-      :stroke="connectionColor"
-      stroke-width="2"
+      :d="getPath()"
+      :stroke="getStrokeColor()"
+      :stroke-width="getStrokeWidth()"
+      :stroke-dasharray="getStrokeDashArray()"
       fill="none"
-      :marker-end="`url(#arrowhead-${id})`"
     />
-    <text 
-      v-if="label" 
-      :x="labelX" 
-      :y="labelY" 
-      :fill="connectionColor" 
-      text-anchor="middle"
-      alignment-baseline="middle"
-      font-size="12"
-      font-weight="500"
+    
+    <!-- 删除按钮 -->
+    <g 
+      v-if="selected && connectionType !== 'temp'"
+      class="delete-btn"
+      @click.stop="$emit('delete', connectionId)"
+      :transform="`translate(${getMidPoint().x}, ${getMidPoint().y})`"
     >
-      {{ label }}
-    </text>
+      <circle cx="0" cy="0" r="8" fill="white" stroke="#ef4444" stroke-width="1" />
+      <line x1="-4" y1="0" x2="4" y2="0" stroke="#ef4444" stroke-width="2" />
+      <line x1="0" y1="-4" x2="0" y2="4" stroke="#ef4444" stroke-width="2" transform="rotate(45)" />
+    </g>
   </svg>
 </template>
 
@@ -38,7 +30,7 @@
 import { computed } from 'vue';
 
 const props = defineProps({
-  id: {
+  connectionId: {
     type: String,
     required: true
   },
@@ -50,114 +42,113 @@ const props = defineProps({
     type: Object,
     required: true
   },
-  type: {
+  connectionType: {
     type: String,
     default: 'default'
+  },
+  selected: {
+    type: Boolean,
+    default: false
+  },
+  scale: {
+    type: Number,
+    default: 1
   }
 });
 
-// 计算SVG样式
-const svgStyle = computed(() => {
-  const left = Math.min(props.startPoint.x, props.endPoint.x) - 20;
-  const top = Math.min(props.startPoint.y, props.endPoint.y) - 20;
-  const width = Math.abs(props.endPoint.x - props.startPoint.x) + 40;
-  const height = Math.abs(props.endPoint.y - props.startPoint.y) + 40;
-  
-  return {
-    position: 'absolute',
-    left: `${left}px`,
-    top: `${top}px`,
-    width: `${width}px`,
-    height: `${height}px`,
-    overflow: 'visible',
-    pointerEvents: 'none',
-    zIndex: 1
-  };
-});
+const emit = defineEmits(['select', 'delete']);
 
-// 计算路径数据
-const pathData = computed(() => {
-  const startX = props.startPoint.x - parseInt(svgStyle.value.left);
-  const startY = props.startPoint.y - parseInt(svgStyle.value.top);
-  const endX = props.endPoint.x - parseInt(svgStyle.value.left);
-  const endY = props.endPoint.y - parseInt(svgStyle.value.top);
+// 获取连接线路径
+const getPath = () => {
+  const { x: x1, y: y1 } = props.startPoint;
+  const { x: x2, y: y2 } = props.endPoint;
   
   // 计算控制点
-  const dx = Math.abs(endX - startX);
-  const controlOffset = Math.min(dx * 0.5, 150);
+  const dx = Math.abs(x2 - x1);
+  const offsetX = Math.min(dx * 0.5, 50);
   
-  // 使用贝塞尔曲线创建平滑路径
-  return `M ${startX} ${startY} 
-          C ${startX + (startX < endX ? controlOffset : -controlOffset)} ${startY}
-            ${endX - (startX < endX ? controlOffset : -controlOffset)} ${endY}
-            ${endX} ${endY}`;
-});
-
-// 连接线颜色
-const connectionColor = computed(() => {
-  switch (props.type) {
-    case 'true':
-      return '#10b981'; // 绿色
-    case 'false':
-      return '#ef4444'; // 红色
-    default:
-      return '#3b82f6'; // 蓝色
+  let cp1x, cp2x;
+  
+  if (x1 < x2) {
+    cp1x = x1 + offsetX;
+    cp2x = x2 - offsetX;
+  } else {
+    cp1x = x1 - offsetX;
+    cp2x = x2 + offsetX;
   }
-});
+  
+  return `M ${x1} ${y1} C ${cp1x} ${y1}, ${cp2x} ${y2}, ${x2} ${y2}`;
+};
 
-// 标签位置
-const labelX = computed(() => {
-  const startX = props.startPoint.x - parseInt(svgStyle.value.left);
-  const endX = props.endPoint.x - parseInt(svgStyle.value.left);
-  return (startX + endX) / 2;
-});
+// 获取连接线中点
+const getMidPoint = () => {
+  const { x: x1, y: y1 } = props.startPoint;
+  const { x: x2, y: y2 } = props.endPoint;
+  
+  // 计算贝塞尔曲线的中点（近似）
+  return {
+    x: (x1 + x2) / 2,
+    y: (y1 + y2) / 2 - Math.min(Math.abs(y2 - y1) * 0.2, 20) * (y1 < y2 ? 1 : -1)
+  };
+};
 
-const labelY = computed(() => {
-  const startY = props.startPoint.y - parseInt(svgStyle.value.top);
-  const endY = props.endPoint.y - parseInt(svgStyle.value.top);
-  return (startY + endY) / 2 - 10;
-});
-
-// 连接线标签
-const label = computed(() => {
-  switch (props.type) {
-    case 'true':
-      return '是';
-    case 'false':
-      return '否';
-    default:
-      return '';
+// 获取连接线颜色
+const getStrokeColor = () => {
+  switch (props.connectionType) {
+    case 'temp': return '#3b82f6';
+    case 'condition-true': return '#10b981';
+    case 'condition-false': return '#ef4444';
+    default: return props.selected ? '#3b82f6' : '#9ca3af';
   }
-});
+};
+
+// 获取连接线宽度
+const getStrokeWidth = () => {
+  // 根据缩放比例调整线宽
+  const baseWidth = props.selected ? 2 : 1.5;
+  return baseWidth / props.scale;
+};
+
+// 获取连接线虚线样式
+const getStrokeDashArray = () => {
+  if (props.connectionType !== 'temp') return 'none';
+  
+  // 根据缩放比例调整虚线样式
+  const dashSize = 5 / props.scale;
+  return `${dashSize},${dashSize}`;
+};
 </script>
 
 <style scoped>
 .flow-connection {
   position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-  z-index: 1;
-  overflow: visible;
+  z-index: 0;
 }
 
-/* 确保文本在连接线上方 */
-text {
-  filter: drop-shadow(0 0 2px white);
-  font-size: 12px;
-  font-weight: 500;
+.flow-connection path {
+  pointer-events: stroke;
+  cursor: pointer;
 }
 
-/* 添加连接线动画效果 */
-path {
-  transition: stroke 0.3s ease;
+.flow-connection.selected path {
+  filter: drop-shadow(0 0 3px rgba(59, 130, 246, 0.5));
 }
 
-/* 连接线悬停效果 */
-.connection-label {
-  opacity: 0.8;
-  transition: opacity 0.3s ease;
+.delete-btn {
+  cursor: pointer;
+  pointer-events: all;
 }
 
-.connection-label:hover {
-  opacity: 1;
+.delete-btn:hover circle {
+  fill: #fee2e2;
+}
+
+.connection-temp {
+  z-index: 1000;
 }
 </style>

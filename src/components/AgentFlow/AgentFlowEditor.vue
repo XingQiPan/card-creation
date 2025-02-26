@@ -1,1117 +1,791 @@
 <template>
   <div class="agent-flow-editor">
-    <div class="editor-header">
-      <h2>{{ isNewAgent ? '创建流程' : '编辑流程' }}</h2>
-      <div class="actions">
-        <button @click="saveFlow" class="save-btn">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <button 
+          @click="undo" 
+          class="toolbar-btn"
+          :disabled="!canUndo"
+          title="撤销 (Ctrl+Z)"
+        >
+          <i class="fas fa-undo"></i>
+        </button>
+        <button 
+          @click="redo" 
+          class="toolbar-btn"
+          :disabled="!canRedo"
+          title="重做 (Ctrl+Y)"
+        >
+          <i class="fas fa-redo"></i>
+        </button>
+      </div>
+      
+      <!-- 缩放控制 -->
+      <div class="toolbar-group">
+        <button 
+          @click="zoomOut" 
+          class="toolbar-btn"
+          :disabled="scale <= 0.5"
+          title="缩小"
+        >
+          <i class="fas fa-search-minus"></i>
+        </button>
+        <span class="scale-display">{{ Math.round(scale * 100) }}%</span>
+        <button 
+          @click="zoomIn" 
+          class="toolbar-btn"
+          :disabled="scale >= 2"
+          title="放大"
+        >
+          <i class="fas fa-search-plus"></i>
+        </button>
+        <button 
+          @click="resetZoom" 
+          class="toolbar-btn"
+          title="重置缩放"
+        >
+          <i class="fas fa-expand"></i>
+        </button>
+      </div>
+      
+      <div class="toolbar-group">
+        <button @click="saveFlow" class="toolbar-btn save">
           <i class="fas fa-save"></i> 保存
         </button>
-        <button @click="cancelEdit" class="cancel-btn">
+        <button @click="$emit('cancel')" class="toolbar-btn cancel">
           <i class="fas fa-times"></i> 取消
         </button>
       </div>
     </div>
 
-    <div v-if="loading" class="loading-container">
-      <i class="fas fa-spinner fa-spin"></i> 正在加载...
-    </div>
+    <div class="editor-container">
+      <!-- 节点类型面板 -->
+      <NodeTypes 
+        class="node-types-panel"
+        @dragstart="handleNodeDragStart"
+      />
 
-    <div v-else class="editor-container">
-      <div class="tools-panel">
-        <h3>节点类型</h3>
-        <div class="node-types">
-          <div 
-            v-for="type in filteredNodeTypes" 
-            :key="type.id" 
-            class="node-type-item"
-            draggable="true"
-            @dragstart="handleDragStart($event, type)"
-          >
-            <i :class="type.icon"></i>
-            <span>{{ type.name }}</span>
-          </div>
-        </div>
-      </div>
-
-      <div 
-        class="flow-canvas" 
-        ref="flowCanvas"
-        @drop="handleDrop"
-        @dragover.prevent
-        @dragenter.prevent
-        @click="deselectAll"
-        @mousemove="handleMouseMove"
-        @mouseup="handleMouseUp"
-      >
-        <div v-if="flow.nodes.length === 0" class="empty-flow-hint">
-          <p>从左侧拖拽节点到这里开始创建流程</p>
-        </div>
-
-        <!-- 节点 -->
+      <!-- 流程画布 -->
+      <div class="canvas-container">
         <div 
-          v-for="node in flow.nodes"
-          :key="node.id"
-          class="node-container"
-          :style="getNodePosition(node)"
-          @mousedown.stop="startDragNode($event, node.id)"
+          class="flow-canvas"
+          ref="canvasRef"
+          @drop="handleDrop"
+          @dragover.prevent
+          @dragenter.prevent
+          @click="deselectAll"
+          @mousemove="handleMouseMove"
+          @mouseup="handleMouseUp"
         >
+          <!-- 网格背景 -->
+          <div class="canvas-grid"></div>
+
+          <!-- 节点 -->
           <FlowNode
-            :nodeId="node.id"
-            :nodeData="node"
+            v-for="node in flow.nodes"
+            :key="node.id"
+            :node-id="node.id"
+            :node-data="node"
             :selected="selectedNodeId === node.id"
+            :style="getNodeStyle(node)"
             @select="selectNode"
-            @configure="openNodeConfig"
             @delete="deleteNode"
             @connection-start="startConnection"
-            @connection-end="endConnection"
+            @update-position="updateNodePosition"
           />
-        </div>
-        
-        <!-- 连接线 -->
-        <div v-for="connection in connections" :key="connection.id">
-          <FlowConnection
-            :startPoint="connection.startPoint"
-            :endPoint="connection.endPoint"
-            :connectionType="connection.type"
-          />
-        </div>
-        
-        <!-- 临时连接线 -->
-        <div v-if="tempConnection" class="temp-connection">
-          <svg 
-            :width="canvasSize.width" 
-            :height="canvasSize.height" 
-            style="position: absolute; top: 0; left: 0; pointer-events: none;"
-          >
+
+          <!-- 连接线 -->
+          <svg class="connections-layer">
+            <!-- 正常连接线 -->
             <path
+              v-for="conn in flow.connections"
+              :key="conn.id"
+              :d="getConnectionPath(conn)"
+              :stroke="getConnectionColor(conn)"
+              :stroke-width="getConnectionWidth(conn)"
+              fill="none"
+              @click.stop="selectConnection(conn.id)"
+            />
+            
+            <!-- 临时连接线 -->
+            <path
+              v-if="tempConnection.active"
               :d="getTempConnectionPath()"
               stroke="#3b82f6"
-              stroke-width="2"
+              :stroke-width="2 / scale"
               stroke-dasharray="5,5"
               fill="none"
             />
           </svg>
         </div>
       </div>
+
+      <!-- 节点配置面板 -->
+      <NodeConfigPanel
+        v-if="selectedNode"
+        :node="selectedNode"
+        class="config-panel"
+        @update="updateNodeConfig"
+        @close="deselectAll"
+      />
     </div>
     
-    <!-- 节点配置模态框 -->
-    <div v-if="showNodeConfig" class="node-config-modal" @click.self="closeNodeConfig">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>配置{{ getNodeTypeName(currentNode?.type) }}节点</h3>
-          <button @click="closeNodeConfig" class="close-btn">
-            <i class="fas fa-times"></i>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>节点名称</label>
-            <input type="text" v-model="currentNode.name" placeholder="输入节点名称">
-          </div>
-          <div class="form-group">
-            <label>描述</label>
-            <textarea v-model="currentNode.description" placeholder="输入节点描述" rows="3"></textarea>
-          </div>
-          
-          <!-- 根据节点类型显示不同的配置选项 -->
-          <div v-if="currentNode.type === 'message'">
-            <div class="form-group">
-              <label>消息内容</label>
-              <textarea v-model="currentNode.message" placeholder="输入消息内容" rows="5"></textarea>
-            </div>
-          </div>
-          
-          <div v-if="currentNode.type === 'condition'">
-            <div class="form-group">
-              <label>条件表达式</label>
-              <textarea v-model="currentNode.condition" placeholder="输入条件表达式，例如: context.value > 10" rows="3"></textarea>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button @click="closeNodeConfig" class="cancel-btn">取消</button>
-          <button @click="saveNodeConfig" class="save-btn">保存</button>
-        </div>
-      </div>
+    <!-- 缩放和平移控制 -->
+    <div class="canvas-controls">
+      <button @click="zoomIn" class="control-btn" title="放大">
+        <i class="fas fa-plus"></i>
+      </button>
+      <button @click="zoomOut" class="control-btn" title="缩小">
+        <i class="fas fa-minus"></i>
+      </button>
+      <button @click="resetZoom" class="control-btn" title="重置视图">
+        <i class="fas fa-home"></i>
+      </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
-import { v4 as uuidv4 } from 'uuid';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import NodeTypes from './NodeTypes.vue';
 import FlowNode from './FlowNode.vue';
 import FlowConnection from './FlowConnection.vue';
-import { useRouter } from 'vue-router';
+import NodeConfigPanel from './NodeConfigPanel.vue';
+import { HistoryManager } from './utils/history';
 
 const props = defineProps({
-  isNewAgent: {
-    type: Boolean,
-    default: false
-  },
-  value: {
+  initialFlow: {
     type: Object,
-    default: () => ({ nodes: [], connections: [] })
-  },
-  id: {
-    type: String,
-    default: 'new'
-  },
-  models: {
-    type: Array,
-    default: () => []
+    default: () => ({
+      nodes: [],
+      connections: []
+    })
   }
 });
 
-const emit = defineEmits(['update:value', 'save', 'cancel']);
-
-const router = useRouter();
+const emit = defineEmits(['save', 'cancel']);
 
 // 状态
-const loading = ref(true);
-const flowCanvas = ref(null);
+const flow = ref(JSON.parse(JSON.stringify(props.initialFlow)));
 const selectedNodeId = ref(null);
-const isDraggingNode = ref(false);
-const draggedNodeId = ref(null);
-const dragStartPos = ref({ x: 0, y: 0 });
-const showNodeConfig = ref(false);
-const currentNode = ref(null);
-const tempConnection = ref(null);
-const connections = ref([]);
-const canvasSize = reactive({ width: 0, height: 0 });
-
-// 流程数据
-const flow = ref({
-  nodes: [],
-  connections: []
+const selectedConnectionId = ref(null);
+const canvasRef = ref(null);
+const tempConnection = ref({
+  active: false,
+  sourceNodeId: null,
+  sourcePointType: null,
+  startX: 0,
+  startY: 0,
+  currentX: 0,
+  currentY: 0
 });
 
-// 定义 props
-const agent = ref({}); // 确保 agent 被定义为 ref
-const models = ref([]);
-const nodeTypes = ref([
-  { id: 'start', name: '开始', icon: 'play-circle', color: '#4CAF50' },
-  { id: 'message', name: '消息', icon: 'comment', color: '#2196F3' },
-  { id: 'condition', name: '条件', icon: 'code-branch', color: '#FF9800' },
-  { id: 'api', name: 'API调用', icon: 'plug', color: '#9C27B0' },
-  { id: 'end', name: '结束', icon: 'stop-circle', color: '#F44336' }
-]);
+// 历史记录管理器
+const historyManager = ref(null);
 
-// 连接线相关
-const isDraggingConnection = ref(false);
-const startConnectionNode = ref(null);
-const startConnectionPoint = ref(null);
-const currentMousePosition = ref({ x: 0, y: 0 });
+// 缩放和平移状态
+const scale = ref(1);
+const panOffset = ref({ x: 0, y: 0 });
+const isPanning = ref(false);
+const panStart = ref({ x: 0, y: 0 });
+const panStartOffset = ref({ x: 0, y: 0 });
 
-// 在组件的 setup 部分添加这个变量
-const isNewAgent = ref(false);
+// 计算属性
+const selectedNode = computed(() => 
+  flow.value.nodes.find(node => node.id === selectedNodeId.value)
+);
+const canUndo = computed(() => historyManager.value?.canUndo() ?? false);
+const canRedo = computed(() => historyManager.value?.canRedo() ?? false);
 
-// 初始化流程数据
-const initializeFlow = () => {
-  flow.value = JSON.parse(JSON.stringify(props.value || { nodes: [], connections: [] }));
+// 画布样式
+const canvasStyle = computed(() => ({
+  transform: `scale(${scale.value}) translate(${panOffset.value.x}px, ${panOffset.value.y}px)`,
+  transformOrigin: '0 0'
+}));
+
+// 获取节点连接点坐标
+const getNodeConnectionPointCoords = (nodeId, pointType) => {
+  // 首先找到节点元素
+  const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`);
+  if (!nodeElement) return null;
   
-  // 确保每个节点都有位置信息
-  flow.value.nodes.forEach(node => {
-    if (!node.position) {
-      node.position = { x: 100, y: 100 };
-    }
-  });
+  // 找到连接点元素
+  const pointElement = nodeElement.querySelector(`.connection-point.${pointType}`);
+  if (!pointElement) return null;
   
-  // 初始化连接
-  updateConnections();
-};
-
-// 过滤节点类型，确保只有一个开始和结束节点
-const filteredNodeTypes = computed(() => {
-  return nodeTypes.value.filter(type => {
-    if (type.id === 'start') {
-      return !flow.value.nodes.some(node => node.type === 'start');
-    }
-    if (type.id === 'end') {
-      return !flow.value.nodes.some(node => node.type === 'end');
-    }
-    return true;
-  });
-});
-
-// 获取节点位置样式
-const getNodePosition = (node) => {
+  // 获取节点和连接点的位置信息
+  const nodeRect = nodeElement.getBoundingClientRect();
+  const pointRect = pointElement.getBoundingClientRect();
+  const canvasRect = canvasRef.value.getBoundingClientRect();
+  
+  // 计算连接点相对于节点的偏移
+  const offsetX = (pointRect.left + pointRect.width / 2) - (nodeRect.left);
+  const offsetY = (pointRect.top + pointRect.height / 2) - (nodeRect.top);
+  
+  // 从节点数据中获取实际位置
+  const node = flow.value.nodes.find(n => n.id === nodeId);
+  if (!node) return null;
+  
+  // 返回连接点的实际坐标
   return {
-    position: 'absolute',
-    left: `${node.position.x}px`,
-    top: `${node.position.y}px`
+    x: node.position.x + offsetX / scale.value,
+    y: node.position.y + offsetY / scale.value
   };
 };
 
-// 获取节点类型名称
-const getNodeTypeName = (type) => {
-  const nodeType = nodeTypes.value.find(t => t.id === type);
-  return nodeType ? nodeType.name : '节点';
-};
-
-// 拖拽开始
-const handleDragStart = (event, nodeType) => {
-  console.log('开始拖拽节点类型:', nodeType);
-  event.dataTransfer.setData('nodeType', JSON.stringify(nodeType));
-  event.dataTransfer.effectAllowed = 'copy';
-};
-
-// 拖拽放置
-const handleDrop = (event) => {
-  event.preventDefault();
-  
-  try {
-    const nodeTypeData = event.dataTransfer.getData('nodeType');
-    if (!nodeTypeData) {
-      console.log('没有获取到节点类型数据');
-      return;
+// 获取连接点坐标（用于现有连接）
+const getConnectionPoint = (nodeId, pointType) => {
+  const coords = getNodeConnectionPointCoords(nodeId, pointType);
+  if (!coords) {
+    // 如果无法获取坐标，尝试从节点位置估算
+    const node = flow.value.nodes.find(n => n.id === nodeId);
+    if (node) {
+      // 根据连接点类型估算位置
+      switch (pointType) {
+        case 'input':
+          return { x: node.position.x, y: node.position.y + 30 };
+        case 'output':
+          return { x: node.position.x + 150, y: node.position.y + 30 };
+        case 'output-false':
+          return { x: node.position.x + 75, y: node.position.y + 60 };
+        default:
+          return { x: node.position.x + 75, y: node.position.y + 30 };
+      }
     }
-    
-    const nodeType = JSON.parse(nodeTypeData);
-    console.log('放置节点类型:', nodeType);
-    
-    // 计算放置位置
-    const canvasRect = flowCanvas.value.getBoundingClientRect();
-    const x = event.clientX - canvasRect.left;
-    const y = event.clientY - canvasRect.top;
-    
-    // 创建新节点
-    const newNode = {
-      id: `node-${Date.now()}`,
-      type: nodeType.id,
-      name: nodeType.name,
-      position: { x, y },
-      config: {}
-    };
-    
-    // 添加到流程中
-    flow.value.nodes.push(newNode);
-    console.log('添加新节点:', newNode);
-    console.log('当前节点列表:', flow.value.nodes);
-  } catch (error) {
-    console.error('处理拖放事件失败:', error);
   }
+  return coords || { x: 0, y: 0 };
 };
 
-// 选择节点
+// 处理节点拖拽
+const handleNodeDragStart = (nodeType) => {
+  console.log('开始拖拽节点:', nodeType);
+};
+
+const handleDrop = (event) => {
+  const data = JSON.parse(event.dataTransfer.getData('application/json'));
+  const canvasRect = canvasRef.value.getBoundingClientRect();
+  
+  const newNode = {
+    id: Date.now().toString(),
+    type: data.type,
+    name: '',
+    position: {
+      x: event.clientX - canvasRect.left,
+      y: event.clientY - canvasRect.top
+    },
+    data: data.data
+  };
+
+  flow.value.nodes.push(newNode);
+  recordChange();
+};
+
+// 获取连接线路径
+const getConnectionPath = (connection) => {
+  // 获取源节点和目标节点
+  const sourceNode = flow.value.nodes.find(n => n.id === connection.from);
+  const targetNode = flow.value.nodes.find(n => n.id === connection.to);
+  
+  if (!sourceNode || !targetNode) return '';
+  
+  // 计算连接点位置
+  let startX, startY, endX, endY;
+  
+  // 源节点连接点
+  if (connection.fromType === 'output-false') {
+    // 条件节点的false输出在底部
+    startX = sourceNode.position.x + 75; // 节点宽度的一半
+    startY = sourceNode.position.y + 60; // 节点底部
+  } else {
+    // 默认输出在右侧
+    startX = sourceNode.position.x + 150; // 节点宽度
+    startY = sourceNode.position.y + 30; // 节点高度的一半
+  }
+  
+  // 目标节点连接点总是在左侧
+  endX = targetNode.position.x;
+  endY = targetNode.position.y + 30; // 节点高度的一半
+  
+  // 计算贝塞尔曲线控制点
+  const dx = Math.abs(endX - startX);
+  const offsetX = Math.min(dx * 0.5, 50);
+  
+  let cp1x, cp2x;
+  
+  if (startX < endX) {
+    cp1x = startX + offsetX;
+    cp2x = endX - offsetX;
+  } else {
+    cp1x = startX - offsetX;
+    cp2x = endX + offsetX;
+  }
+  
+  return `M ${startX} ${startY} C ${cp1x} ${startY}, ${cp2x} ${endY}, ${endX} ${endY}`;
+};
+
+// 获取临时连接路径
+const getTempConnectionPath = () => {
+  const { startX, startY, currentX, currentY } = tempConnection.value;
+  
+  // 计算控制点
+  const dx = Math.abs(currentX - startX);
+  const offsetX = Math.min(dx * 0.5, 50);
+  
+  let cp1x, cp2x;
+  
+  if (startX < currentX) {
+    cp1x = startX + offsetX;
+    cp2x = currentX - offsetX;
+  } else {
+    cp1x = startX - offsetX;
+    cp2x = currentX + offsetX;
+  }
+  
+  return `M ${startX} ${startY} C ${cp1x} ${startY}, ${cp2x} ${currentY}, ${currentX} ${currentY}`;
+};
+
+// 获取连接线颜色
+const getConnectionColor = (connection) => {
+  if (selectedConnectionId === connection.id) return '#3b82f6';
+  if (connection.type === 'condition-true') return '#10b981';
+  if (connection.type === 'condition-false') return '#ef4444';
+  return '#9ca3af';
+};
+
+// 获取连接线宽度
+const getConnectionWidth = (connection) => {
+  return (selectedConnectionId === connection.id ? 2 : 1.5) / scale.value;
+};
+
+// 开始连接
+const startConnection = ({ nodeId, pointType }) => {
+  // 获取源节点
+  const sourceNode = flow.value.nodes.find(n => n.id === nodeId);
+  if (!sourceNode) return;
+  
+  let startX, startY;
+  
+  // 根据连接点类型确定起始位置
+  if (pointType === 'output-false') {
+    // 条件节点的false输出在底部
+    startX = sourceNode.position.x + 75; // 节点宽度的一半
+    startY = sourceNode.position.y + 60; // 节点底部
+  } else if (pointType === 'output') {
+    // 默认输出在右侧
+    startX = sourceNode.position.x + 150; // 节点宽度
+    startY = sourceNode.position.y + 30; // 节点高度的一半
+  } else {
+    // 输入点在左侧
+    startX = sourceNode.position.x;
+    startY = sourceNode.position.y + 30; // 节点高度的一半
+  }
+  
+  tempConnection.value = {
+    active: true,
+    fromNode: nodeId,
+    fromType: pointType,
+    startX,
+    startY,
+    currentX: startX,
+    currentY: startY
+  };
+  
+  // 添加事件监听
+  document.addEventListener('mousemove', handleMouseMove);
+  document.addEventListener('mouseup', handleMouseUp);
+};
+
+// 处理鼠标移动
+const handleMouseMove = (event) => {
+  if (!tempConnection.value.active) return;
+  
+  const canvasRect = canvasRef.value.getBoundingClientRect();
+  
+  // 计算鼠标在画布中的实际位置（考虑缩放和滚动）
+  tempConnection.value.currentX = (event.clientX - canvasRect.left) / scale.value + canvasRef.value.scrollLeft;
+  tempConnection.value.currentY = (event.clientY - canvasRect.top) / scale.value + canvasRef.value.scrollTop;
+};
+
+// 处理鼠标抬起
+const handleMouseUp = (event) => {
+  if (!tempConnection.value.active) return;
+  
+  // 移除事件监听
+  document.removeEventListener('mousemove', handleMouseMove);
+  document.removeEventListener('mouseup', handleMouseUp);
+  
+  // 检查是否在连接点上释放
+  const targetElement = document.elementFromPoint(event.clientX, event.clientY);
+  if (targetElement && targetElement.classList.contains('connection-point')) {
+    // 获取目标节点ID
+    const targetNode = targetElement.closest('.flow-node');
+    if (targetNode) {
+      const targetNodeId = targetNode.getAttribute('data-node-id');
+      const targetPointType = targetElement.classList.contains('input') ? 'input' : 
+                             targetElement.classList.contains('output-false') ? 'output-false' : 'output';
+      
+      // 创建连接
+      createConnection(
+        tempConnection.value.fromNode,
+        tempConnection.value.fromType,
+        targetNodeId,
+        targetPointType
+      );
+    }
+  }
+  
+  // 重置临时连接
+  tempConnection.value.active = false;
+};
+
+// 选择操作
 const selectNode = (nodeId) => {
   selectedNodeId.value = nodeId;
+  selectedConnectionId.value = null;
 };
 
-// 取消选择所有节点
-const deselectAll = () => {
+const selectConnection = (connectionId) => {
+  selectedConnectionId.value = connectionId;
   selectedNodeId.value = null;
 };
 
-// 删除节点
+const deselectAll = () => {
+  selectedNodeId.value = null;
+  selectedConnectionId.value = null;
+};
+
+// 删除操作
 const deleteNode = (nodeId) => {
-  // 删除与该节点相关的连接
-  flow.value.connections = flow.value.connections.filter(conn => 
-    conn.sourceId !== nodeId && conn.targetId !== nodeId
-  );
-  
-  // 删除节点
   flow.value.nodes = flow.value.nodes.filter(node => node.id !== nodeId);
-  
-  // 更新流程数据
-  updateFlow();
-  updateConnections();
+  flow.value.connections = flow.value.connections.filter(
+    conn => conn.from !== nodeId && conn.to !== nodeId
+  );
+  recordChange();
 };
 
-// 开始拖动节点
-const startDragNode = (event, nodeId) => {
-  if (event.target.closest('.connection-point')) return;
-  
-  isDraggingNode.value = true;
-  draggedNodeId.value = nodeId;
-  dragStartPos.value = {
-    x: event.clientX,
-    y: event.clientY
+// 创建新连接
+const createConnection = (sourceNodeId, sourceType, targetNodeId, targetType) => {
+  // 创建连接对象
+  const newConnection = {
+    id: Date.now().toString(),
+    from: sourceNodeId,
+    to: targetNodeId,
+    fromType: sourceType,
+    toType: targetType,
+    type: sourceType === 'output-false' ? 'condition-false' : 'default'
   };
   
-  // 获取当前节点位置
-  const node = flow.value.nodes.find(n => n.id === nodeId);
-  if (node) {
-    dragStartPos.value.nodeX = node.position.x;
-    dragStartPos.value.nodeY = node.position.y;
-  }
-  
-  // 选中节点
-  selectedNodeId.value = nodeId;
-  
-  // 添加全局鼠标事件监听
-  document.addEventListener('mousemove', handleGlobalMouseMove);
-  document.addEventListener('mouseup', handleGlobalMouseUp);
+  // 添加到连接列表
+  flow.value.connections.push(newConnection);
+  recordChange();
 };
 
-// 鼠标移动事件 - 用于绘制临时连接线
-const handleMouseMove = (event) => {
-  if (tempConnection.value) {
-    const canvasRect = flowCanvas.value.getBoundingClientRect();
-    tempConnection.value.currentPoint = {
-      x: event.clientX - canvasRect.left,
-      y: event.clientY - canvasRect.top
-    };
-  }
-};
-
-// 鼠标释放事件 - 用于结束连接线绘制
-const handleMouseUp = (event) => {
-  if (tempConnection.value) {
-    // 查找鼠标下方的元素
-    const elementsUnderMouse = document.elementsFromPoint(event.clientX, event.clientY);
-    
-    // 查找输入连接点
-    const inputPoint = elementsUnderMouse.find(el => 
-      el.classList && el.classList.contains('connection-point') && 
-      el.classList.contains('input')
-    );
-    
-    if (inputPoint) {
-      // 找到目标节点
-      const nodeElement = inputPoint.closest('.flow-node');
-      if (nodeElement && nodeElement.dataset.nodeId) {
-        const targetNodeId = nodeElement.dataset.nodeId;
-        
-        // 确保不是连接到自己
-        if (targetNodeId !== tempConnection.value.sourceNodeId) {
-          // 创建新连接
-          const newConnection = {
-            id: `conn-${Date.now()}`,
-            sourceId: tempConnection.value.sourceNodeId,
-            targetId: targetNodeId,
-            type: tempConnection.value.type
-          };
-          
-          // 检查是否已存在相同的连接
-          const existingConnection = flow.value.connections.find(
-            conn => conn.sourceId === newConnection.sourceId && 
-                   conn.targetId === newConnection.targetId &&
-                   conn.type === newConnection.type
-          );
-          
-          if (!existingConnection) {
-            flow.value.connections.push(newConnection);
-            updateConnections();
-            updateFlow();
-          }
-        }
-      }
-    }
-    
-    // 清除临时连线
-    tempConnection.value = null;
-  }
-};
-
-// 开始创建连接
-const startConnection = (data) => {
-  // 记录起始节点和连接类型
-  tempConnection.value = {
-    sourceNodeId: data.nodeId,
-    startPoint: {
-      x: data.point.x - flowCanvas.value.getBoundingClientRect().left,
-      y: data.point.y - flowCanvas.value.getBoundingClientRect().top
-    },
-    endPoint: {
-      x: data.point.x - flowCanvas.value.getBoundingClientRect().left,
-      y: data.point.y - flowCanvas.value.getBoundingClientRect().top
-    },
-    type: data.type
-  };
-  
-  // 添加全局鼠标事件监听
-  document.addEventListener('mousemove', handleGlobalMouseMove);
-  document.addEventListener('mouseup', handleGlobalMouseUp);
-};
-
-// 获取临时连线的路径
-const getTempConnectionPath = () => {
-  if (!tempConnection.value) return '';
-  
-  const { startPoint, endPoint } = tempConnection.value;
-  
-  // 计算控制点
-  const dx = Math.abs(endPoint.x - startPoint.x);
-  const controlOffset = Math.min(dx * 0.5, 150);
-  
-  // 贝塞尔曲线路径
-  return `M ${startPoint.x} ${startPoint.y} 
-          C ${startPoint.x + controlOffset} ${startPoint.y}
-            ${endPoint.x - controlOffset} ${endPoint.y}
-            ${endPoint.x} ${endPoint.y}`;
-};
-
-// 更新连接线
-const updateConnections = () => {
-  console.log('更新连接线，当前连接:', flow.value.connections);
-  
-  connections.value = flow.value.connections.map(conn => {
-    const sourceNode = flow.value.nodes.find(n => n.id === conn.sourceId);
-    const targetNode = flow.value.nodes.find(n => n.id === conn.targetId);
-    
-    if (!sourceNode || !targetNode) {
-      console.log('找不到源节点或目标节点:', conn);
-      return null;
-    }
-    
-    // 计算连接线的起点和终点
-    const sourceRect = {
-      x: sourceNode.position.x,
-      y: sourceNode.position.y,
-      width: 200, // 假设节点宽度为200px
-      height: 100 // 假设节点高度为100px
-    };
-    
-    const targetRect = {
-      x: targetNode.position.x,
-      y: targetNode.position.y,
-      width: 200,
-      height: 100
-    };
-    
-    // 计算连接点
-    const startPoint = {
-      x: sourceRect.x + sourceRect.width,
-      y: sourceRect.y + sourceRect.height / 2
-    };
-    
-    const endPoint = {
-      x: targetRect.x,
-      y: targetRect.y + targetRect.height / 2
-    };
-    
-    return {
-      id: conn.id,
-      startPoint,
-      endPoint,
-      type: conn.type
-    };
-  }).filter(Boolean); // 过滤掉 null 值
-  
-  console.log('更新后的连接线:', connections.value);
-};
-
-// 打开节点配置
-const openNodeConfig = (node) => {
-  currentNode.value = JSON.parse(JSON.stringify(node));
-  showNodeConfig.value = true;
-};
-
-// 关闭节点配置
-const closeNodeConfig = () => {
-  showNodeConfig.value = false;
-  currentNode.value = null;
-};
-
-// 保存节点配置
-const saveNodeConfig = () => {
-  const index = flow.value.nodes.findIndex(n => n.id === currentNode.value.id);
+// 更新节点配置
+const updateNodeConfig = (updatedNode) => {
+  const index = flow.value.nodes.findIndex(node => node.id === updatedNode.id);
   if (index !== -1) {
-    flow.value.nodes[index] = { ...currentNode.value };
-    updateConnections();
+    flow.value.nodes[index] = updatedNode;
+    recordChange();
   }
-  
-  closeNodeConfig();
 };
 
-// 更新流程数据
-const updateFlow = () => {
-  emit('update:value', flow.value);
+// 更新节点位置
+const updateNodePosition = ({ id, position }) => {
+  const node = flow.value.nodes.find(n => n.id === id);
+  if (node) {
+    node.position = {
+      x: Math.max(0, position.x),
+      y: Math.max(0, position.y)
+    };
+    recordChange();
+  }
 };
 
 // 保存流程
-const saveFlow = async () => {
-  try {
-    // 验证必填字段
-    if (!agent.value.name) {
-      alert('请输入助手名称');
-      return;
-    }
-    
-    if (!agent.value.modelId) {
-      alert('请选择模型');
-      return;
-    }
-    
-    // 准备保存的数据
-    const agentData = {
-      ...agent.value,
-      flow: flow.value,
-      updatedAt: Date.now()
-    };
-    
-    console.log('保存数据:', agentData);
-    
-    // 如果是新建代理，则创建新记录
-    if (props.id === 'new') {
-      console.log('创建新代理');
-      
-      const response = await fetch('http://localhost:3000/api/agents', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(agentData)
-      });
-      
-      if (!response.ok) {
-        throw new Error(`创建助手失败: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      if (result.success) {
-        // 保存成功后跳转到代理列表页
-        router.push('/agents');
-      } else {
-        throw new Error(result.message || '创建助手失败');
-      }
-    } else {
-      // 更新现有代理
-      console.log('更新代理:', props.id);
-      
-      const response = await fetch(`http://localhost:3000/api/agents/${props.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(agentData)
-      });
-      
-      if (!response.ok) {
-        throw new Error(`更新助手失败: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      if (result.success) {
-        // 保存成功后跳转到代理详情页
-        router.push(`/agents/${props.id}`);
-      } else {
-        throw new Error(result.message || '更新助手失败');
-      }
-    }
-  } catch (error) {
-    console.error('保存助手失败:', error);
-    alert(`保存失败: ${error.message}`);
+const saveFlow = () => {
+  emit('save', flow.value);
+};
+
+// 缩放功能
+const zoomIn = () => {
+  if (scale.value < 2) {
+    scale.value = Math.min(2, scale.value + 0.1);
   }
 };
 
-// 取消编辑
-const cancelEdit = () => {
-  // 如果是新建代理，则返回代理列表页
-  if (props.id === 'new') {
-    router.push('/agents');
-  } else {
-    // 否则返回代理详情页
-    router.push(`/agents/${props.id}`);
+const zoomOut = () => {
+  if (scale.value > 0.5) {
+    scale.value = Math.max(0.5, scale.value - 0.1);
   }
 };
 
-// 更新画布尺寸
-const updateCanvasSize = () => {
-  if (flowCanvas.value) {
-    canvasSize.width = flowCanvas.value.clientWidth;
-    canvasSize.height = flowCanvas.value.clientHeight;
-  }
+const resetZoom = () => {
+  scale.value = 1;
+  panOffset.value = { x: 0, y: 0 };
 };
 
 // 生命周期钩子
-onMounted(async () => {
-  console.log('组件挂载，ID:', props.id);
+onMounted(() => {
+  historyManager.value = new HistoryManager(flow.value);
   
-  // 加载模型列表
-  await loadModels();
+  // 添加键盘快捷键监听
+  document.addEventListener('keydown', handleKeyDown);
   
-  // 检查是否是新建代理
-  if (props.id === 'new') {
-    console.log('创建新代理');
-    // 初始化新代理数据
-    initNewAgent();
-    loading.value = false;
-  } else {
-    // 加载现有代理数据
-    await loadAgentData();
-  }
-  
-  updateCanvasSize();
-  
-  window.addEventListener('resize', () => {
-    updateCanvasSize();
-    updateConnections();
-  });
+  // 添加空格键监听（用于平移模式）
+  document.addEventListener('keydown', handleKeyDown);
+  document.addEventListener('keyup', handleKeyUp);
 });
 
-onBeforeUnmount(() => {
-  document.removeEventListener('mousemove', handleGlobalMouseMove);
-  document.removeEventListener('mouseup', handleGlobalMouseUp);
-  window.removeEventListener('resize', updateCanvasSize);
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeyDown);
+  document.removeEventListener('keyup', handleKeyUp);
 });
 
-// 处理全局鼠标移动（用于绘制临时连线）
-const handleGlobalMouseMove = (event) => {
-  if (tempConnection.value) {
-    tempConnection.value.endPoint = {
-      x: event.clientX - flowCanvas.value.getBoundingClientRect().left,
-      y: event.clientY - flowCanvas.value.getBoundingClientRect().top
-    };
-  } else if (isDraggingNode.value) {
-    // 计算新位置
-    const dx = event.clientX - dragStartPos.value.x;
-    const dy = event.clientY - dragStartPos.value.y;
-    
-    const node = flow.value.nodes.find(n => n.id === draggedNodeId.value);
-    if (node) {
-      node.position = {
-        x: Math.max(0, dragStartPos.value.nodeX + dx),
-        y: Math.max(0, dragStartPos.value.nodeY + dy)
-      };
-      
-      // 更新连接线
-      updateConnections();
-    }
-  }
-};
-
-// 处理全局鼠标释放（结束拖拽或连线）
-const handleGlobalMouseUp = (event) => {
-  // 清除全局事件监听
-  document.removeEventListener('mousemove', handleGlobalMouseMove);
-  document.removeEventListener('mouseup', handleGlobalMouseUp);
-  
-  // 处理节点拖拽结束
-  if (isDraggingNode.value) {
-    isDraggingNode.value = false;
-    draggedNodeId.value = null;
-    dragStartPos.value = null;
-    updateFlow();
-    return;
-  }
-  
-  // 处理连线结束
-  if (tempConnection.value) {
-    // 检查鼠标释放位置是否在节点上
-    const targetElement = document.elementFromPoint(event.clientX, event.clientY);
-    const inputConnectionPoint = targetElement?.closest('.connection-point.input');
-    
-    if (inputConnectionPoint) {
-      // 找到目标节点
-      const nodeContainer = inputConnectionPoint.closest('.node-container');
-      if (nodeContainer) {
-        const targetNodeId = nodeContainer.querySelector('.flow-node').dataset.nodeId;
-        
-        // 确保不是连接到自己
-        if (targetNodeId && targetNodeId !== tempConnection.value.sourceNodeId) {
-          // 创建新连接
-          const newConnection = {
-            id: `conn-${Date.now()}`,
-            sourceId: tempConnection.value.sourceNodeId,
-            targetId: targetNodeId,
-            type: tempConnection.value.type
-          };
-          
-          // 检查是否已存在相同的连接
-          const existingConnection = flow.value.connections.find(
-            conn => conn.sourceId === newConnection.sourceId && 
-                   conn.targetId === newConnection.targetId &&
-                   conn.type === newConnection.type
-          );
-          
-          if (!existingConnection) {
-            flow.value.connections.push(newConnection);
-            updateConnections();
-            updateFlow();
-          }
+// 处理键盘事件
+const handleKeyDown = (event) => {
+  // 撤销/重做快捷键
+  if (event.ctrlKey || event.metaKey) {
+    switch (event.key.toLowerCase()) {
+      case 'z':
+        event.preventDefault();
+        if (event.shiftKey) {
+          redo();
+        } else {
+          undo();
         }
-      }
+        break;
+      case 'y':
+        event.preventDefault();
+        redo();
+        break;
+      case '0':
+        event.preventDefault();
+        resetZoom();
+        break;
+      case '=':
+      case '+':
+        event.preventDefault();
+        zoomIn();
+        break;
+      case '-':
+        event.preventDefault();
+        zoomOut();
+        break;
     }
-    
-    // 清除临时连线
-    tempConnection.value = null;
   }
-};
-
-// 加载模型列表
-const loadModels = async () => {
-  try {
-    // 如果从 props 中接收到了模型列表，则使用它
-    if (props.models && props.models.length > 0) {
-      models.value = props.models;
-      return;
-    }
-    
-    // 尝试从服务器加载模型列表
-    const response = await fetch('http://localhost:3000/api/models');
-    
-    if (!response.ok) {
-      throw new Error(`获取模型列表失败: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    if (result.success) {
-      models.value = result.data;
-    } else {
-      throw new Error(result.message || '获取模型列表失败');
-    }
-  } catch (error) {
-    console.log('使用默认模型列表');
-    // 设置默认模型列表
-    models.value = [
-      { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
-      { id: 'gpt-4', name: 'GPT-4' },
-      { id: 'claude-3-opus', name: 'Claude 3 Opus' },
-      { id: 'claude-3-sonnet', name: 'Claude 3 Sonnet' },
-      { id: 'claude-3-haiku', name: 'Claude 3 Haiku' }
-    ];
-  }
-};
-
-// 加载代理数据
-const loadAgentData = async () => {
-  try {
-    const response = await fetch(`http://localhost:3000/api/agents/${props.id}`);
-    
-    if (!response.ok) {
-      throw new Error(`获取助手失败: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    if (result.success) {
-      agent.value = result.data;
-      
-      // 如果有流程数据，则加载
-      if (agent.value.flow) {
-        flow.value = agent.value.flow;
-      } else {
-        // 否则初始化空流程
-        flow.value = {
-          nodes: [],
-          connections: []
-        };
-      }
-      
-      // 更新连接线
-      updateConnections();
-    } else {
-      throw new Error(result.message || '获取助手失败');
-    }
-  } catch (error) {
-    console.error('加载助手数据失败:', error);
-    // 初始化空数据
-    agent.value = {
-      name: '',
-      description: '',
-      modelId: models.value.length > 0 ? models.value[0].id : '',
-      enabled: true
-    };
-    
-    flow.value = {
-      nodes: [],
-      connections: []
-    };
-  } finally {
-    loading.value = false;
-  }
-};
-
-// 初始化新代理
-const initNewAgent = () => {
-  console.log('初始化新代理，可用模型:', models.value);
   
-  // 设置为新代理
-  isNewAgent.value = true;
-  
-  agent.value = {
-    name: '新建智能助手',
-    description: '',
-    modelId: models.value.length > 0 ? models.value[0].id : '',
-    enabled: true,
-    createdAt: Date.now(),
-    updatedAt: null
+  // 空格键按下时启用平移模式
+  if (event.code === 'Space' && !isPanning.value) {
+    canvasRef.value.style.cursor = 'grab';
+  }
+};
+
+const handleKeyUp = (event) => {
+  // 空格键释放时禁用平移模式
+  if (event.code === 'Space' && !isPanning.value) {
+    canvasRef.value.style.cursor = 'default';
+  }
+};
+
+// 撤销
+const undo = () => {
+  if (canUndo.value) {
+    const previousState = historyManager.value.undo();
+    if (previousState) {
+      flow.value = previousState;
+    }
+  }
+};
+
+// 重做
+const redo = () => {
+  if (canRedo.value) {
+    const nextState = historyManager.value.redo();
+    if (nextState) {
+      flow.value = nextState;
+    }
+  }
+};
+
+// 记录状态变化
+const recordChange = () => {
+  historyManager.value?.push(flow.value);
+};
+
+// 获取节点样式
+const getNodeStyle = (node) => {
+  return {
+    transform: `translate(${node.position.x}px, ${node.position.y}px)`,
+    zIndex: selectedNodeId === node.id ? 10 : 1
   };
-  
-  // 初始化流程图
-  flow.value = {
-    nodes: [
-      {
-        id: uuidv4(),
-        type: 'start',
-        name: '开始节点',
-        position: { x: 100, y: 100 },
-        config: {}
-      }
-    ],
-    connections: []
-  };
-  
-  // 更新连接线
-  updateConnections();
-  
-  console.log('新代理初始化完成:', agent.value);
 };
 </script>
 
 <style scoped>
 .agent-flow-editor {
-  width: 100%;
   display: flex;
   flex-direction: column;
   height: 100%;
-  background-color: #f9fafb;
+  background: #f9fafb;
+  position: relative;
 }
 
-.editor-header {
-  padding: 16px;
-  background-color: white;
+.toolbar {
+  padding: 12px;
+  background: white;
   border-bottom: 1px solid #e5e7eb;
   display: flex;
   justify-content: space-between;
-  align-items: center;
-}
-
-.editor-header h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.actions {
-  display: flex;
   gap: 8px;
 }
 
-.save-btn, .cancel-btn {
-  padding: 8px 16px;
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-btn {
+  padding: 8px;
   border-radius: 4px;
   font-size: 14px;
-  font-weight: 500;
   cursor: pointer;
+  background: white;
+  border: 1px solid #e5e7eb;
+  color: #6b7280;
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
 }
 
-.save-btn {
-  background-color: #3b82f6;
+.toolbar-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolbar-btn.save {
+  background: #3b82f6;
   color: white;
   border: none;
+  padding: 8px 16px;
 }
 
-.save-btn:hover {
-  background-color: #2563eb;
+.toolbar-btn.save:hover {
+  background: #2563eb;
 }
 
-.cancel-btn {
-  background-color: white;
+.toolbar-btn.cancel {
+  padding: 8px 16px;
+}
+
+.scale-display {
+  font-size: 14px;
   color: #6b7280;
-  border: 1px solid #d1d5db;
-}
-
-.cancel-btn:hover {
-  background-color: #f3f4f6;
-}
-
-.loading-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100%;
-  font-size: 16px;
-  color: #6b7280;
+  min-width: 50px;
+  text-align: center;
 }
 
 .editor-container {
-  display: flex;
   flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+.node-types-panel {
+  width: 240px;
+  border-right: 1px solid #e5e7eb;
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.canvas-container {
+  flex: 1;
+  position: relative;
   overflow: hidden;
 }
 
-.tools-panel {
-  width: 200px;
-  background-color: white;
-  border-right: 1px solid #e5e7eb;
-  padding: 16px;
+.flow-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  min-height: 100%;
+  background: #ffffff;
+  transition: transform 0.1s ease;
+}
+
+.canvas-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 5000px;
+  height: 5000px;
+  background-size: 20px 20px;
+  background-image:
+    linear-gradient(to right, #f0f0f0 1px, transparent 1px),
+    linear-gradient(to bottom, #f0f0f0 1px, transparent 1px);
+  transform: translate(-2500px, -2500px);
+}
+
+.config-panel {
+  width: 300px;
+  border-left: 1px solid #e5e7eb;
   overflow-y: auto;
+  z-index: 10;
 }
 
-.tools-panel h3 {
-  margin: 0 0 12px 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: #374151;
-}
-
-.node-types {
+.canvas-controls {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  z-index: 100;
 }
 
-.node-type-item {
-  padding: 8px 12px;
-  background-color: #f3f4f6;
-  border-radius: 4px;
-  cursor: pointer;
+.control-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: white;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: #4b5563;
-  user-select: none;
+  justify-content: center;
+  cursor: pointer;
+  color: #6b7280;
 }
 
-.node-type-item:hover {
-  background-color: #e5e7eb;
+.control-btn:hover {
+  background: #f3f4f6;
+  color: #3b82f6;
 }
 
-.node-type-item i {
-  width: 16px;
-  text-align: center;
-}
-
-.flow-canvas {
-  flex: 1;
-  position: relative;
-  overflow: auto;
-  background-color: #f9fafb;
-  background-image: 
-    linear-gradient(rgba(209, 213, 219, 0.3) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(209, 213, 219, 0.3) 1px, transparent 1px);
-  background-size: 20px 20px;
-  min-height: 600px;
-}
-
-.empty-flow-hint {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  color: #9ca3af;
-  font-size: 16px;
-}
-
-.node-container {
-  position: absolute;
-  user-select: none;
-  z-index: 2;
-}
-
-.temp-connection {
+.connections-layer {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 1;
+  z-index: 0;
 }
 
-.node-config-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background-color: white;
-  border-radius: 8px;
-  width: 90%;
-  max-width: 600px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.modal-header {
-  padding: 16px;
-  border-bottom: 1px solid #e5e7eb;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 16px;
-  color: #6b7280;
+.connections-layer path {
+  pointer-events: stroke;
   cursor: pointer;
-}
-
-.modal-body {
-  padding: 16px;
-  overflow-y: auto;
-  max-height: 60vh;
-}
-
-.form-group {
-  margin-bottom: 16px;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 6px;
-  font-weight: 500;
-  font-size: 14px;
-}
-
-.form-group input[type="text"],
-.form-group textarea,
-.form-group select {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 14px;
-}
-
-.modal-footer {
-  padding: 16px;
-  border-top: 1px solid #e5e7eb;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.modal-footer button {
-  padding: 8px 16px;
-  border-radius: 4px;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.save-config-btn {
-  background-color: #3b82f6;
-  color: white;
-  border: none;
-}
-
-.save-config-btn:hover {
-  background-color: #2563eb;
-}
-
-.cancel-config-btn {
-  background-color: white;
-  color: #6b7280;
-  border: 1px solid #d1d5db;
-}
-
-.cancel-config-btn:hover {
-  background-color: #f3f4f6;
 }
 </style>

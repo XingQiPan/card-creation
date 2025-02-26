@@ -32,10 +32,6 @@
             <span>{{ agent.description || '无描述' }}</span>
           </div>
           <div class="info-item">
-            <span class="label">模型:</span>
-            <span>{{ getModelName(agent.modelId) }}</span>
-          </div>
-          <div class="info-item">
             <span class="label">状态:</span>
             <span :class="agent.enabled ? 'enabled' : 'disabled'">
               {{ agent.enabled ? '已启用' : '已禁用' }}
@@ -130,15 +126,6 @@ const getNodeTypeName = (type) => {
     'end': '结束节点'
   }
   return nodeTypes[type] || type
-}
-
-// 获取模型名称
-const getModelName = (modelId) => {
-  if (!models.value || !Array.isArray(models.value)) {
-    return '未知模型'
-  }
-  const model = models.value.find(m => m.id === modelId)
-  return model ? model.name : modelId || '未知模型'
 }
 
 // 格式化日期

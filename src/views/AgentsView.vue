@@ -34,10 +34,6 @@
           </div>
           <div class="agent-meta">
             <div class="meta-item">
-              <span class="label">模型:</span>
-              <span>{{ getModelName(agent.modelId) }}</span>
-            </div>
-            <div class="meta-item">
               <span class="label">状态:</span>
               <span :class="agent.enabled ? 'enabled' : 'disabled'">
                 {{ agent.enabled ? '已启用' : '已禁用' }}
@@ -117,13 +113,13 @@ const loadModels = async () => {
 };
 
 // 获取模型名称
-const getModelName = (modelId) => {
-  if (!models.value || !Array.isArray(models.value)) {
-    return '未知模型'
-  }
-  const model = models.value.find(m => m.id === modelId)
-  return model ? model.name : '未知模型'
-}
+// const getModelName = (modelId) => {
+//   if (!models.value || !Array.isArray(models.value)) {
+//     return '未知模型'
+//   }
+//   const model = models.value.find(m => m.id === modelId)
+//   return model ? model.name : '未知模型'
+// }
 
 // 加载代理列表
 const loadAgents = async () => {
@@ -329,7 +325,6 @@ onMounted(async () => {
   height: 42px;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
 

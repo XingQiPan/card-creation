@@ -17281,6 +17281,143 @@ _**User**_
 
 _**Assistant**_
 
+在 Markdown 中添加图片非常简单。您可以使用以下语法：
+
+````markdown
+![替代文本](图片URL)
+````
+
+### 示例
+
+1. **本地图片**：
+   如果您有一张本地图片（例如 `images/example.png`），您可以这样添加：
+
+   ````markdown
+   ![示例图片](images/example.png)
+   ````
+
+2. **网络图片**：
+   如果您想添加网络上的图片，可以直接使用图片的 URL：
+
+   ````markdown
+   ![示例图片](https://example.com/path/to/image.png)
+   ````
+
+### 完整示例
+
+假设您想在 README.md 中添加一张项目截图，您可以这样做：
+
+````markdown
+# 星卡写作 (AI Prompt Editor)
+
+一个现代化的、功能丰富的提示词编辑和管理系统，基于 Vue 3 + Vite 构建。该系统允许用户创建、编辑和管理 AI 提示词，支持场景管理、文本卡片和智能工作流。
+
+![项目截图](images/screenshot.png)  <!-- 本地图片示例 -->
+````
+
+### 注意事项
+- 确保图片路径正确，尤其是本地图片。
+- 如果使用网络图片，确保 URL 是有效的，并且图片可以公开访问。
+- 替代文本（替代文本）是图片无法加载时显示的文本，建议提供简短描述。
+
+---
+
+_**User**_
+
+chenz@xingqipan MINGW64 ~/Desktop/VUE3/Card/card-creation (test)
+$ git add .
+
+chenz@xingqipan MINGW64 ~/Desktop/VUE3/Card/card-creation (test)
+$ git commit -m "更新了截图"
+[test 20ab46b] 更新了截图
+ 5 files changed, 337 insertions(+), 855 deletions(-)
+ create mode 100644 public/yangli.png
+
+chenz@xingqipan MINGW64 ~/Desktop/VUE3/Card/card-creation (test)
+$ git push
+Enumerating objects: 22, done.
+Counting objects: 100% (22/22), done.
+Delta compression using up to 12 threads
+Compressing objects: 100% (11/11), done.
+Writing objects: 100% (12/12), 94.04 KiB | 7.84 MiB/s, done.
+Total 12 (delta 7), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (7/7), completed with 7 local objects.
+To https://github.com/XingQiPan/card-creation.git
+   58b9996..20ab46b  test -> test
+
+chenz@xingqipan MINGW64 ~/Desktop/VUE3/Card/card-creation (test)
+$
+git如何覆盖主分支
+
+
+---
+
+_**Assistant**_
+
+要用 test 分支覆盖主分支(main/master)，可以按以下步骤操作：
+
+1. 首先切换到主分支：
+```bash
+git checkout main
+```
+
+2. 将 test 分支的内容强制覆盖到主分支：
+```bash
+git reset --hard test
+```
+
+3. 推送更新到远程仓库（因为是强制覆盖，需要使用 -f 参数）：
+```bash
+git push -f origin main
+```
+
+完整的命令序列如下：
+````bash
+git checkout main        # 切换到主分支
+git reset --hard test   # 用 test 分支内容覆盖主分支
+git push -f origin main # 强制推送到远程仓库
+````
+
+注意事项：
+1. 使用 `--hard` 和 `-f` 是危险操作，会完全覆盖目标分支的内容
+2. 在执行这些操作前，建议先备份重要内容
+3. 如果是多人协作的项目，建议先通知其他协作者
+
+如果想保留提交历史，也可以使用合并的方式：
+````bash
+git checkout main
+git merge test
+git push origin main
+````
+
+---
+
+_**User**_
+
+
+chenz@xingqipan MINGW64 ~/Desktop/VUE3/Card/card-creation (test)
+$ git checkout main
+error: Your local changes to the following files would be overwritten by checkout:
+        .specstory/history/2025-02-26_14-10-integrating-agentsview-in-app-vue.md
+Please commit your changes or stash them before you switch branches.
+Aborting
+
+chenz@xingqipan MINGW64 ~/Desktop/VUE3/Card/card-creation (test)
+$ git reset --hard test
+HEAD is now at 20ab46b 更新了截图
+
+chenz@xingqipan MINGW64 ~/Desktop/VUE3/Card/card-creation (test)
+$ git push -f origin main
+Everything up-to-date
+
+chenz@xingqipan MINGW64 ~/Desktop/VUE3/Card/card-creation (test)
+$
+
+
+---
+
+_**Assistant**_
+
 
 
 ---

@@ -29,9 +29,10 @@
       
       <div class="task-actions">
         <button 
-          @click.stop="handleExecute"
+          @click.stop="$emit('execute', task)"
           :disabled="isExecuting || task.status === 'running'"
           class="action-btn execute-btn"
+          title="执行任务"
         >
           <i class="fas fa-play"></i> 执行
         </button>
@@ -40,16 +41,30 @@
           @click.stop="$emit('execute-all', task)"
           :disabled="isExecuting"
           class="action-btn execute-all-btn"
+          title="执行所有子任务"
         >
-          <i class="fas fa-play"></i> 执行所有
+          <i class="fas fa-play-circle"></i> 执行所有
         </button>
-        <button @click.stop="$emit('add-subtask', task)" class="action-btn add-btn">
+        <button 
+          @click.stop="$emit('add-subtask', task)"
+          class="action-btn add-btn"
+          title="添加子任务"
+        >
           <i class="fas fa-plus"></i> 添加子任务
         </button>
-        <button @click.stop="$emit('edit', task)" class="action-btn edit-btn">
+        <button 
+          @click.stop="$emit('edit', task)"
+          class="action-btn edit-btn"
+          title="编辑任务"
+        >
           <i class="fas fa-edit"></i> 编辑
         </button>
-        <button @click.stop="$emit('delete', task.id)" class="action-btn delete-btn">
+        <button 
+          v-if="!isRoot"
+          @click.stop="$emit('delete', task.id)"
+          class="action-btn delete-btn"
+          title="删除任务"
+        >
           <i class="fas fa-trash"></i> 删除
         </button>
       </div>
@@ -58,7 +73,7 @@
         <div class="output-header">
           <h5>任务输出</h5>
           <div class="output-actions">
-            <button @click.stop="copyOutput" title="复制输出" class="icon-btn">
+            <button @click.stop="handleCopyOutput" title="复制输出" class="icon-btn">
               <i class="fas fa-copy"></i>
             </button>
           </div>
@@ -79,23 +94,21 @@
       class="subtasks"
       @click.stop
     >
-      <div class="subtask-list">
-        <task-node
-          v-for="subtask in task.subtasks"
-          :key="subtask.id"
-          :task="subtask"
-          :agents="agents"
-          :scenes="scenes"
-          :selected-id="selectedId"
-          :is-executing="isExecuting"
-          @execute="handleSubtaskExecute"
-          @execute-all="handleSubtaskExecuteAll"
-          @delete="handleSubtaskDelete"
-          @add-subtask="handleSubtaskAdd"
-          @edit="handleSubtaskEdit"
-          @select="$emit('select', subtask.id)"
-        />
-      </div>
+      <task-node
+        v-for="subtask in task.subtasks"
+        :key="subtask.id"
+        :task="subtask"
+        :agents="agents"
+        :scenes="scenes"
+        :selected-id="selectedId"
+        :is-executing="isExecuting"
+        @execute="$emit('execute', $event)"
+        @execute-all="$emit('execute-all', $event)"
+        @delete="$emit('delete', $event)"
+        @add-subtask="$emit('add-subtask', $event)"
+        @edit="$emit('edit', $event)"
+        @select="$emit('select', subtask.id)"
+      />
     </div>
   </div>
 </template>
@@ -131,14 +144,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits([
-  'execute', 
-  'execute-all',
-  'add-subtask', 
-  'edit', 
-  'delete', 
-  'select'
-])
+const emit = defineEmits(['execute', 'execute-all', 'delete', 'add-subtask', 'edit'])
 
 const isDragging = ref(false)
 
@@ -162,17 +168,15 @@ const handleDragEnd = () => {
 }
 
 // 复制输出到剪贴板
-const copyOutput = () => {
+const handleCopyOutput = async () => {
   if (!props.task.output) return
   
-  navigator.clipboard.writeText(props.task.output)
-    .then(() => {
-      // 可以添加一个通知提示复制成功
-      console.log('输出已复制到剪贴板')
-    })
-    .catch(err => {
-      console.error('复制失败:', err)
-    })
+  try {
+    await navigator.clipboard.writeText(props.task.output)
+    console.log('输出已复制到剪贴板')
+  } catch (err) {
+    console.error('复制失败:', err)
+  }
 }
 
 // 重写输出
@@ -246,34 +250,6 @@ const getStatusText = (status) => {
     case 'failed': return '失败'
     default: return '未知'
   }
-}
-
-// 处理当前任务的执行
-const handleExecute = () => {
-  console.log('TaskNode: 执行任务:', props.task.id)
-  emit('execute', props.task.id)
-}
-
-// 处理子任务的事件
-const handleSubtaskExecute = (taskId) => {
-  console.log('TaskNode: 子任务执行:', taskId)
-  emit('execute', taskId)
-}
-
-const handleSubtaskExecuteAll = (task) => {
-  emit('execute-all', task)
-}
-
-const handleSubtaskDelete = (taskId) => {
-  emit('delete', taskId)
-}
-
-const handleSubtaskAdd = (task) => {
-  emit('add-subtask', task)
-}
-
-const handleSubtaskEdit = (task) => {
-  emit('edit', task)
 }
 
 // 处理任务选择

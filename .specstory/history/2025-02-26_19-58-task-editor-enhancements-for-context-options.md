@@ -1206,6 +1206,682 @@ _**User**_
 
 _**Assistant**_
 
+好的，我会删除 TaskNode.vue 中与 task-detail 相关的 CSS。这里是更新后的样式部分：
+
+```vue:src/components/Agent/TaskNode.vue
+<style scoped>
+.task-node {
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.task-content {
+  background: white;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.task-title {
+  font-weight: 500;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #f5f5f5;
+}
+
+.task-status.running {
+  background: #e6f7ff;
+  color: #1890ff;
+}
+
+.task-status.completed {
+  background: #f6ffed;
+  color: #52c41a;
+}
+
+.task-status.failed {
+  background: #fff2f0;
+  color: #ff4d4f;
+}
+
+.task-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.action-btn {
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: 1px solid #d9d9d9;
+  background: white;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.action-btn:hover {
+  border-color: #40a9ff;
+  color: #40a9ff;
+}
+
+.action-btn:disabled {
+  background: #f5f5f5;
+  border-color: #d9d9d9;
+  color: #d9d9d9;
+  cursor: not-allowed;
+}
+
+.execute-btn {
+  background: #1890ff;
+  border-color: #1890ff;
+  color: white;
+}
+
+.execute-btn:hover:not(:disabled) {
+  background: #40a9ff;
+  border-color: #40a9ff;
+  color: white;
+}
+
+.delete-btn:hover {
+  border-color: #ff4d4f;
+  color: #ff4d4f;
+}
+
+.task-description {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.task-output {
+  background: #f8f8f8;
+  border-radius: 4px;
+  padding: 12px;
+  margin-top: 12px;
+}
+
+.output-header {
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #666;
+}
+
+.task-error {
+  color: #ff4d4f;
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.subtasks {
+  margin-left: 24px;
+  padding-left: 16px;
+  border-left: 2px solid #f0f0f0;
+  position: relative;
+  z-index: 2;
+}
+
+.is-root > .task-content {
+  border-width: 2px;
+}
+</style>
+```
+
+我已经删除了所有与 task-detail 相关的 CSS 样式，只保留了任务节点本身的样式。这包括任务内容、状态、按钮、输出和子任务的样式。
+
+---
+
+_**User**_
+
+实现点击对应按钮可以实现对应功能
+
+---
+
+_**Assistant**_
+
+让我们修改 TaskNode.vue 中的按钮事件处理：
+
+```vue:src/components/Agent/TaskNode.vue
+<template>
+  <div class="task-node" :class="{ 'is-root': isRoot }">
+    <div class="task-content" @click.stop>
+      <div class="task-header">
+        <div class="task-title">
+          {{ task.title }}
+          <span class="task-status" :class="task.status">{{ getStatusText(task.status) }}</span>
+        </div>
+        <div class="task-actions">
+          <button 
+            @click.stop="handleExecute"
+            :disabled="isExecuting || task.status === 'running'"
+            class="action-btn execute-btn"
+            title="执行任务"
+          >
+            <i class="fas fa-play"></i> 执行
+          </button>
+          <button 
+            v-if="task.subtasks && task.subtasks.length > 0"
+            @click.stop="handleExecuteAll"
+            :disabled="isExecuting"
+            class="action-btn execute-all-btn"
+            title="执行所有子任务"
+          >
+            <i class="fas fa-play-circle"></i> 执行所有
+          </button>
+          <button 
+            @click.stop="handleAddSubtask"
+            class="action-btn add-btn"
+            title="添加子任务"
+          >
+            <i class="fas fa-plus"></i> 添加子任务
+          </button>
+          <button 
+            @click.stop="handleEdit"
+            class="action-btn edit-btn"
+            title="编辑任务"
+          >
+            <i class="fas fa-edit"></i> 编辑
+          </button>
+          <button 
+            v-if="!isRoot"
+            @click.stop="handleDelete"
+            class="action-btn delete-btn"
+            title="删除任务"
+          >
+            <i class="fas fa-trash"></i> 删除
+          </button>
+        </div>
+      </div>
+      
+      <div v-if="task.description" class="task-description">
+        {{ task.description }}
+      </div>
+      
+      <div v-if="task.output" class="task-output">
+        <div class="output-header">
+          <span>输出结果：</span>
+          <button 
+            @click.stop="handleCopyOutput" 
+            class="copy-btn"
+            title="复制输出"
+          >
+            <i class="fas fa-copy"></i>
+          </button>
+        </div>
+        <div class="output-content">{{ task.output }}</div>
+      </div>
+      
+      <div v-if="task.error" class="task-error">
+        错误: {{ task.error }}
+      </div>
+    </div>
+
+    <div 
+      v-if="task.subtasks && task.subtasks.length > 0" 
+      class="subtasks"
+      @click.stop
+    >
+      <task-node
+        v-for="subtask in task.subtasks"
+        :key="subtask.id"
+        :task="subtask"
+        :is-executing="isExecuting"
+        @execute="handleSubtaskExecute"
+        @execute-all="handleSubtaskExecuteAll"
+        @delete="handleSubtaskDelete"
+        @add-subtask="handleSubtaskAdd"
+        @edit="handleSubtaskEdit"
+      />
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { defineProps, defineEmits } from 'vue'
+
+const props = defineProps({
+  task: {
+    type: Object,
+    required: true
+  },
+  isRoot: {
+    type: Boolean,
+    default: false
+  },
+  isExecuting: {
+    type: Boolean,
+    default: false
+  }
+})
+
+const emit = defineEmits(['execute', 'execute-all', 'delete', 'add-subtask', 'edit'])
+
+const getStatusText = (status) => {
+  switch (status) {
+    case 'pending': return '待执行'
+    case 'running': return '执行中'
+    case 'completed': return '已完成'
+    case 'failed': return '失败'
+    default: return '未知'
+  }
+}
+
+// 处理当前任务的事件
+const handleExecute = () => {
+  console.log('TaskNode: 执行任务:', props.task.id)
+  emit('execute', props.task.id)
+}
+
+const handleExecuteAll = () => {
+  console.log('TaskNode: 执行所有子任务:', props.task.id)
+  emit('execute-all', props.task)
+}
+
+const handleAddSubtask = () => {
+  console.log('TaskNode: 添加子任务:', props.task.id)
+  emit('add-subtask', props.task)
+}
+
+const handleEdit = () => {
+  console.log('TaskNode: 编辑任务:', props.task.id)
+  emit('edit', props.task)
+}
+
+const handleDelete = () => {
+  console.log('TaskNode: 删除任务:', props.task.id)
+  emit('delete', props.task.id)
+}
+
+const handleCopyOutput = async () => {
+  if (!props.task.output) return
+  
+  try {
+    await navigator.clipboard.writeText(props.task.output)
+    console.log('输出已复制到剪贴板')
+  } catch (err) {
+    console.error('复制失败:', err)
+  }
+}
+
+// 处理子任务的事件
+const handleSubtaskExecute = (taskId) => {
+  console.log('TaskNode: 子任务执行:', taskId)
+  emit('execute', taskId)
+}
+
+const handleSubtaskExecuteAll = (task) => {
+  emit('execute-all', task)
+}
+
+const handleSubtaskDelete = (taskId) => {
+  emit('delete', taskId)
+}
+
+const handleSubtaskAdd = (task) => {
+  emit('add-subtask', task)
+}
+
+const handleSubtaskEdit = (task) => {
+  emit('edit', task)
+}
+</script>
+
+<style scoped>
+/* ... 保持现有样式不变 ... */
+
+/* 添加复制按钮样式 */
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #666;
+}
+
+.copy-btn {
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.copy-btn:hover {
+  background: #f0f0f0;
+  color: #1890ff;
+}
+</style>
+```
+
+主要修改：
+
+1. 为每个按钮添加了图标和 title 提示
+2. 添加了复制输出结果的功能
+3. 为每个按钮添加了明确的处理函数
+4. 添加了详细的日志输出，方便调试
+5. 优化了事件处理的组织结构
+6. 确保所有按钮点击事件都阻止冒泡
+
+现在每个按钮都有了明确的功能：
+- 执行按钮：执行当前任务
+- 执行所有按钮：执行当前任务及其所有子任务
+- 添加子任务按钮：为当前任务添加新的子任务
+- 编辑按钮：编辑当前任务
+- 删除按钮：删除当前任务
+- 复制按钮：复制任务输出到剪贴板
+
+所有的事件都会正确地传递给父组件进行处理。让我知道是否还需要其他功能或修改。
+
+---
+
+_**User**_
+
+点击四个按钮都没反应
+
+---
+
+_**Assistant**_
+
+
+
+问题在于我们需要确保父组件 TaskManager.vue 正确处理这些事件。让我们修改两个组件：
+
+1. 首先修改 TaskNode.vue 中的事件发送：
+
+```vue:src/components/Agent/TaskNode.vue
+<script setup>
+// ... 其他代码保持不变 ...
+
+// 修改事件处理函数
+const handleExecute = () => {
+  console.log('TaskNode: 执行任务:', props.task.id)
+  emit('execute', props.task) // 传递整个任务对象
+}
+
+const handleExecuteAll = () => {
+  console.log('TaskNode: 执行所有子任务:', props.task.id)
+  emit('execute-all', props.task)
+}
+
+const handleAddSubtask = () => {
+  console.log('TaskNode: 添加子任务:', props.task.id)
+  emit('add-subtask', props.task)
+}
+
+const handleEdit = () => {
+  console.log('TaskNode: 编辑任务:', props.task.id)
+  emit('edit', props.task)
+}
+
+const handleDelete = () => {
+  if (confirm('确定要删除这个任务吗？')) {
+    console.log('TaskNode: 删除任务:', props.task.id)
+    emit('delete', props.task.id)
+  }
+}
+
+// ... 其他代码保持不变 ...
+</script>
+```
+
+2. 然后修改 TaskManager.vue 来处理这些事件：
+
+```vue:src/components/Agent/TaskManager.vue
+<template>
+  <div class="task-manager">
+    <div class="task-tree">
+      <task-node
+        :task="rootTask"
+        :is-root="true"
+        :is-executing="isExecuting"
+        :agents="agents"
+        :scenes="scenes"
+        @execute="handleExecute"
+        @execute-all="handleExecuteAll"
+        @delete="handleDelete"
+        @add-subtask="handleAddSubtask"
+        @edit="handleEdit"
+      />
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { defineProps, defineEmits } from 'vue'
+import TaskNode from './TaskNode.vue'
+
+const props = defineProps({
+  rootTask: {
+    type: Object,
+    required: true
+  },
+  agents: {
+    type: Array,
+    default: () => []
+  },
+  scenes: {
+    type: Array,
+    default: () => []
+  },
+  isExecuting: {
+    type: Boolean,
+    default: false
+  }
+})
+
+const emit = defineEmits([
+  'execute', 
+  'execute-all', 
+  'delete-task', 
+  'add-subtask',
+  'edit-task'
+])
+
+// 处理执行任务
+const handleExecute = (task) => {
+  console.log('TaskManager: 执行任务:', task)
+  emit('execute', task)
+}
+
+// 处理执行所有子任务
+const handleExecuteAll = (task) => {
+  console.log('TaskManager: 执行所有子任务:', task)
+  emit('execute-all', task)
+}
+
+// 处理删除任务
+const handleDelete = (taskId) => {
+  console.log('TaskManager: 删除任务:', taskId)
+  emit('delete-task', taskId)
+}
+
+// 处理添加子任务
+const handleAddSubtask = (parentTask) => {
+  console.log('TaskManager: 添加子任务, 父任务:', parentTask)
+  emit('add-subtask', parentTask)
+}
+
+// 处理编辑任务
+const handleEdit = (task) => {
+  console.log('TaskManager: 编辑任务:', task)
+  emit('edit-task', task)
+}
+</script>
+```
+
+3. 最后，确保在 AgentsView.vue 中正确使用 TaskManager 组件：
+
+```vue:src/components/AgentsView.vue
+<template>
+  <!-- ... 其他代码 ... -->
+  <task-manager 
+    v-if="showTaskManager"
+    :root-task="rootTask"
+    :agents="agents"
+    :scenes="scenes"
+    :is-executing="isExecuting"
+    @execute="executeTask"
+    @execute-all="executeAllTasks"
+    @delete-task="deleteTask"
+    @add-subtask="showAddSubtaskModal"
+    @edit-task="showEditTaskModal"
+  />
+  <!-- ... 其他代码 ... -->
+</template>
+
+<script setup>
+// ... 其他代码 ...
+
+// 确保这些方法都已定义
+const executeTask = (task) => {
+  console.log('AgentsView: 执行任务:', task)
+  // 执行任务的逻辑
+}
+
+const executeAllTasks = (task) => {
+  console.log('AgentsView: 执行所有子任务:', task)
+  // 执行所有子任务的逻辑
+}
+
+const deleteTask = (taskId) => {
+  console.log('AgentsView: 删除任务:', taskId)
+  // 删除任务的逻辑
+}
+
+const showAddSubtaskModal = (parentTask) => {
+  console.log('AgentsView: 显示添加子任务模态框:', parentTask)
+  // 显示添加子任务模态框的逻辑
+}
+
+const showEditTaskModal = (task) => {
+  console.log('AgentsView: 显示编辑任务模态框:', task)
+  // 显示编辑任务模态框的逻辑
+}
+
+// ... 其他代码 ...
+</script>
+```
+
+这些修改会建立完整的事件传递链：
+1. TaskNode 组件触发事件
+2. TaskManager 组件接收事件并转发给父组件
+3. AgentsView 组件最终处理这些事件
+
+现在点击按钮应该会有响应，并且你可以在控制台看到相应的日志输出。让我知道是否还需要其他调整。
+
+---
+
+_**User**_
+
+单独执行不行，其他都好了
+
+---
+
+_**Assistant**_
+
+让我们修复单独执行任务的问题。问题可能出在事件传递和任务 ID 的处理上。修改 TaskNode.vue：
+
+```vue:src/components/Agent/TaskNode.vue
+<script setup>
+// ... 其他 imports 和 props 保持不变 ...
+
+const emit = defineEmits(['execute', 'execute-all', 'delete', 'add-subtask', 'edit'])
+
+// 修改执行任务的处理函数
+const handleExecute = () => {
+  console.log('TaskNode: 执行任务:', props.task)
+  // 直接传递整个任务对象，而不是只传递 ID
+  emit('execute', props.task)
+}
+
+// 处理子任务执行
+const handleSubtaskExecute = (task) => {
+  console.log('TaskNode: 子任务执行:', task)
+  // 确保传递完整的任务对象
+  emit('execute', task)
+}
+
+// ... 其他事件处理函数保持不变 ...
+
+</script>
+
+<template>
+  <div class="task-node" :class="{ 'is-root': isRoot }">
+    <div class="task-content" @click.stop>
+      <!-- ... 其他模板内容保持不变 ... -->
+      <div class="task-actions">
+        <button 
+          @click.stop="handleExecute"
+          :disabled="isExecuting || task.status === 'running'"
+          class="action-btn execute-btn"
+          title="执行任务"
+        >
+          <i class="fas fa-play"></i> 执行
+        </button>
+        <!-- ... 其他按钮保持不变 ... -->
+      </div>
+    </div>
+
+    <div 
+      v-if="task.subtasks && task.subtasks.length > 0" 
+      class="subtasks"
+      @click.stop
+    >
+      <task-node
+        v-for="subtask in task.subtasks"
+        :key="subtask.id"
+        :task="subtask"
+        :is-executing="isExecuting"
+        @execute="handleSubtaskExecute"
+        @execute-all="handleSubtaskExecuteAll"
+        @delete="handleSubtaskDelete"
+        @add-subtask="handleSubtaskAdd"
+        @edit="handleSubtaskEdit"
+      />
+    </div>
+  </div>
+</template>
+```
+
+主要修改：
+1. 修改了 handleExecute 函数，确保传递完整的任务对象而不是只传递 ID
+2. 修改了 handleSubtaskExecute 函数，确保子任务执行时也传递完整的任务对象
+3. 保持事件传递的一致性，所有任务相关的操作都传递完整的任务对象
+
+这样修改后，单独执行任务应该也能正常工作了。让我知道是否还有其他问题。
+
+---
+
+_**User**_
+
+修复单独点击执行按钮无法运行
+
+---
+
+_**Assistant**_
+
 
 
 ---

@@ -17420,6 +17420,153 @@ _**Assistant**_
 
 
 
+看起来您还在 test 分支上。让我们重新执行正确的步骤：
+
+1. 先保存当前更改（如果需要）：
+````bash
+git add .
+git commit -m "保存当前更改"
+````
+
+2. 切换到 main 分支：
+````bash
+git checkout main
+````
+
+3. 将 main 分支重置到 test 分支的状态：
+````bash
+git reset --hard test
+````
+
+4. 强制推送到远程 main 分支：
+````bash
+git push -f origin main
+````
+
+或者，您也可以直接在 test 分支上执行：
+````bash
+git push -f origin test:main
+````
+
+这个命令的意思是：强制将本地的 test 分支推送到远程的 main 分支。这样可以不用切换分支就完成操作。
+
+选择上面任意一种方式执行即可。第二种方式（直接推送）可能更适合您当前的情况。
+
+---
+
+_**User**_
+
+子任务下嵌套子任务就获取不到前文内容了，增加一个是否获取父级内容的选择框，增加一个是否关联相关任务的选择框（相关任务检测），是否关联某人具体任务选择框。然后逐步实现
+
+---
+
+_**Assistant**_
+
+好的，让我们一步步实现这些功能。首先在任务编辑器中添加这些选项：
+
+````vue:src/components/Agent/TaskEditor.vue
+<template>
+  <div class="task-editor">
+    <!-- ... 其他表单项 ... -->
+    
+    <div class="form-group">
+      <label>
+        <input 
+          type="checkbox" 
+          v-model="editingTask.includeParentContext"
+        > 包含父任务内容
+      </label>
+    </div>
+
+    <div class="form-group">
+      <label>
+        <input 
+          type="checkbox" 
+          v-model="editingTask.includeRelatedContext"
+        > 包含相关任务内容
+      </label>
+    </div>
+
+    <div class="form-group" v-if="editingTask.includeRelatedContext">
+      <label>选择相关任务：</label>
+      <select v-model="editingTask.relatedTaskId">
+        <option value="">请选择任务</option>
+        <option 
+          v-for="task in allTasks" 
+          :key="task.id"
+          :value="task.id"
+        >
+          {{ task.title }}
+        </option>
+      </select>
+    </div>
+
+    <!-- ... 其他表单项 ... -->
+  </div>
+</template>
+
+<script setup>
+const props = defineProps({
+  task: {
+    type: Object,
+    required: true
+  },
+  parentTask: {
+    type: Object,
+    default: null
+  },
+  allTasks: {  // 新增：所有可选的任务列表
+    type: Array,
+    default: () => []
+  }
+})
+
+const editingTask = ref({
+  ...props.task,
+  includeParentContext: props.task.includeParentContext || false,
+  includeRelatedContext: props.task.includeRelatedContext || false,
+  relatedTaskId: props.task.relatedTaskId || ''
+})
+
+// ... 其他代码 ...
+</script>
+````
+
+然后在 AgentsView.vue 中传递必要的参数：
+
+````vue:src/components/AgentsView.vue
+<template>
+  <!-- ... 其他代码 ... -->
+  <task-editor
+    :task="editingTask"
+    :parent-task="parentTask"
+    :all-tasks="allTasks"  <!-- 添加这一行 -->
+    @save="saveTask"
+    @close="showTaskEditor = false"
+  />
+  <!-- ... 其他代码 ... -->
+</template>
+````
+
+这是第一步：添加UI界面。接下来我们可以实现相关的逻辑功能。您想先实现哪个功能？
+1. 包含父任务内容
+2. 包含相关任务内容
+3. 相关任务选择
+
+我们可以一个一个来实现。
+
+---
+
+_**User**_
+
+第一个
+
+---
+
+_**Assistant**_
+
+
+
 ---
 
 

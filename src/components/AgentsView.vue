@@ -340,7 +340,7 @@ const formatApiUrl = (model) => {
     case 'openai':
       return `${model.apiUrl.replace(/\/+$/, '')}/chat/completions`
     case 'gemini':
-      return `https://generativelanguage.googleapis.com/v1beta/models/${model.modelId}:generateContent`
+      return `https://generativelanguage.googleapis.com/v1beta/models/${model.name}:generateContent`
     case 'ollama':
       return 'http://localhost:11434/api/chat'
     case 'custom':
@@ -379,10 +379,8 @@ const callAI = async (model, prompt) => {
         }
         break
       case 'gemini':
-        // 修正 Gemini API 请求格式和认证方式
-        const cleanApiUrl = apiUrl.replace(/\/+$/, '')
         url = `${modelUrl}?key=${model.apiKey}`
-        
+        console.log('url:', url)
         body = {
           contents: [
             {

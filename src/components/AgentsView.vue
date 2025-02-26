@@ -111,11 +111,21 @@
   import AgentEditor from './Agent/AgentEditor.vue'
   import TaskEditor from './Agent/TaskEditor.vue'
   
+  // 定义props
+  const props = defineProps({
+    models: {
+      type: Array,
+      default: () => []
+    },
+    scenes: {
+      type: Array,
+      default: () => []
+    }
+  })
+  
   // 基本状态
   const activeTab = ref('agents')
   const agents = ref([])
-  const scenes = ref([])
-  const models = ref([])
   const showTaskManager = ref(false)
   const rootTask = ref(null)
   const isExecuting = ref(false)
@@ -132,9 +142,11 @@
     const tasks = []
     
     const collectTasks = (task) => {
-      tasks.push(task)
-      if (task.subtasks) {
-        task.subtasks.forEach(subtask => collectTasks(subtask))
+      if (task) {
+        tasks.push(task)
+        if (task.subtasks) {
+          task.subtasks.forEach(subtask => collectTasks(subtask))
+        }
       }
     }
     
@@ -147,8 +159,33 @@
   
   // 创建新AI成员
   const createNewAgent = () => {
-    editingAgent.value = null
+    editingAgent.value = {
+      id: Date.now().toString(),
+      name: '',
+      description: '',
+      modelId: '',
+      systemPrompt: '',
+      capabilities: []
+    }
     showAgentEditor.value = true
+  }
+  
+  // 编辑AI成员
+  const editAgent = (agent) => {
+    editingAgent.value = { ...agent }
+    showAgentEditor.value = true
+  }
+  
+  // 保存AI成员
+  const saveAgent = (agent) => {
+    const index = agents.value.findIndex(a => a.id === agent.id)
+    if (index !== -1) {
+      agents.value[index] = agent
+    } else {
+      agents.value.push(agent)
+    }
+    saveAgents()
+    showAgentEditor.value = false
   }
   
   // 删除AI成员
@@ -162,6 +199,11 @@
     }
   }
   
+  // 保存AI成员到本地存储
+  const saveAgents = () => {
+    localStorage.setItem('agents', JSON.stringify(agents.value))
+  }
+  
   // 创建根任务
   const createRootTask = () => {
     editingTask.value = null
@@ -169,30 +211,35 @@
     showTaskEditor.value = true
   }
   
-  // 保存根任务
-  const saveRootTask = () => {
-    if (!taskForm.value.title.trim()) {
-      alert('任务标题不能为空')
-      return
+  // 保存任务
+  const saveTask = (task) => {
+    if (parentTask.value) {
+      // 保存子任务
+      if (!parentTask.value.subtasks) {
+        parentTask.value.subtasks = []
+      }
+      
+      const index = parentTask.value.subtasks.findIndex(t => t.id === task.id)
+      if (index !== -1) {
+        parentTask.value.subtasks[index] = task
+      } else {
+        parentTask.value.subtasks.push(task)
+      }
+      
+      saveTasks()
+    } else {
+      // 保存根任务
+      rootTask.value = task
+      showTaskManager.value = true
+      saveTasks()
     }
-  
-    // 创建根任务
-    const rootTask = {
-      id: Date.now(),
-      title: taskForm.value.title.trim(),
-      description: taskForm.value.description.trim(),
-      status: 'pending',
-      subtasks: []
-    }
-  
-    // 保存到本地存储
-    localStorage.setItem('agentTasks', JSON.stringify(rootTask))
     
-    // 显示任务管理器
-    showTaskManager.value = true
-    
-    // 关闭模态框
-    showTaskModal.value = false
+    showTaskEditor.value = false
+  }
+  
+  // 保存任务到本地存储
+  const saveTasks = () => {
+    localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
   }
   
   // 处理任务保存事件
@@ -201,334 +248,209 @@
     saveTasks()
   }
   
-  // 保存AI成员
-  const saveAgents = () => {
-    try {
-      localStorage.setItem('agents', JSON.stringify(agents.value))
-    } catch (error) {
-      console.error('保存AI成员失败:', error)
-    }
-  }
-  
-  // 加载AI成员
-  const loadAgents = () => {
-    try {
-      const savedAgents = localStorage.getItem('agents')
-      if (savedAgents) {
-        agents.value = JSON.parse(savedAgents)
-      }
-    } catch (error) {
-      console.error('加载AI成员失败:', error)
-    }
-  }
-  
-  // 加载场景
-  const loadScenes = () => {
-    try {
-      const savedScenes = localStorage.getItem('scenes')
-      if (savedScenes) {
-        scenes.value = JSON.parse(savedScenes)
-      }
-    } catch (error) {
-      console.error('加载场景失败:', error)
-    }
-  }
-  
-  // 加载模型
-  const loadModels = () => {
-    try {
-      const savedModels = localStorage.getItem('models')
-      if (savedModels) {
-        models.value = JSON.parse(savedModels)
-      } else {
-        // 默认模型
-        models.value = [
-          {
-            id: 'default-model',
-            name: '默认模型',
-            provider: 'openai',
-            modelId: 'gpt-3.5-turbo',
-            temperature: 0.7
-          }
-        ]
-      }
-    } catch (error) {
-      console.error('加载模型失败:', error)
-    }
-  }
-  
-  // 加载任务
-  const loadTasks = () => {
-    try {
-      const savedTasks = localStorage.getItem('agentTasks')
-      if (savedTasks) {
-        rootTask.value = JSON.parse(savedTasks)
-        showTaskManager.value = true
-      }
-    } catch (error) {
-      console.error('加载任务失败:', error)
-    }
-  }
-  
-  // 组件挂载时
-  onMounted(() => {
-    console.log('AgentsView组件已挂载')
-    loadAgents()
-    loadScenes()
-    loadModels()
-    loadTasks()
-  })
-  
-  // 编辑AI成员
-  const editAgent = (agent) => {
-    editingAgent.value = { ...agent }
-    showAgentEditor.value = true
-  }
-  
-  const saveAgent = (agent) => {
-    if (editingAgent.value) {
-      // 更新现有AI成员
-      const index = agents.value.findIndex(a => a.id === agent.id)
-      if (index !== -1) {
-        agents.value[index] = agent
-      }
-    } else {
-      // 添加新AI成员
-      agents.value.push(agent)
-    }
-    
-    saveAgents()
-    showAgentEditor.value = false
-  }
-  
-  // 编辑任务
-  const editTask = (task) => {
-    editingTask.value = { ...task }
-    showTaskEditor.value = true
-  }
-  
-  const createSubtask = (parent) => {
-    editingTask.value = null
-    parentTask.value = parent
-    showTaskEditor.value = true
-  }
-  
-  const saveTask = (task) => {
-    if (editingTask.value) {
-      // 更新现有任务
-      const updateTask = (tasks, updatedTask) => {
-        for (let i = 0; i < tasks.length; i++) {
-          if (tasks[i].id === updatedTask.id) {
-            tasks[i] = { ...tasks[i], ...updatedTask }
-            return true
-          }
-          if (tasks[i].subtasks) {
-            if (updateTask(tasks[i].subtasks, updatedTask)) {
-              return true
-            }
-          }
-        }
-        return false
-      }
-      
-      if (rootTask.value) {
-        if (rootTask.value.id === task.id) {
-          rootTask.value = { ...rootTask.value, ...task }
-        } else {
-          updateTask([rootTask.value], task)
-        }
-      }
-    } else if (parentTask.value) {
-      // 添加子任务
-      if (!parentTask.value.subtasks) {
-        parentTask.value.subtasks = []
-      }
-      parentTask.value.subtasks.push(task)
-    } else {
-      // 添加根任务
-      rootTask.value = task
-    }
-    
-    saveTasks()
-    showTaskEditor.value = false
-  }
-  
-  // 执行单个任务
+  // 执行任务
   const executeTask = async (task) => {
-    if (isExecuting.value) return
+    if (!task) return
     
-    isExecuting.value = true
+    // 设置任务状态为运行中
+    task.status = 'running'
+    saveTasks()
     
     try {
-      // 查找任务
-      const findTask = (tasks, taskId) => {
-        for (const t of tasks) {
-          if (t.id === taskId) {
-            return t
-          }
-          if (t.subtasks) {
-            const found = findTask(t.subtasks, taskId)
-            if (found) return found
-          }
-        }
-        return null
-      }
-      
-      const targetTask = findTask([rootTask.value], task.id)
-      if (!targetTask) {
-        throw new Error('任务未找到')
-      }
-      
-      // 更新任务状态
-      targetTask.status = 'executing'
-      saveTasks()
-      
-      // 查找执行者
-      const agent = targetTask.assignedTo 
-        ? agents.value.find(a => a.id === targetTask.assignedTo)
-        : null
-      
+      // 查找指派的AI成员
+      const agent = agents.value.find(a => a.id === task.assignedTo)
       if (!agent) {
-        throw new Error('未指定执行者')
+        throw new Error('未找到指派的AI成员')
+      }
+      
+      // 查找使用的模型
+      const model = props.models.find(m => m.id === agent.modelId)
+      if (!model) {
+        throw new Error('未找到AI成员使用的模型')
       }
       
       // 构建上下文
       let context = ''
       
       // 添加父任务上下文
-      if (targetTask.includeParentContext) {
-        const findParent = (tasks, taskId, parent = null) => {
-          for (const t of tasks) {
-            if (t.id === taskId) {
-              return parent
-            }
-            if (t.subtasks) {
-              const found = findParent(t.subtasks, taskId, t)
-              if (found) return found
-            }
-          }
-          return null
-        }
-        
-        const parentTask = findParent([rootTask.value], targetTask.id)
+      if (task.includeParentContext && task.parentId) {
+        const parentTask = allTasks.value.find(t => t.id === task.parentId)
         if (parentTask && parentTask.output) {
           context += `父任务输出:\n${parentTask.output}\n\n`
         }
       }
       
       // 添加相关任务上下文
-      if (targetTask.includeRelatedContext && targetTask.relatedTaskId) {
-        const relatedTask = findTask([rootTask.value], targetTask.relatedTaskId)
+      if (task.includeRelatedContext && task.relatedTaskId) {
+        const relatedTask = allTasks.value.find(t => t.id === task.relatedTaskId)
         if (relatedTask && relatedTask.output) {
           context += `相关任务输出:\n${relatedTask.output}\n\n`
         }
       }
       
+      // 添加场景内容
+      if (task.sceneId) {
+        const scene = props.scenes.find(s => s.id === task.sceneId)
+        if (scene) {
+          context += `场景内容:\n`
+          scene.cards.forEach(card => {
+            context += `标题: ${card.title}\n内容: ${card.content}\n\n`
+          })
+        }
+      }
+      
       // 构建提示词
-      const prompt = targetTask.customPrompt || `请完成以下任务:\n${targetTask.title}\n\n${targetTask.description}`
+      let prompt = agent.systemPrompt || ''
+      prompt += `\n\n任务: ${task.title}\n`
+      prompt += `任务描述: ${task.description || '无描述'}\n\n`
       
-      // 模拟API调用
-      console.log(`执行任务: ${targetTask.title}`)
-      console.log(`执行者: ${agent.name}`)
-      console.log(`上下文: ${context}`)
-      console.log(`提示词: ${prompt}`)
+      if (context) {
+        prompt += `上下文信息:\n${context}\n`
+      }
       
-      // 这里应该是实际的API调用
-      // 模拟异步操作
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      if (task.customPrompt) {
+        prompt += `\n${task.customPrompt}\n`
+      }
       
-      // 模拟结果
-      targetTask.output = `任务 "${targetTask.title}" 已由 ${agent.name} 完成。\n这里是任务输出内容。`
-      targetTask.status = 'completed'
+      // 调用API
+      const response = await callLLMAPI(model, prompt)
       
-      saveTasks()
+      // 更新任务输出
+      task.output = response
+      task.status = 'completed'
+      
+      // 如果有指定场景，创建结果卡片
+      if (task.sceneId) {
+        createResultCard(task)
+      }
     } catch (error) {
       console.error('执行任务失败:', error)
-      alert(`执行任务失败: ${error.message}`)
-    } finally {
-      isExecuting.value = false
+      task.status = 'failed'
+      task.error = error.message
     }
+    
+    saveTasks()
+  }
+  
+  // 调用LLM API
+  const callLLMAPI = async (model, prompt) => {
+    // 根据不同的模型提供商调用不同的API
+    if (model.provider === 'openai') {
+      const response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${model.apiKey}`
+        },
+        body: JSON.stringify({
+          model: model.modelId,
+          messages: [
+            {
+              role: "system",
+              content: "You are a helpful assistant."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 2000
+        })
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error?.message || `请求失败: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      return data.choices[0].message.content
+    } else {
+      throw new Error(`不支持的模型提供商: ${model.provider}`)
+    }
+  }
+  
+  // 创建结果卡片
+  const createResultCard = (task) => {
+    const scene = props.scenes.find(s => s.id === task.sceneId)
+    if (!scene) return
+    
+    // 创建新卡片
+    const newCard = {
+      id: Date.now().toString(),
+      title: `任务结果: ${task.title}`,
+      content: task.output,
+      height: '200px',
+      tags: []
+    }
+    
+    // 添加到场景
+    scene.cards.push(newCard)
+    
+    // 保存场景
+    localStorage.setItem('scenes', JSON.stringify(props.scenes))
   }
   
   // 执行所有任务
   const executeAllTasks = async () => {
-    if (isExecuting.value || !rootTask.value) return
+    if (!rootTask.value || isExecuting.value) return
     
     isExecuting.value = true
     
     try {
-      // 递归执行任务
-      const executeTasksRecursively = async (task) => {
-        // 先执行当前任务
-        if (task.status !== 'completed') {
-          task.status = 'executing'
-          saveTasks()
-          
-          // 查找执行者
-          const agent = task.assignedTo 
-            ? agents.value.find(a => a.id === task.assignedTo)
-            : null
-          
-          if (agent) {
-            // 构建上下文和提示词
-            const prompt = task.customPrompt || `请完成以下任务:\n${task.title}\n\n${task.description}`
-            
-            // 模拟API调用
-            console.log(`执行任务: ${task.title}`)
-            console.log(`执行者: ${agent.name}`)
-            
-            // 这里应该是实际的API调用
-            // 模拟异步操作
-            await new Promise(resolve => setTimeout(resolve, 1000))
-            
-            // 模拟结果
-            task.output = `任务 "${task.title}" 已由 ${agent.name} 完成。\n这里是任务输出内容。`
-            task.status = 'completed'
-            saveTasks()
-          } else {
-            task.status = 'pending'
-            task.error = '未指定执行者'
-            saveTasks()
-          }
-        }
-        
-        // 然后执行子任务
-        if (task.subtasks && task.subtasks.length > 0) {
-          for (const subtask of task.subtasks) {
-            await executeTasksRecursively(subtask)
-          }
-        }
-      }
-      
-      await executeTasksRecursively(rootTask.value)
-      
-      alert('所有任务执行完成')
+      await executeTaskAndSubtasks(rootTask.value)
     } catch (error) {
-      console.error('执行任务失败:', error)
-      alert(`执行任务失败: ${error.message}`)
+      console.error('执行所有任务失败:', error)
     } finally {
       isExecuting.value = false
     }
   }
   
-  // 保存任务
-  const saveTasks = () => {
-    try {
-      if (rootTask.value) {
-        localStorage.setItem('agentTasks', JSON.stringify(rootTask.value))
+  // 递归执行任务及其子任务
+  const executeTaskAndSubtasks = async (task) => {
+    // 执行当前任务
+    await executeTask(task)
+    
+    // 执行子任务
+    if (task.subtasks && task.subtasks.length > 0) {
+      for (const subtask of task.subtasks) {
+        await executeTaskAndSubtasks(subtask)
       }
-    } catch (error) {
-      console.error('保存任务失败:', error)
     }
   }
+  
+  // 加载数据
+  onMounted(() => {
+    try {
+      // 加载AI成员
+      const savedAgents = localStorage.getItem('agents')
+      if (savedAgents) {
+        agents.value = JSON.parse(savedAgents)
+      }
+      
+      // 加载任务
+      const savedRootTask = localStorage.getItem('rootTask')
+      if (savedRootTask) {
+        rootTask.value = JSON.parse(savedRootTask)
+        showTaskManager.value = true
+      }
+    } catch (error) {
+      console.error('加载数据失败:', error)
+    }
+  })
   </script>
   
   <style scoped>
   .agents-view {
     padding: 20px;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
+    background-color: #f0f0f0;
+    min-height: 100vh;
+    color: #333;
+  }
+  
+  h1 {
+    color: #1890ff;
   }
   
   .view-tabs {

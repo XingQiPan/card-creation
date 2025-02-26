@@ -1,13 +1,9 @@
 <template>
-  <div class="container">
-    <!-- 当 currentView 为 'agents' 时，显示路由视图 -->
-    <router-view v-if="currentView === 'agents'" />
-    
+  <div class="container">    
     <!-- 其他视图内容 -->
-    <div v-else class="content-area">
+    <div class="content-area">
       <!-- 主要内容区域 -->
       <div v-if="currentView === 'main'" class="main-content">
-      <router-view v-if="currentView === 'agents'" />
 
         <!-- 左侧提示词模板区 -->
         <div class="prompt-panel" :style="{ width: promptPanelWidth + 'px' }">
@@ -617,8 +613,7 @@ import DOMPurify from 'dompurify'
 import BookSplitter from './components/BookSplitter.vue'
 import ChatView from './components/ChatView.vue'
 import NotePad from './components/NotePad.vue'
-// 导入 AgentsView 组件
-import AgentsView from './views/AgentsView.vue'
+import AgentsView from './components/AgentsView.vue'  // Add this import
 
 
 // 将状态声明移到最前面

@@ -225,6 +225,7 @@
       <AgentsView 
         v-else-if="currentView === 'agents'"
         :models="models"
+        :scenes="scenes"
       />
     </div>
 

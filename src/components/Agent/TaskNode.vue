@@ -51,54 +51,39 @@
     </div>
     
     <div class="task-actions">
-      <button @click.stop="$emit('execute', task)" title="执行任务" :disabled="task.status === 'running'">
-        <i class="fas fa-play"></i>
+      <button 
+        @click.stop="$emit('execute', task)"
+        :disabled="task.status === 'running'"
+      >
+        <i class="fas fa-play"></i> 执行
       </button>
-      <button @click.stop="$emit('add-subtask', task)" title="添加子任务">
-        <i class="fas fa-plus"></i>
+      <button @click.stop="$emit('add-subtask', task)">
+        <i class="fas fa-plus"></i> 添加子任务
       </button>
-      <button @click.stop="$emit('edit', task)" title="编辑任务">
-        <i class="fas fa-edit"></i>
+      <button @click.stop="$emit('edit', task)">
+        <i class="fas fa-edit"></i> 编辑
       </button>
-      <button @click.stop="$emit('delete', task)" title="删除任务">
-        <i class="fas fa-trash"></i>
-      </button>
-      <button @click.stop="$emit('assign', task)" title="分配任务">
-        <i class="fas fa-user-check"></i>
+      <button @click.stop="$emit('delete', task.id)">
+        <i class="fas fa-trash"></i> 删除
       </button>
     </div>
     
-    <div class="subtasks" v-if="task.subtasks && task.subtasks.length">
-      <draggable 
-        v-model="task.subtasks"
-        class="subtask-list"
-        item-key="id"
-        handle=".drag-handle"
-        group="tasks"
-        @start="isDragging = true"
-        @end="handleDragEnd"
-      >
-        <template #item="{element: subtask}">
-          <div class="subtask-item">
-            <div class="drag-handle">
-              <i class="fas fa-grip-vertical"></i>
-            </div>
-            <task-node 
-              :task="subtask" 
-              :agents="agents"
-              :scenes="scenes"
-              :is-root="false"
-              :selected-id="selectedId"
-              @execute="$emit('execute', subtask)"
-              @add-subtask="$emit('add-subtask', subtask)"
-              @edit="$emit('edit', subtask)"
-              @delete="$emit('delete', subtask)"
-              @assign="$emit('assign', subtask)"
-              @select="$emit('select', $event)"
-            />
-          </div>
-        </template>
-      </draggable>
+    <div class="subtasks" v-if="task.subtasks && task.subtasks.length > 0">
+      <div class="subtask-list">
+        <task-node
+          v-for="subtask in task.subtasks"
+          :key="subtask.id"
+          :task="subtask"
+          :agents="agents"
+          :scenes="scenes"
+          :selected-id="selectedId"
+          @execute="$emit('execute', subtask)"
+          @add-subtask="$emit('add-subtask', subtask)"
+          @edit="$emit('edit', subtask)"
+          @delete="$emit('delete', subtask.id)"
+          @select="$emit('select', subtask.id)"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -125,7 +110,7 @@ const props = defineProps({
     default: false
   },
   selectedId: {
-    type: [String, Number],
+    type: String,
     default: null
   }
 })
@@ -135,9 +120,7 @@ const emit = defineEmits([
   'add-subtask', 
   'edit', 
   'delete', 
-  'assign', 
-  'select',
-  'update:task'
+  'select'
 ])
 
 const isDragging = ref(false)
@@ -241,40 +224,73 @@ watch(() => props.task.title, (newTitle) => {
 
 <style scoped>
 .task-node {
-  background-color: #fff;
   border: 1px solid #d9d9d9;
   border-radius: 4px;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.09);
+  padding: 15px;
+  margin-bottom: 15px;
+  background-color: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   transition: all 0.3s;
 }
 
 .task-node:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 }
 
-.task-node.is-selected {
-  border-color: #1890ff;
+.root-node {
+  border-left: 4px solid #1890ff;
+}
+
+.is-selected {
+  border: 2px solid #1890ff;
   box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+.status-pending {
+  border-left: 4px solid #faad14;
+}
+
+.status-running {
+  border-left: 4px solid #1890ff;
+  animation: pulse 2s infinite;
+}
+
+.status-completed {
+  border-left: 4px solid #52c41a;
+}
+
+.status-failed {
+  border-left: 4px solid #f5222d;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(24, 144, 255, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(24, 144, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(24, 144, 255, 0);
+  }
 }
 
 .task-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.5rem;
+  margin-bottom: 10px;
 }
 
 .task-title {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 10px;
 }
 
 .status-indicator {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background-color: #d9d9d9;
 }
@@ -296,69 +312,50 @@ watch(() => props.task.title, (newTitle) => {
 }
 
 .task-assignee {
-  font-size: 0.85rem;
+  font-size: 14px;
   color: #666;
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 5px;
 }
 
 .task-description {
-  margin-bottom: 0.75rem;
+  margin-bottom: 15px;
   color: #666;
-  font-size: 0.9rem;
+  font-size: 14px;
 }
 
 .task-output, .task-error {
-  margin-top: 0.75rem;
-  padding: 0.75rem;
+  margin-bottom: 15px;
+  background-color: #f5f5f5;
+  padding: 10px;
   border-radius: 4px;
-  font-size: 0.9rem;
-}
-
-.task-output {
-  background-color: #f6ffed;
-  border: 1px solid #b7eb8f;
-}
-
-.task-error {
-  background-color: #fff2f0;
-  border: 1px solid #ffccc7;
 }
 
 .output-header, .error-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-.output-header h5, .error-header h5 {
-  margin: 0;
-  font-size: 0.9rem;
+  margin-bottom: 10px;
 }
 
 .output-actions {
   display: flex;
-  gap: 0.25rem;
+  gap: 5px;
 }
 
 .output-actions button {
   background: none;
   border: none;
-  cursor: pointer;
-  font-size: 0.8rem;
   color: #666;
-}
-
-.output-actions button:hover {
-  color: #1890ff;
+  cursor: pointer;
+  padding: 5px;
 }
 
 .output-content, .error-content {
   white-space: pre-wrap;
   font-family: monospace;
-  font-size: 0.85rem;
+  font-size: 14px;
 }
 
 .error-content {
@@ -366,19 +363,22 @@ watch(() => props.task.title, (newTitle) => {
 }
 
 .task-actions {
-  margin-top: 0.75rem;
   display: flex;
-  gap: 0.5rem;
+  gap: 10px;
+  margin-bottom: 15px;
 }
 
 .task-actions button {
-  background-color: #fff;
+  padding: 5px 10px;
   border: 1px solid #d9d9d9;
   border-radius: 4px;
-  padding: 0.25rem 0.5rem;
+  background-color: white;
+  color: #666;
   cursor: pointer;
-  font-size: 0.85rem;
-  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
 }
 
 .task-actions button:hover {
@@ -393,34 +393,14 @@ watch(() => props.task.title, (newTitle) => {
 }
 
 .subtasks {
-  margin-top: 1rem;
-  padding-left: 1.5rem;
+  margin-left: 20px;
+  padding-left: 15px;
   border-left: 1px dashed #d9d9d9;
 }
 
 .subtask-list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-}
-
-.subtask-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-}
-
-.drag-handle {
-  padding: 0.5rem 0.25rem;
-  color: #999;
-  cursor: grab;
-}
-
-.drag-handle:active {
-  cursor: grabbing;
-}
-
-.root-node {
-  border-left: 4px solid #1890ff;
+  gap: 15px;
 }
 </style>

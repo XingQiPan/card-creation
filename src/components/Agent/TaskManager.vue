@@ -30,7 +30,7 @@
             <i class="fas fa-file-import"></i> 导入任务
           </label>
           <button 
-            @click="showSettings = !showSettings" 
+            @click="toggleSettings" 
             class="settings-btn"
           >
             <i class="fas fa-cog"></i> 设置
@@ -45,143 +45,107 @@
           :scenes="scenes"
           :is-root="true"
           :selected-id="selectedTaskId"
-          @execute="executeTask"
-          @add-subtask="showAddSubtaskModal"
-          @edit="showEditTaskModal"
-          @delete="deleteTask"
-          @assign="openAssignModal"
+          @execute="$emit('execute', $event)"
+          @add-subtask="handleAddSubtask"
+          @edit="handleEditTask"
+          @delete="handleDeleteTask"
           @select="selectTask"
         />
       </div>
   
       <div class="task-settings" v-if="showSettings">
-        <h3>任务设置</h3>
-        <div class="form-group">
-          <label>默认任务分拆提示词</label>
-          <textarea v-model="taskSettings.subtaskPrompt" rows="4"></textarea>
+        <div class="settings-header">
+          <h4>任务执行设置</h4>
+          <button @click="showSettings = false" class="close-btn">&times;</button>
         </div>
-        <div class="form-group">
-          <label>默认任务执行提示词</label>
-          <textarea v-model="taskSettings.executePrompt" rows="4"></textarea>
+        <div class="settings-body">
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                v-model="settings.autoSaveResults"
+              >
+              自动保存任务结果到场景
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                v-model="settings.continueOnError"
+              >
+              出错时继续执行后续任务
+            </label>
+          </div>
+          <div class="form-group">
+            <label>默认响应格式</label>
+            <select v-model="settings.responseFormat">
+              <option value="text">纯文本</option>
+              <option value="json">JSON</option>
+              <option value="markdown">Markdown</option>
+            </select>
+          </div>
+          <div class="form-group" v-if="settings.responseFormat === 'json'">
+            <label>JSON响应模板</label>
+            <textarea 
+              v-model="settings.jsonTemplate" 
+              rows="5"
+              placeholder='例如: {"content": "", "isComplete": false}'
+            ></textarea>
+          </div>
         </div>
-        <div class="form-group">
-          <label>默认任务总结提示词</label>
-          <textarea v-model="taskSettings.summaryPrompt" rows="4"></textarea>
-        </div>
-        <div class="form-group">
-          <label>默认输出重写提示词</label>
-          <textarea v-model="taskSettings.rewritePrompt" rows="4"></textarea>
-        </div>
-        <div class="form-actions">
+        <div class="settings-footer">
           <button @click="saveSettings" class="save-btn">保存设置</button>
-          <button @click="showSettings = false" class="cancel-btn">取消</button>
         </div>
       </div>
   
-      <!-- 任务表单模态框 -->
-      <div class="modal task-modal" v-if="showTaskModal">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>{{ editingTask ? '编辑任务' : '创建任务' }}</h3>
-            <button @click="closeTaskModal" class="close-btn">&times;</button>
+      <div class="task-detail" v-if="selectedTask">
+        <div class="detail-header">
+          <h4>{{ selectedTask.title }}</h4>
+          <button @click="selectedTaskId = null" class="close-btn">&times;</button>
+        </div>
+        <div class="detail-body">
+          <div class="detail-section">
+            <h5>任务描述</h5>
+            <p>{{ selectedTask.description || '无描述' }}</p>
           </div>
-          <div class="modal-body">
-            <div class="form-group">
-              <label>任务标题</label>
-              <input v-model="taskForm.title" placeholder="输入任务标题">
-              <small>使用@成员名::场景名可直接指派任务</small>
-            </div>
-            <div class="form-group">
-              <label>任务描述</label>
-              <textarea 
-                v-model="taskForm.description" 
-                placeholder="描述任务目标和要求"
-                rows="3"
-              ></textarea>
-            </div>
-            <div class="form-group">
-              <label>相关任务</label>
-              <select v-model="taskForm.relatedTaskId">
-                <option value="">无相关任务</option>
-                <option 
-                  v-for="task in allTasks" 
-                  :key="task.id" 
-                  :value="task.id"
-                  v-if="task.id !== taskForm.id"
-                >
-                  {{ task.title }}
-                </option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>相关场景</label>
-              <select v-model="taskForm.relatedSceneId">
-                <option value="">无相关场景</option>
-                <option 
-                  v-for="scene in scenes" 
-                  :key="scene.id" 
-                  :value="scene.id"
-                >
-                  {{ scene.name }}
-                </option>
-              </select>
-            </div>
-            <div class="checkbox-group">
-              <label class="checkbox-label">
-                <input 
-                  type="checkbox" 
-                  v-model="taskForm.includeParentContext"
-                >
-                包含父任务输出作为上下文
-              </label>
+          <div class="detail-section" v-if="assignedAgent">
+            <h5>指派给</h5>
+            <div class="agent-info">
+              <div class="agent-name">{{ assignedAgent.name }}</div>
+              <div class="agent-skills">
+                <span v-for="(skill, index) in assignedAgent.skills" :key="index" class="skill-tag">
+                  {{ skill }}
+                </span>
+              </div>
             </div>
           </div>
-          <div class="modal-footer">
-            <button @click="saveTask" class="save-btn">保存任务</button>
-            <button @click="closeTaskModal" class="cancel-btn">取消</button>
+          <div class="detail-section" v-if="selectedTask.output">
+            <h5>任务输出</h5>
+            <div class="output-content">{{ selectedTask.output }}</div>
+          </div>
+          <div class="detail-section" v-if="selectedTask.error">
+            <h5>执行错误</h5>
+            <div class="error-content">{{ selectedTask.error }}</div>
           </div>
         </div>
-      </div>
-  
-      <!-- 分配任务模态框 -->
-      <div class="modal assign-modal" v-if="showAssignModal">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>分配任务</h3>
-            <button @click="showAssignModal = false" class="close-btn">&times;</button>
-          </div>
-          <div class="modal-body">
-            <div class="form-group">
-              <label>选择AI成员</label>
-              <select v-model="assignForm.agentId">
-                <option value="">请选择AI成员</option>
-                <option 
-                  v-for="agent in agents" 
-                  :key="agent.id" 
-                  :value="agent.id"
-                >
-                  {{ agent.name }}
-                </option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>选择场景</label>
-              <select v-model="assignForm.sceneId">
-                <option value="">请选择场景</option>
-                <option 
-                  v-for="scene in scenes" 
-                  :key="scene.id" 
-                  :value="scene.id"
-                >
-                  {{ scene.name }}
-                </option>
-              </select>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button @click="assignTask" class="save-btn">分配任务</button>
-            <button @click="showAssignModal = false" class="cancel-btn">取消</button>
-          </div>
+        <div class="detail-footer">
+          <button 
+            @click="$emit('execute', selectedTask)" 
+            :disabled="isExecuting"
+            class="execute-btn"
+          >
+            <i class="fas fa-play"></i> 执行任务
+          </button>
+          <button @click="handleEditTask(selectedTask)" class="edit-btn">
+            <i class="fas fa-edit"></i> 编辑任务
+          </button>
+          <button @click="handleDeleteTask(selectedTask.id)" class="delete-btn">
+            <i class="fas fa-trash"></i> 删除任务
+          </button>
+          <button @click="handleAddSubtask(selectedTask)" class="add-btn">
+            <i class="fas fa-plus"></i> 添加子任务
+          </button>
         </div>
       </div>
     </div>
@@ -193,6 +157,10 @@
   import TaskNode from './TaskNode.vue';
   
   const props = defineProps({
+    rootTask: {
+      type: Object,
+      default: null
+    },
     agents: {
       type: Array,
       default: () => []
@@ -204,42 +172,30 @@
     models: {
       type: Array,
       default: () => []
+    },
+    isExecuting: {
+      type: Boolean,
+      default: false
     }
   });
   
-  const emit = defineEmits(['save-tasks']);
+  const emit = defineEmits([
+    'save-tasks', 
+    'execute', 
+    'delete-task', 
+    'add-subtask',
+    'edit-task',
+    'add-card-to-scene'
+  ]);
   
   // 状态
-  const rootTask = ref(null);
   const selectedTaskId = ref(null);
-  const isExecuting = ref(false);
-  const showTaskModal = ref(false);
-  const showAssignModal = ref(false);
   const showSettings = ref(false);
-  const editingTask = ref(null);
-  const assigningTask = ref(null);
-  const parentTaskId = ref(null);
-  
-  // 表单
-  const taskForm = ref({
-    id: '',
-    title: '',
-    description: '',
-    relatedTaskId: '',
-    relatedSceneId: '',
-    includeParentContext: true
-  });
-  
-  const assignForm = ref({
-    agentId: '',
-    sceneId: ''
-  });
-  
-  const taskSettings = ref({
-    subtaskPrompt: '请将以下任务分解为多个子任务，每个子任务应该是独立的、可执行的步骤：\n\n任务：{task}\n\n输出格式：\n1. 子任务1标题\n2. 子任务2标题\n...',
-    executePrompt: '你是一个专业的{agent}，现在需要完成以下任务：\n\n任务：{task}\n\n{context}\n\n请提供详细的解决方案。',
-    summaryPrompt: '请总结以下内容的要点：\n\n{content}\n\n请用简洁的语言提炼出核心信息。',
-    rewritePrompt: '请重写以下内容，使其更加清晰、专业：\n\n{content}'
+  const settings = ref({
+    autoSaveResults: true,
+    continueOnError: false,
+    responseFormat: 'json',
+    jsonTemplate: '{"content": "", "isComplete": false}'
   });
   
   // 计算属性
@@ -254,367 +210,73 @@
       }
     };
     
-    if (rootTask.value) {
-      collectTasks(rootTask.value);
+    if (props.rootTask) {
+      collectTasks(props.rootTask);
     }
     
     return tasks;
   });
   
+  const selectedTask = computed(() => {
+    if (!selectedTaskId.value || !props.rootTask) return null;
+    
+    const findTask = (task, id) => {
+      if (task.id === id) return task;
+      if (!task.subtasks) return null;
+      
+      for (const subtask of task.subtasks) {
+        const found = findTask(subtask, id);
+        if (found) return found;
+      }
+      
+      return null;
+    };
+    
+    return findTask(props.rootTask, selectedTaskId.value);
+  });
+  
+  const assignedAgent = computed(() => {
+    if (!selectedTask.value || !selectedTask.value.assignedTo) return null;
+    return props.agents.find(a => a.id === selectedTask.value.assignedTo);
+  });
+  
   // 方法
   const createRootTask = () => {
-    showTaskModal.value = true;
-    editingTask.value = null;
-    parentTaskId.value = null;
-    taskForm.value = {
-      id: '',
-      title: '',
+    const newTask = {
+      id: uuidv4(),
+      title: '根任务',
       description: '',
-      relatedTaskId: '',
-      relatedSceneId: '',
-      includeParentContext: true
-    };
-  };
-  
-  const showAddSubtaskModal = (parentTask) => {
-    showTaskModal.value = true;
-    editingTask.value = null;
-    parentTaskId.value = parentTask.id;
-    taskForm.value = {
-      id: '',
-      title: '',
-      description: '',
-      relatedTaskId: '',
-      relatedSceneId: '',
-      includeParentContext: true
-    };
-  };
-  
-  const showEditTaskModal = (task) => {
-    showTaskModal.value = true;
-    editingTask.value = task;
-    parentTaskId.value = task.parentId;
-    taskForm.value = {
-      id: task.id,
-      title: task.title,
-      description: task.description || '',
-      relatedTaskId: task.relatedTaskId || '',
-      relatedSceneId: task.relatedSceneId || '',
-      includeParentContext: task.includeParentContext !== false
-    };
-  };
-  
-  const closeTaskModal = () => {
-    showTaskModal.value = false;
-    editingTask.value = null;
-    parentTaskId.value = null;
-  };
-  
-  const saveTask = () => {
-    if (!taskForm.value.title.trim()) {
-      alert('任务标题不能为空');
-      return;
-    }
-    
-    // 解析@成员::场景语法
-    const titleMatch = taskForm.value.title.match(/@([^:]+)::([^:]+)/);
-    let assignedTo = '';
-    let sceneId = '';
-    
-    if (titleMatch) {
-      const agentName = titleMatch[1].trim();
-      const sceneName = titleMatch[2].trim();
-      
-      // 查找匹配的成员和场景
-      const agent = props.agents.find(a => a.name === agentName);
-      const scene = props.scenes.find(s => s.name === sceneName);
-      
-      if (agent) assignedTo = agent.id;
-      if (scene) sceneId = scene.id;
-      
-      // 移除语法标记
-      taskForm.value.title = taskForm.value.title.replace(/@([^:]+)::([^:]+)/, '').trim();
-    }
-    
-    if (editingTask.value) {
-      // 更新现有任务
-      editingTask.value.title = taskForm.value.title;
-      editingTask.value.description = taskForm.value.description;
-      editingTask.value.relatedTaskId = taskForm.value.relatedTaskId;
-      editingTask.value.relatedSceneId = taskForm.value.relatedSceneId;
-      editingTask.value.includeParentContext = taskForm.value.includeParentContext;
-      
-      if (assignedTo) editingTask.value.assignedTo = assignedTo;
-      if (sceneId) editingTask.value.sceneId = sceneId;
-    } else {
-      // 创建新任务
-      const newTask = {
-        id: uuidv4(),
-        title: taskForm.value.title,
-        description: taskForm.value.description,
-        status: 'pending',
-        relatedTaskId: taskForm.value.relatedTaskId,
-        relatedSceneId: taskForm.value.relatedSceneId,
-        includeParentContext: taskForm.value.includeParentContext,
-        subtasks: [],
-        createdAt: new Date().toISOString()
-      };
-      
-      if (assignedTo) newTask.assignedTo = assignedTo;
-      if (sceneId) newTask.sceneId = sceneId;
-      
-      if (parentTaskId.value) {
-        // 添加子任务
-        newTask.parentId = parentTaskId.value;
-        addTaskToParent(newTask);
-      } else {
-        // 设置为根任务
-        rootTask.value = newTask;
-      }
-    }
-    
-    saveTasks();
-    closeTaskModal();
-  };
-  
-  const addTaskToParent = (task) => {
-    const findParent = (tasks, parentId) => {
-      for (const t of tasks) {
-        if (t.id === parentId) {
-          if (!t.subtasks) t.subtasks = [];
-          t.subtasks.push(task);
-          return true;
-        }
-        if (t.subtasks && findParent(t.subtasks, parentId)) {
-          return true;
-        }
-      }
-      return false;
+      assignedTo: '',
+      status: 'pending',
+      subtasks: [],
+      sceneId: '',
+      includeParentContext: false,
+      includeRelatedContext: false,
+      includeSceneContext: false,
+      relatedTaskId: ''
     };
     
-    if (rootTask.value) {
-      findParent([rootTask.value], task.parentId);
-    }
+    emit('save-tasks', newTask);
   };
   
-  const deleteTask = (task) => {
-    if (!confirm(`确定要删除任务"${task.title}"吗？`)) return;
-    
-    if (task.id === rootTask.value?.id) {
-      rootTask.value = null;
-    } else {
-      const removeTask = (tasks, taskId) => {
-        for (let i = 0; i < tasks.length; i++) {
-          if (tasks[i].subtasks) {
-            const index = tasks[i].subtasks.findIndex(t => t.id === taskId);
-            if (index !== -1) {
-              tasks[i].subtasks.splice(index, 1);
-              return true;
-            }
-            if (removeTask(tasks[i].subtasks, taskId)) {
-              return true;
-            }
-          }
-        }
-        return false;
-      };
-      
-      if (rootTask.value) {
-        removeTask([rootTask.value], task.id);
-      }
-    }
-    
-    saveTasks();
-  };
-  
-  const openAssignModal = (task) => {
-    assigningTask.value = task;
-    assignForm.value = {
-      agentId: task.assignedTo || '',
-      sceneId: task.sceneId || ''
-    };
-    showAssignModal.value = true;
-  };
-  
-  const assignTask = () => {
-    if (!assigningTask.value) return;
-    
-    assigningTask.value.assignedTo = assignForm.value.agentId || null;
-    assigningTask.value.sceneId = assignForm.value.sceneId || null;
-    
-    saveTasks();
-    showAssignModal.value = false;
-  };
-  
-  const selectTask = (taskId) => {
-    selectedTaskId.value = taskId;
-  };
-  
-  const executeTask = async (task) => {
-    if (isExecuting.value) return;
-    
-    // 设置任务状态为执行中
-    task.status = 'running';
-    task.error = null;
-    saveTasks();
-    
-    try {
-      isExecuting.value = true;
-      
-      // 构建任务上下文
-      const context = await buildTaskContext(task);
-      
-      // 获取分配的AI成员
-      const agent = task.assignedTo 
-        ? props.agents.find(a => a.id === task.assignedTo)
-        : autoAssignAgent(task);
-      
-      if (!agent) {
-        throw new Error('没有可用的AI成员执行此任务');
-      }
-      
-      // 构建提示词
-      const prompt = buildPrompt(task, agent, context);
-      
-      // 调用AI API
-      const response = await callAI(prompt, agent);
-      
-      // 更新任务状态和输出
-      task.output = response;
-      task.status = 'completed';
-      task.completedAt = new Date().toISOString();
-      
-      saveTasks();
-    } catch (error) {
-      console.error('执行任务失败:', error);
-      task.status = 'failed';
-      task.error = error.message;
-    } finally {
-      isExecuting.value = false;
-    }
-  };
-  
-  const executeAllTasks = async () => {
-    if (!rootTask.value || isExecuting.value) return;
-    
-    try {
-      isExecuting.value = true;
-      
-      // 先执行根任务
-      if (rootTask.value.status !== 'completed') {
-        await executeTask(rootTask.value);
-      }
-      
-      // 递归执行子任务
-      const executeSubtasks = async (tasks) => {
-        for (const task of tasks) {
-          if (task.status !== 'completed') {
-            await executeTask(task);
-          }
-          if (task.subtasks && task.subtasks.length) {
-            await executeSubtasks(task.subtasks);
-          }
-        }
-      };
-      
-      if (rootTask.value.subtasks && rootTask.value.subtasks.length) {
-        await executeSubtasks(rootTask.value.subtasks);
-      }
-    } catch (error) {
-      console.error('执行所有任务失败:', error);
-    } finally {
-      isExecuting.value = false;
-    }
-  };
-  
-  const buildTaskContext = async (task) => {
-    let context = '';
-    
-    // 添加父任务上下文
-    if (task.includeParentContext && task.parentId) {
-      const parent = findTaskById(task.parentId);
-      if (parent && parent.output) {
-        context += `父任务输出:\n${parent.output}\n\n`;
-      }
-    }
-    
-    // 添加相关任务上下文
-    if (task.relatedTaskId) {
-      const relatedTask = findTaskById(task.relatedTaskId);
-      if (relatedTask && relatedTask.output) {
-        context += `相关任务输出:\n${relatedTask.output}\n\n`;
-      }
-    }
-    
-    // 添加场景上下文
-    if (task.relatedSceneId) {
-      const scene = props.scenes.find(s => s.id === task.relatedSceneId);
-      if (scene && scene.description) {
-        context += `场景描述:\n${scene.description}\n\n`;
-      }
-    }
-    
-    return context;
-  };
-  
-  const findTaskById = (taskId) => {
-    return allTasks.value.find(t => t.id === taskId);
-  };
-  
-  const autoAssignAgent = (task) => {
-    // 简单实现：随机选择一个AI成员
-    if (props.agents.length === 0) return null;
-    return props.agents[Math.floor(Math.random() * props.agents.length)];
-  };
-  
-  const buildPrompt = (task, agent, context) => {
-    let prompt = taskSettings.value.executePrompt
-      .replace('{agent}', agent.name)
-      .replace('{task}', `${task.title}\n${task.description || ''}`)
-    
-    if (context) {
-      prompt = prompt.replace('{context}', `上下文信息:\n${context}`);
-    } else {
-      prompt = prompt.replace('{context}', '');
-    }
-    
-    return prompt;
-  };
-  
-  const callAI = async (prompt, agent) => {
-    try {
-      // 这里应该调用实际的AI API
-      console.log('调用AI API:', { prompt, agent });
-      
-      // 模拟API调用
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          resolve(`这是AI的回复：\n\n我已完成任务"${prompt.split('\n')[0]}"。\n\n这里是详细的解决方案...`);
-        }, 1000);
-      });
-    } catch (error) {
-      console.error('调用AI API失败:', error);
-      throw new Error('调用AI服务失败');
+  const executeAllTasks = () => {
+    if (props.rootTask) {
+      emit('execute', props.rootTask);
     }
   };
   
   const exportTasks = () => {
-    try {
-      const data = JSON.stringify(rootTask.value, null, 2);
-      const blob = new Blob([data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `tasks-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('导出任务失败:', error);
-      alert('导出任务失败');
-    }
+    if (!props.rootTask) return;
+    
+    const dataStr = JSON.stringify(props.rootTask, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    
+    const exportFileDefaultName = `task-flow-${new Date().toISOString().slice(0, 10)}.json`;
+    
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
   };
   
   const importTasks = (event) => {
@@ -624,64 +286,57 @@
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const data = JSON.parse(e.target.result);
-        rootTask.value = data;
-        saveTasks();
+        const importedTask = JSON.parse(e.target.result);
+        emit('save-tasks', importedTask);
       } catch (error) {
         console.error('导入任务失败:', error);
-        alert('导入任务失败，请检查文件格式');
+        alert('导入失败: ' + error.message);
       }
     };
     reader.readAsText(file);
-    
-    // 重置文件输入
-    event.target.value = null;
+  };
+  
+  const toggleSettings = () => {
+    console.log('切换设置面板');
+    showSettings.value = !showSettings.value;
   };
   
   const saveSettings = () => {
-    localStorage.setItem('taskSettings', JSON.stringify(taskSettings.value));
+    localStorage.setItem('taskSettings', JSON.stringify(settings.value));
     showSettings.value = false;
   };
   
-  const loadSettings = () => {
-    try {
-      const saved = localStorage.getItem('taskSettings');
-      if (saved) {
-        taskSettings.value = JSON.parse(saved);
-      }
-    } catch (error) {
-      console.error('加载设置失败:', error);
-    }
+  const selectTask = (taskId) => {
+    console.log('选择任务:', taskId);
+    selectedTaskId.value = taskId;
   };
   
-  const saveTasks = () => {
-    try {
-      localStorage.setItem('tasks', JSON.stringify(rootTask.value));
-      emit('save-tasks', rootTask.value);
-      return true;
-    } catch (error) {
-      console.error('保存任务失败:', error);
-      return false;
-    }
+  const handleAddSubtask = (parentTask) => {
+    console.log('TaskManager: 添加子任务到', parentTask);
+    emit('add-subtask', parentTask);
   };
   
-  const loadTasks = () => {
-    try {
-      const saved = localStorage.getItem('tasks');
-      if (saved) {
-        rootTask.value = JSON.parse(saved);
-      }
-      return true;
-    } catch (error) {
-      console.error('加载任务失败:', error);
-      return false;
-    }
+  const handleEditTask = (task) => {
+    console.log('TaskManager: 编辑任务', task);
+    emit('edit-task', task);
+  };
+  
+  const handleDeleteTask = (taskId) => {
+    console.log('TaskManager: 删除任务', taskId);
+    emit('delete-task', taskId);
   };
   
   // 生命周期钩子
   onMounted(() => {
-    loadSettings();
-    loadTasks();
+    // 加载设置
+    try {
+      const savedSettings = localStorage.getItem('taskSettings');
+      if (savedSettings) {
+        settings.value = JSON.parse(savedSettings);
+      }
+    } catch (error) {
+      console.error('加载设置失败:', error);
+    }
   });
   
   // 监听props变化
@@ -731,6 +386,27 @@
     z-index: 1000;
   }
   
+  .settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid #e8e8e8;
+  }
+  
+  .settings-body {
+    padding: 1rem;
+    overflow-y: auto;
+    flex: 1;
+  }
+  
+  .settings-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 1rem;
+    border-top: 1px solid #e8e8e8;
+  }
+  
   .form-group {
     margin-bottom: 1rem;
   }
@@ -749,13 +425,6 @@
     border: 1px solid #d9d9d9;
     border-radius: 4px;
     font-size: 0.9rem;
-  }
-  
-  .form-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    margin-top: 1rem;
   }
   
   .create-btn,
@@ -892,5 +561,101 @@
     align-items: center;
     gap: 0.5rem;
     cursor: pointer;
+  }
+  
+  .task-detail {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+  }
+  
+  .detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid #e8e8e8;
+  }
+  
+  .detail-body {
+    padding: 1rem;
+    overflow-y: auto;
+    flex: 1;
+  }
+  
+  .detail-section {
+    margin-bottom: 1rem;
+  }
+  
+  .detail-section h5 {
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+  }
+  
+  .detail-section p {
+    margin-bottom: 0.5rem;
+  }
+  
+  .agent-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  .agent-name {
+    font-size: 16px;
+    font-weight: 500;
+  }
+  
+  .agent-skills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  
+  .skill-tag {
+    background-color: #f0f0f0;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    color: #666;
+  }
+  
+  .detail-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 1rem;
+    border-top: 1px solid #e8e8e8;
+  }
+  
+  .edit-btn,
+  .delete-btn,
+  .add-btn {
+    background: none;
+    border: none;
+    color: #999;
+    cursor: pointer;
+    padding: 0;
+  }
+  
+  .edit-btn:hover,
+  .delete-btn:hover,
+  .add-btn:hover {
+    color: #f5222d;
+  }
+  
+  .output-content {
+    white-space: pre-wrap;
+  }
+  
+  .error-content {
+    color: #ff4d4f;
   }
   </style>

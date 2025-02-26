@@ -275,12 +275,6 @@ const saveTask = () => {
   font-weight: 500;
 }
 
-.form-group small {
-  display: block;
-  color: #999;
-  margin-top: 4px;
-}
-
 .form-group input,
 .form-group textarea,
 .form-group select {
@@ -326,5 +320,31 @@ const saveTask = () => {
   padding: 8px 16px;
   border-radius: 4px;
   cursor: pointer;
+}
+
+.form-section {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.form-section-title {
+  font-weight: 500;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: #999;
+  margin-top: 4px;
+}
+
+.json-template {
+  font-family: monospace;
+  background-color: #f5f5f5;
+  padding: 10px;
+  border-radius: 4px;
+  margin-top: 10px;
 }
 </style> 

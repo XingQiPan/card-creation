@@ -335,10 +335,25 @@ const handleTasksSaved = (savedRootTask) => {
   localStorage.setItem('rootTask', JSON.stringify(rootTask.value));
 };
 
+const formatApiUrl = (model) => {
+  switch (model.provider) {
+    case 'openai':
+      return `${model.apiUrl.replace(/\/+$/, '')}/chat/completions`
+    case 'gemini':
+      return `https://generativelanguage.googleapis.com/v1beta/models/${model.modelId}:generateContent`
+    case 'ollama':
+      return 'http://localhost:11434/api/chat'
+    case 'custom':
+      return model.apiUrl // 自定义API使用完整URL
+    default:
+      return model.apiUrl
+  }
+}
+
 // 调用AI模型API - 参考ChatView组件的实现
 const callAI = async (model, prompt) => {
-  console.log('调用AI模型:', model.name, '提示词长度:', prompt.length)
-  
+  //console.log('调用AI模型:', model.name, '提示词长度:', prompt.length)
+  let modelUrl = formatApiUrl(model)
   try {
     const apiUrl = model.apiUrl || ''
     let url = ''
@@ -366,7 +381,7 @@ const callAI = async (model, prompt) => {
       case 'gemini':
         // 修正 Gemini API 请求格式和认证方式
         const cleanApiUrl = apiUrl.replace(/\/+$/, '')
-        url = `${cleanApiUrl}key=${encodeURIComponent(model.apiKey)}`
+        url = `${modelUrl}?key=${model.apiKey}`
         
         body = {
           contents: [
@@ -444,8 +459,6 @@ const callAI = async (model, prompt) => {
           }
         }
         throw new Error('无法解析 Gemini 响应')
-      default:
-        throw new Error(`不支持的模型提供商: ${model.provider}`)
     }
   } catch (error) {
     console.error('调用AI API失败:', error)
@@ -584,6 +597,35 @@ const executeTask = async (task) => {
     prompt += `任务: ${task.title}\n`
     prompt += `描述: ${task.description || ''}\n\n`
     
+    // 添加场景卡片内容
+    if (task.readSceneCard && task.sourceSceneId) {
+      const targetScene = props.scenes.find(s => s.id === task.sourceSceneId)
+      
+      if (targetScene && targetScene.cards && targetScene.cards.length > 0) {
+        // 从任务描述和标题中提取关键词
+        const searchText = (task.title + ' ' + (task.description || '')).toLowerCase()
+        
+        // 查找匹配的卡片
+        const matchedCards = targetScene.cards.filter(card => {
+          const cardTitle = card.title.toLowerCase()
+          // 检查卡片标题是否包含在任务描述或标题中
+          return searchText.includes(cardTitle) || 
+                 // 或者任务描述/标题中的词是否出现在卡片标题中
+                 searchText.split(/\s+/).some(word => 
+                   word.length > 1 && cardTitle.includes(word)
+                 )
+        })
+        
+        if (matchedCards.length > 0) {
+          prompt += '相关场景卡片内容:\n\n'
+          matchedCards.forEach(card => {
+            prompt += `【${card.title}】\n${card.content}\n\n`
+          })
+          console.log('找到匹配的卡片:', matchedCards.length, '个')
+        }
+      }
+    }
+    
     // 如果有格式要求，添加到提示词中
     if (task.responseFormat === 'json') {
       prompt += `请以JSON格式返回结果，格式如下:\n{"content": "", "isComplete": true}\n其中content字段包含你的回答内容(不需要json格式)，isComplete字段表示任务是否完成。\n\n请注意：直接返回JSON对象，不要使用Markdown代码块包装，确保JSON格式正确且不包含特殊控制字符，只需要这两个字段！！！\n\n`
@@ -600,38 +642,6 @@ const executeTask = async (task) => {
         if (parent && parent.output) {
           prompt += `父任务输出:\n${parent.output}\n\n`
         }
-      }
-    }
-    
-    // 添加场景卡片内容
-    if (task.readSceneCards) {
-      const targetSceneId = task.targetSceneId || ''
-      const scene = props.scenes.find(s => s.id === targetSceneId)
-      
-      if (scene && scene.cards && scene.cards.length > 0) {
-        let cardsContent = '场景卡片内容:\n\n'
-        let matchedCards = []
-        
-        if (task.cardSearchQuery) {
-          const queries = task.cardSearchQuery.split(',').map(q => q.trim().toLowerCase())
-          
-          matchedCards = scene.cards.filter(card => {
-            return queries.some(query => 
-              card.title.toLowerCase().includes(query) || 
-              (card.tags && card.tags.some(tag => tag.toLowerCase().includes(query)))
-            )
-          })
-        } else {
-          // 如果没有搜索条件，使用所有卡片
-          matchedCards = scene.cards
-        }
-        
-        // 添加卡片内容
-        matchedCards.forEach(card => {
-          cardsContent += `【${card.title}】\n${card.content}\n\n`
-        })
-        
-        prompt += cardsContent
       }
     }
     

@@ -395,7 +395,7 @@
                     <option value="custom">自定义</option>
                   </select>
                 </div>
-                <div class="form-group">
+                <div class="form-group" v-if="model.provider !== 'gemini'">
                   <label>API 地址</label>
                   <input v-model="model.apiUrl" placeholder="API 地址"/>
                 </div>
@@ -1356,6 +1356,7 @@ const sendPromptRequest = async (prompt) => {
         })
       })
     } else if (model.provider === 'gemini') {
+      console.log('gemini', apiUrl)
       response = await fetch(`${apiUrl}?key=${model.apiKey}`, {
         method: 'POST',
         headers: {

@@ -16825,6 +16825,53 @@ _**User**_
 
 ---
 
+_**Assistant**_
+
+
+
+抱歉，我们需要定义 emit。让我们在组件的 setup 部分添加 emit 定义：
+
+```vue:src/components/AgentsView.vue
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const props = defineProps({
+  models: {
+    type: Array,
+    required: true
+  },
+  scenes: {
+    type: Array,
+    required: true
+  }
+})
+
+const emit = defineEmits(['update-scene'])
+
+// ... 其他代码保持不变 ...
+</script>
+```
+
+主要改动：
+1. 添加了 defineEmits 来定义组件可以触发的事件
+2. 声明了 'update-scene' 事件
+
+这样就可以在 executeTask 中正确使用 emit 来触发场景更新事件了。
+
+---
+
+_**User**_
+
+修复卡片查询功能，查询就是关键词功能类似，会查看自己发送内容是否有提示词标题，有则附带卡片内容上去。
+
+---
+
+_**Assistant**_
+
+
+
+---
+
 
 
 ---

@@ -514,22 +514,38 @@ const sendMessage = async () => {
   }
 }
 
+const formatApiUrl = (model) => {
+  switch (model.provider) {
+    case 'openai':
+      return `${model.apiUrl.replace(/\/+$/, '')}/chat/completions`
+    case 'gemini':
+      return `https://generativelanguage.googleapis.com/v1beta/models/${model.modelId}:generateContent`
+    case 'ollama':
+      return 'http://localhost:11434/api/chat'
+    case 'custom':
+      return model.apiUrl // 自定义API使用完整URL
+    default:
+      return model.apiUrl
+  }
+}
+
 // 修改调用模型 API
 const sendToModel = async (model, message, context = []) => {
   try {
-    const apiUrl = model.apiUrl || ''
     let url = ''
     let body = {}
     let headers = {
       'Content-Type': 'application/json'
     }
 
+    let modelUrl = formatApiUrl(model)
+
     // 根据不同的提供商构建请求
     switch (model.provider) {
       case 'openai':
       case 'stepfun':
       case 'mistral':
-        url = `${apiUrl.replace(/\/+$/, '')}/chat/completions`
+        url = `${modelUrl}`
         headers['Authorization'] = `Bearer ${model.apiKey}`
         body = {
           model: model.modelId,
@@ -542,12 +558,7 @@ const sendToModel = async (model, message, context = []) => {
         }
         break
       case 'gemini':
-        // 修正 Gemini API 请求格式和认证方式
-        // 确保 API 密钥直接作为 URL 参数
-        const cleanApiUrl = apiUrl.replace(/\/+$/, '')
-        url = `${cleanApiUrl}key=${encodeURIComponent(model.apiKey)}`
-        //console.log('完整的 Gemini URL:', url)
-        // 构建 Gemini 格式的消息历史
+        url = `${modelUrl}?key=${model.apiKey}`
         const contents = []
         
         // 处理上下文消息

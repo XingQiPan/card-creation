@@ -718,6 +718,24 @@ const processWithAPI = async (card, prompt, scene) => {
       });
     }
 
+    const formatApiUrl = (model) => {
+  switch (model.provider) {
+    case 'openai':
+      return `${model.apiUrl.replace(/\/+$/, '')}/chat/completions`
+    case 'gemini':
+      return `https://generativelanguage.googleapis.com/v1beta/models/${model.modelId}:generateContent`
+    case 'ollama':
+      return 'http://localhost:11434/api/chat'
+    case 'custom':
+      return model.apiUrl // 自定义API使用完整URL
+    default:
+      return model.apiUrl
+  }
+}
+
+    let modelUrl = formatApiUrl(model)
+
+
     let response
     let result
 
@@ -732,7 +750,7 @@ const processWithAPI = async (card, prompt, scene) => {
       case 'openai':
       case 'stepfun':
       case 'mistral':
-        response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
+        response = await fetch(`${modelUrl}`, {
           method: 'POST',
           headers: baseHeaders,
           body: JSON.stringify({
@@ -758,7 +776,7 @@ const processWithAPI = async (card, prompt, scene) => {
         break
 
       case 'gemini':
-        response = await fetch(`${model.apiUrl}?key=${model.apiKey}`, {
+        response = await fetch(`${modelUrl}?key=${model.apiKey}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

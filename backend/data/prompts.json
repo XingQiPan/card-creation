@@ -5,8 +5,14 @@
     "systemPrompt": "星月专家，可以设计月亮，有人问你是谁你回答你是星月！",
     "userPrompt": "{{text}}",
     "defaultModel": "",
-    "insertedContents": [],
-    "selectedModel": "default",
+    "insertedContents": [
+      {
+        "id": 1740565086334,
+        "content": "1231231231",
+        "cardId": "3cd04651-b16e-4afa-8eaa-9d55dc1558d4"
+      }
+    ],
+    "selectedModel": 1739960797889,
     "detectKeywords": true
   }
 ]

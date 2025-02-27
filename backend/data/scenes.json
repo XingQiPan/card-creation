@@ -2,6 +2,17 @@
   {
     "id": 1740403919177,
     "name": "测试自动化",
-    "cards": []
+    "cards": [
+      {
+        "id": "1b4c8564-215a-4377-8c4d-1410c6a0fdbf",
+        "title": "星月",
+        "content": "星月是小女孩呀",
+        "height": "120px",
+        "tags": [
+          1740636464764
+        ],
+        "insertedContents": []
+      }
+    ]
   }
 ]

@@ -23,20 +23,20 @@
           </div>
           <div class="prompt-panel-header">
             <div class="header-actions">
-              <button @click="showPromptModal = true">
-                <i class="fas fa-plus"></i> 新建提示词
-              </button>
-              <label class="import-btn">
-                <input 
-                  type="file" 
-                  multiple
-                  accept=".txt,.md,.json,.text"
-                  @change="importPrompts"
-                  ref="promptFileInput"
-                >
-                <i class="fas fa-file-import"></i> 导入提示词
-              </label>
-            </div>
+            <button @click="exportPrompts">
+              <i class="fas fa-file-export"></i> 导出提示词
+            </button>
+            <label class="import-btn">
+              <input 
+                type="file" 
+                multiple
+                accept=".txt,.md,.json,.text"
+                @change="importPrompts"
+                ref="promptFileInput"
+              >
+              <i class="fas fa-file-import"></i> 导入提示词
+            </label>
+          </div>
           </div>
           <div class="prompt-list">
             <div 
@@ -603,6 +603,46 @@
         {{ toast.message }}
       </div>
     </Teleport>
+
+    <!-- 在适当的位置添加标签管理组件 -->
+    <div class="tags-panel">
+      <div class="tags-header">
+        <h3>标签管理</h3>
+        <div class="tag-input">
+          <input 
+            v-model="newTagName" 
+            @keyup.enter="addTag"
+            placeholder="输入标签名称"
+          >
+          <button @click="addTag">
+            <i class="fas fa-plus"></i>
+          </button>
+        </div>
+      </div>
+      
+      <div class="tags-list">
+        <div v-for="tag in tags" :key="tag.id" class="tag-item">
+          <span class="tag-name">{{ tag.name }}</span>
+          <div class="tag-actions">
+            <button @click="deleteTag(tag.id)" class="delete-btn">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 标签筛选器 -->
+      <div class="tags-filter">
+        <div 
+          v-for="tag in tags" 
+          :key="tag.id"
+          :class="['filter-tag', { active: selectedTags.includes(tag.id) }]"
+          @click="toggleTagFilter(tag.id)"
+        >
+          {{ tag.name }}
+        </div>
+      </div>
+    </div>
 </template>
 
 
@@ -1082,12 +1122,6 @@ const savePrompts = async () => {
   await syncData() // 改为使用 syncData
 }
 
-// 修改保存标签的方法
-const saveTags = async () => {
-  localStorage.setItem('tags', JSON.stringify(tags.value))
-  await syncData() // 改为使用 syncData
-}
-
 // 修改保存模型的方法
 const saveModels = async () => {
   try {
@@ -1321,36 +1355,11 @@ const sendPromptRequest = async (prompt) => {
       const insertedTexts = prompt.insertedContents.map(item => item.content).join('\n')
       processedTemplate = processedTemplate.replace(/{{text}}/g, insertedTexts)
     }
-
+    console.log('processedTemplate', prompt.detectKeywords)
     // 只在启用关键词检测时执行关键词处理
     if (prompt.detectKeywords) {
-      // 检查关键词
-      let keywordContexts = []
-      const keywordTags = tags.value.filter(tag => tag.isKeyword)
-      
-      // 获取当前场景中带有关键词标签的卡片
-      const keywordCards = currentScene.value.cards.filter(card => 
-        card.tags?.some(tagId => keywordTags.some(tag => tag.id === tagId)) && 
-        card.title
-      )
-
-      // 检查每个关键词卡片
-      keywordCards.forEach(card => {
-        if (card.title && processedTemplate.includes(card.title)) {
-          keywordContexts.push({
-            keyword: card.title,
-            content: card.content
-          })
-        }
-      })
-
-      // 如果找到关键词，添加上下文
-      if (keywordContexts.length > 0) {
-        const contextSection = keywordContexts.map(ctx => 
-          `关键词「${ctx.keyword}」的上下文:\n${ctx.content}`
-        ).join('\n\n')
-        processedTemplate = `${contextSection}\n\n---\n\n${processedTemplate}`
-      }
+      processedTemplate = processKeywords(processedTemplate)
+      console.log('processedTemplate', processedTemplate)
     }
 
     console.log('processedTemplate', processedTemplate)
@@ -1489,7 +1498,7 @@ const importPrompts = async (event) => {
               id: Date.now() + Math.random(),
               title: prompt.title || file.name,
               systemPrompt: prompt.systemPrompt || '',
-              userPrompt: prompt.userPrompt || prompt.template || content.trim(), // 兼容旧版本
+              userPrompt: prompt.userPrompt || prompt.template || '{{text}}', // 默认添加占位符
               defaultModel: prompt.defaultModel || models.value[0]?.id || '',
               insertedContents: [],
               detectKeywords: prompt.detectKeywords ?? true
@@ -1500,20 +1509,20 @@ const importPrompts = async (event) => {
           prompts.value.push({
             id: Date.now() + Math.random(),
             title: file.name,
-            systemPrompt: '',
-            userPrompt: content.trim(),
+            systemPrompt: content.trim(), // 非JSON文件内容作为系统提示词
+            userPrompt: '{{text}}', // 默认添加占位符
             defaultModel: models.value[0]?.id || '',
             insertedContents: [],
             detectKeywords: true
           })
         }
       } else {
-        // 处理普通文本文件
+        // 处理普通文本文件，内容作为系统提示词
         prompts.value.push({
           id: Date.now() + Math.random(),
           title: file.name,
-          systemPrompt: '',
-          userPrompt: content.trim(),
+          systemPrompt: content.trim(), // 文本内容作为系统提示词
+          userPrompt: '{{text}}', // 默认添加占位符
           defaultModel: models.value[0]?.id || '',
           insertedContents: [],
           detectKeywords: true
@@ -1531,74 +1540,12 @@ const importPrompts = async (event) => {
   }
 }
 
-// 添加文件拖放支持
-const handleDragOver = (event) => {
-  event.preventDefault()
-  event.stopPropagation()
-}
-
-const handleDrop = async (event) => {
-  event.preventDefault()
-  event.stopPropagation()
-  
-  const files = event.dataTransfer.files
-  if (files.length > 0) {
-    try {
-      for (const file of files) {
-        let content = await file.text()
-        
-        if (file.name.endsWith('.json')) {
-          try {
-            const jsonData = JSON.parse(content)
-            content = JSON.stringify(jsonData, null, 2)
-          } catch (e) {
-            console.warn('JSON 解析失败，作为普通文本处理')
-          }
-        }
-
-        textCards.value.push({
-          id: Date.now() + Math.random(),
-          content: content.trim(),
-          title: file.name,
-          height: '200px'
-        })
-      }
-    } catch (error) {
-      console.error('文件导入错误:', error)
-      alert('文件导入失败: ' + error.message)
-    }
-  }
-}
-
 // 新增的插入提示词相关方法
 const insertPromptAtCursor = (card) => {
   currentEditingCard.value = card
   showPromptSelectModal.value = true
 }
 
-const insertPromptToCard = (prompt) => {
-  if (!currentEditingCard.value) return
-  
-  const insertCount = getInsertCount(prompt.userPrompt)
-  if (insertCount === 0) return
-  
-  // 初始化插入内容数组
-  if (!prompt.insertedContents) {
-    prompt.insertedContents = []
-  }
-  
-  // 检查是否还能插入更多内容
-  if (prompt.insertedContents.length >= insertCount) {
-    alert('已达到最大插入数量')
-    return
-  }
-  
-  // 添加插入的内容
-  prompt.insertedContents.push(currentEditingCard.value.content)
-  
-  showPromptSelectModal.value = false
-  currentEditingCard.value = null
-}
 
 const removeInsertedContent = (prompt, index) => {
   prompt.insertedContents.splice(index, 1)
@@ -1769,23 +1716,6 @@ const refreshModelList = async (model) => {
   }
 }
 
-// 添加 API URL 验证
-const validateApiUrl = (url) => {
-  return url.startsWith('https://') || url.startsWith('http://')
-}
-
-// 修改默认的 Gemini 模型配置
-const defaultGeminiModel = {
-  id: 'gemini',
-  name: 'Gemini',
-  provider: PROVIDERS.GEMINI,
-  apiUrl: '', // 用户自己填写 API 地址
-  modelId: '', // 用户自己填写模型 ID
-  apiKey: '',
-  maxTokens: 2048,
-  temperature: 0.7
-}
-
 // 面板宽度调整
 const startPanelResize = (e) => {
   isResizing = true
@@ -1806,28 +1736,6 @@ const stopPanelResize = () => {
   isResizing = false
   document.removeEventListener('mousemove', handlePanelResize)
   document.removeEventListener('mouseup', stopPanelResize)
-}
-
-// 卡片高度调整
-const startCardResize = (e, card) => {
-  e.stopPropagation()
-  const textarea = e.target.parentElement.querySelector('textarea')
-  const startY = e.clientY
-  const startHeight = textarea.offsetHeight
-
-  const handleMouseMove = (e) => {
-    const diff = e.clientY - startY
-    const newHeight = Math.max(120, startHeight + diff)
-    card.height = `${newHeight}px`
-  }
-
-  const handleMouseUp = () => {
-    document.removeEventListener('mousemove', handleMouseMove)
-    document.removeEventListener('mouseup', handleMouseUp)
-  }
-
-  document.addEventListener('mousemove', handleMouseMove)
-  document.addEventListener('mouseup', handleMouseUp)
 }
 
 // 显示提示词详情
@@ -1892,53 +1800,6 @@ const editSceneName = (scene) => {
   if (newName && newName.trim()) {
     scene.name = newName.trim()
     saveScenes() // 保存更改
-  }
-}
-
-// 添加标签相关的方法
-const addTag = () => {
-  if (newTagName.value.trim()) {
-    const tag = {
-      id: Date.now(),
-      name: newTagName.value.trim(),
-      isKeyword: false // 添加关键词标记
-    }
-    tags.value.push(tag)
-    saveTags()
-    newTagName.value = ''
-  }
-}
-
-const deleteTag = (tagId) => {
-  tags.value = tags.value.filter(tag => tag.id !== tagId)
-  // 同时从所有卡片中移除该标签
-  currentScene.value.cards.forEach(card => {
-    if (card.tags) {
-      card.tags = card.tags.filter(tag => tag !== tagId)
-    }
-  })
-  saveTags()
-}
-
-const toggleCardTag = (card, tagId) => {
-  if (!card.tags) {
-    card.tags = []
-  }
-  const index = card.tags.indexOf(tagId)
-  if (index === -1) {
-    card.tags.push(tagId)
-  } else {
-    card.tags.splice(index, 1)
-  }
-  saveScenes()
-}
-
-const toggleTagFilter = (tagId) => {
-  const index = selectedTags.value.indexOf(tagId)
-  if (index === -1) {
-    selectedTags.value.push(tagId)
-  } else {
-    selectedTags.value.splice(index, 1)
   }
 }
 
@@ -2485,37 +2346,6 @@ const updateCardTags = async (card, newTags) => {
   }
 }
 
-// 修改卡片高度更新方法
-const updateCardHeight = async (card, newHeight) => {
-  try {
-    if (!currentScene.value) return
-
-    // 更新卡片高度
-    const cardIndex = currentScene.value.cards.findIndex(c => c.id === card.id)
-    if (cardIndex !== -1) {
-      currentScene.value.cards[cardIndex] = {
-        ...currentScene.value.cards[cardIndex],
-        height: newHeight
-      }
-
-      // 更新scenes数组中的场景
-      const sceneIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
-      if (sceneIndex !== -1) {
-        scenes.value[sceneIndex] = {
-          ...currentScene.value,
-          cards: [...currentScene.value.cards]
-        }
-      }
-
-      // 保存到localStorage
-      localStorage.setItem('scenes', JSON.stringify(scenes.value))
-    }
-  } catch (error) {
-    console.error('更新卡片高度失败:', error)
-    showToast('更新卡片高度失败: ' + error.message, 'error')
-  }
-}
-
 // 处理插入卡片到提示词
 const handleInsertToPrompt = (card) => {
   try {
@@ -2656,17 +2486,6 @@ const selectPromptAndInsert = (prompt) => {
       showToast(`该提示词最多只能插入 ${textPlaceholders} 个内容`, 'error')
       return
     }
-    
-    // 检查是否已经插入过相同内容
-    // const isDuplicate = prompt.insertedContents.some(item => 
-    //   item.content === cardToInsert.value.content && 
-    //   item.cardId === cardToInsert.value.id
-    // )
-    
-    // if (isDuplicate) {
-    //   showToast('该内容已经插入过', 'error')
-    //   return
-    // }
 
     // 添加新的插入内容
     prompt.insertedContents.push({
@@ -2701,54 +2520,44 @@ const getInsertCount = (promptTemplate) => {
   return (promptTemplate.match(/{{text}}/g) || []).length
 }
 
-// 修改发送消息的方法
-const sendMessage = async () => {
-  try {
-    // 获取选中的模型和提示词
-    const selectedModel = models.value.find(m => m.id === currentModelId.value)
-    const currentPrompt = selectedPrompt.value
-    
-    if (!selectedModel || !currentPrompt) {
-      showToast('请选择模型和提示词', 'error')
-      return
+// 修改添加标签的方法
+const addTag = () => {
+  if (newTagName.value.trim()) {
+    const tag = {
+      id: Date.now(),
+      name: newTagName.value.trim(),
+      isKeyword: false
     }
-
-    // 获取提示词的已插入内容
-    const insertedContents = currentPrompt.insertedContents || []
-    const insertedTexts = insertedContents.map(item => item.content).join('\n')
-    
-    // 构建完整的提示词内容
-    const fullPrompt = currentPrompt.userPrompt.replace(/{{text}}/g, insertedTexts)
-
-    // 添加用户消息到聊天记录
-    messages.value.push({
-      role: 'user',
-      content: fullPrompt
-    })
-
-    // 显示加载状态
-    isLoading.value = true
-
-    // 发送请求到API
-    const response = await sendToAPI(selectedModel, messages.value)
-    
-    if (response.success) {
-      messages.value.push({
-        role: 'assistant',
-        content: response.message
-      })
-    } else {
-      showToast(response.error || '发送失败', 'error')
-    }
-
-  } catch (error) {
-    console.error('发送消息失败:', error)
-    showToast('发送失败: ' + error.message, 'error')
-  } finally {
-    isLoading.value = false
+    tags.value.push(tag)
+    saveTags()
+    newTagName.value = '' // 清空输入
+    showToast('标签添加成功', 'success')
   }
 }
 
+// 确保有保存标签的方法
+const saveTags = () => {
+  try {
+    localStorage.setItem('tags', JSON.stringify(tags.value))
+  } catch (error) {
+    console.error('保存标签失败:', error)
+    showToast('保存标签失败', 'error')
+  }
+}
+
+// 在组件挂载时加载标签
+onMounted(() => {
+  // 加载标签
+  const savedTags = localStorage.getItem('tags')
+  if (savedTags) {
+    try {
+      tags.value = JSON.parse(savedTags)
+    } catch (error) {
+      console.error('加载标签失败:', error)
+      tags.value = []
+    }
+  }
+})
 
 // 修改导入文件处理方法
 const handleFilesImport = async (event) => {
@@ -3041,21 +2850,52 @@ const loadData = async () => {
   }
 }
 
-// 监听场景变化
-watch(scenes, (newScenes) => {
-  // 保存到本地存储
-  localStorage.setItem('scenes', JSON.stringify(newScenes))
+const processKeywords = (text) => {
+  const keywordMatches = []
+  const keywordTags = tags.value.filter(tag => tag.isKeyword)
   
-  // 触发所有相关组件的更新
-  nextTick(() => {
-    if (currentView.value === 'main') {
-      // 主视图相关更新
-    } else if (currentView.value === 'agents') {
-      // Agents视图相关更新
-    }
-    // ... 其他视图的更新逻辑
+  console.log('关键词标签:', keywordTags) // 调试：查看关键词标签
+  
+  // 遍历所有场景和卡片，查找带有关键词标签的卡片
+  scenes.value.forEach(scene => {
+    scene.cards.forEach(card => {
+      // 检查卡片是否有关键词标签
+      if (card.tags?.some(tagId => keywordTags.some(tag => tag.id === tagId))) {
+        // 检查文本中是否包含卡片标题
+        if (card.title && text.toLowerCase().includes(card.title.toLowerCase())) {
+          console.log('找到关键词卡片:', card.title) // 调试：找到匹配的卡片
+          
+          // 避免重复添加相同的卡片
+          const isDuplicate = keywordMatches.some(match => match.title === card.title)
+          
+          if (!isDuplicate) {
+            keywordMatches.push({
+              keyword: card.title,
+              title: card.title,
+              content: card.content || '无内容'
+            })
+          }
+        }
+      }
+    })
   })
-}, { deep: true })
+  
+  //console.log('关键词匹配结果:', keywordMatches) // 调试：最终匹配结果
+  
+  // 如果找到关键词匹配，构建上下文信息
+  if (keywordMatches.length > 0) {
+    const contextInfo = keywordMatches.map(match => 
+      `关键词「${match.title}」相关内容：\n${match.content}`
+    ).join('\n\n')
+    
+    const processedText = `${contextInfo}\n\n---\n\n${text}`
+    //console.log('处理后的文本:', processedText) // 调试：最终处理结果
+    return processedText
+  }
+  
+  return text
+}
+
 </script>
 
 <style scoped>

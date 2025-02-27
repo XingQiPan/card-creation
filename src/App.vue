@@ -605,7 +605,7 @@ import DOMPurify from 'dompurify'
 import BookSplitter from './components/BookSplitter.vue'
 import ChatView from './components/ChatView.vue'
 import NotePad from './components/NotePad.vue'
-import AgentsView from './components/AgentsView.vue'  // Add this import
+import AgentsView from './components/AgentsView.vue'
 
 // 添加版本号
 const version = __APP_VERSION__

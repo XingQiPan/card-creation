@@ -54,226 +54,341 @@ const TAGS_FILE = path.join(DATA_DIR, 'tags.json')
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json')
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json')
 
-// 辅助函数：保存数据到文件
-const saveData = (filePath, data) => {
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
-    return true
-  } catch (error) {
-    console.error(`Error saving to ${filePath}:`, error)
-    return false
+// 封装文件操作相关的工具函数
+const FileUtils = {
+  ensureDirectory(dir) {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+  },
+
+  saveData(filePath, data) {
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
+      return true
+    } catch (error) {
+      console.error(`Error saving to ${filePath}:`, error)
+      return false
+    }
+  },
+
+  loadData(filePath, defaultValue = null) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const data = fs.readFileSync(filePath, 'utf8')
+        return JSON.parse(data)
+      }
+      return defaultValue
+    } catch (error) {
+      console.error(`Error loading from ${filePath}:`, error)
+      return defaultValue
+    }
   }
 }
 
-// 辅助函数：从文件加载数据
-const loadData = (filePath) => {
-  try {
-    if (fs.existsSync(filePath)) {
-      const data = fs.readFileSync(filePath, 'utf8')
-      return JSON.parse(data)
+// 封装数据管理相关的函数
+const DataManager = {
+  initializeDataFiles() {
+    const files = {
+      [SCENES_FILE]: [],
+      [PROMPTS_FILE]: [],
+      [TAGS_FILE]: [],
+      [AGENTS_FILE]: [],
+      [CONFIG_FILE]: {
+        models: [],
+        notepadContent: '',
+        currentSceneId: null,
+        selectedTags: [],
+        currentView: 'main'
+      }
     }
-    return null
-  } catch (error) {
-    console.error(`Error loading from ${filePath}:`, error)
-    return null
+
+    Object.entries(files).forEach(([file, defaultData]) => {
+      if (!fs.existsSync(file)) {
+        FileUtils.saveData(file, defaultData)
+      }
+    })
+  },
+
+  ensureConfigFile() {
+    if (!fs.existsSync(CONFIG_FILE)) {
+      const defaultConfig = {
+        models: [],
+        agents: []
+      }
+      
+      const existingConfig = FileUtils.loadData(CONFIG_FILE)
+      if (existingConfig?.models) {
+        defaultConfig.models = existingConfig.models
+      }
+      
+      FileUtils.saveData(CONFIG_FILE, defaultConfig)
+      console.log('创建默认配置文件')
+    }
+  },
+
+  getAllData() {
+    return {
+      scenes: FileUtils.loadData(SCENES_FILE, []),
+      prompts: FileUtils.loadData(PROMPTS_FILE, []),
+      tags: FileUtils.loadData(TAGS_FILE, []),
+      agents: FileUtils.loadData(AGENTS_FILE, []),
+      config: FileUtils.loadData(CONFIG_FILE, {
+        models: [],
+        notepadContent: '',
+        currentSceneId: null,
+        selectedTags: [],
+        currentView: 'main'
+      })
+    }
   }
 }
 
-// 确保所有数据文件存在
-const initializeDataFiles = () => {
-  const files = {
-    [SCENES_FILE]: [],
-    [PROMPTS_FILE]: [],
-    [TAGS_FILE]: [],
-    [AGENTS_FILE]: [],
-    [CONFIG_FILE]: {
-      models: [],
-      notepadContent: '',
-      currentSceneId: null,
-      selectedTags: [],
-      currentView: 'main'
+// 封装代理相关的处理函数
+const AgentService = {
+  getAgent(agentId) {
+    const agents = FileUtils.loadData(AGENTS_FILE, [])
+    return agents.find(a => String(a.id) === String(agentId))
+  },
+
+  saveAgent(agentData) {
+    const agents = FileUtils.loadData(AGENTS_FILE, [])
+    const now = new Date().toISOString()
+
+    if (agentData.id) {
+      const agentIndex = agents.findIndex(a => String(a.id) === String(agentData.id))
+      if (agentIndex !== -1) {
+        const id = agents[agentIndex].id
+        agents[agentIndex] = { ...agentData, id, updatedAt: now }
+      } else {
+        agents.push({ ...agentData, id: Date.now(), createdAt: now, updatedAt: now })
+      }
+    } else {
+      agents.push({ ...agentData, id: Date.now(), createdAt: now, updatedAt: now })
+    }
+
+    return FileUtils.saveData(AGENTS_FILE, agents) ? agentData : null
+  }
+}
+
+// 封装响应处理工具
+const ResponseHandler = {
+  success(res, data = null) {
+    res.json({
+      success: true,
+      data
+    })
+  },
+
+  error(res, error, status = 500) {
+    console.error(error)
+    res.status(status).json({
+      success: false,
+      error: error instanceof Error ? error.message : error
+    })
+  }
+}
+
+// 封装通用的路由处理器
+const RouteHandler = {
+  loadData(filePath, defaultValue = []) {
+    return (req, res) => {
+      try {
+        const data = FileUtils.loadData(filePath, defaultValue)
+        ResponseHandler.success(res, data)
+      } catch (error) {
+        ResponseHandler.error(res, error)
+      }
+    }
+  },
+
+  saveData(filePath) {
+    return (req, res) => {
+      try {
+        const data = req.body
+        if (FileUtils.saveData(filePath, data)) {
+          ResponseHandler.success(res)
+        } else {
+          throw new Error(`Failed to save data to ${filePath}`)
+        }
+      } catch (error) {
+        ResponseHandler.error(res, error)
+      }
     }
   }
+}
 
-  Object.entries(files).forEach(([file, defaultData]) => {
-    if (!fs.existsSync(file)) {
-      saveData(file, defaultData)
+// 封装文件处理服务
+const FileProcessingService = {
+  async processBookFile(file, sceneId) {
+    console.log('处理文件:', file.originalname, '大小:', file.size)
+    
+    try {
+      // 读取文件内容
+      const content = fs.readFileSync(file.path, 'utf8')
+      
+      // 分割章节
+      const chapters = splitIntoChapters(content)
+      
+      // 删除临时文件
+      await fs.promises.unlink(file.path)
+      
+      return {
+        sceneId,
+        chapters: chapters.map((chapter, index) => ({
+          title: chapter.title,
+          content: chapter.content,
+          chapterNumber: index + 1
+        }))
+      }
+    } catch (error) {
+      // 确保清理临时文件
+      try {
+        await fs.promises.unlink(file.path)
+      } catch (unlinkError) {
+        console.error('删除临时文件失败:', unlinkError)
+      }
+      throw error
     }
-  })
+  }
+}
+
+// 封装模型服务
+const ModelService = {
+  getAllModels() {
+    const config = FileUtils.loadData(CONFIG_FILE) || { models: [] }
+    let allModels = []
+    
+    if (config.models && Array.isArray(config.models)) {
+      // 添加主要模型
+      allModels = config.models.map(model => ({
+        id: model.id,
+        name: model.name,
+        provider: model.provider,
+        modelId: model.modelId
+      }))
+      
+      // 添加可用模型
+      config.models.forEach(model => {
+        if (model.availableModels && Array.isArray(model.availableModels)) {
+          allModels.push(...model.availableModels
+            .filter(m => !allModels.some(existing => existing.id === m.id))
+            .map(m => ({
+              id: m.id,
+              name: m.name,
+              provider: model.provider || 'unknown',
+              modelId: m.id
+            })))
+        }
+      })
+    }
+    
+    return allModels
+  }
+}
+
+// 封装API文档服务
+const APIDocService = {
+  routes: [],
+
+  // 注册路由
+  registerRoute(method, path, description) {
+    this.routes.push({ method, path, description })
+  },
+
+  // 获取所有路由信息
+  getAllRoutes() {
+    return this.routes
+  },
+
+  // 初始化所有路由文档
+  initializeDocs() {
+    // 健康检查
+    this.registerRoute('GET', '/health', '服务器健康检查')
+    this.registerRoute('GET', '/api/test', '测试API服务器是否正常工作')
+    
+    // 调试路由
+    this.registerRoute('GET', '/api/debug/config', '查看当前配置')
+    
+    // 数据加载路由
+    this.registerRoute('GET', '/api/load-scenes', '加载场景数据')
+    this.registerRoute('GET', '/api/load-prompts', '加载提示词数据')
+    this.registerRoute('GET', '/api/load-tags', '加载标签数据')
+    this.registerRoute('GET', '/api/load-config', '加载配置数据')
+    this.registerRoute('GET', '/api/get-all-data', '获取所有数据')
+    
+    // 数据保存路由
+    this.registerRoute('POST', '/api/save-scenes', '保存场景数据')
+    this.registerRoute('POST', '/api/save-prompts', '保存提示词数据')
+    this.registerRoute('POST', '/api/save-tags', '保存标签数据')
+    this.registerRoute('POST', '/api/save-config', '保存配置数据')
+    this.registerRoute('POST', '/api/sync-data', '同步所有数据')
+    
+    // 代理相关路由
+    this.registerRoute('GET', '/api/agents', '获取所有代理')
+    this.registerRoute('GET', '/api/agents/:id', '获取特定代理')
+    this.registerRoute('POST', '/api/agents', '创建或更新代理')
+    
+    // 模型相关路由
+    this.registerRoute('GET', '/api/models', '获取所有可用模型')
+    
+    // 文件处理路由
+    this.registerRoute('POST', '/api/split-book', '上传并分割书籍文件')
+  }
 }
 
 // 初始化数据文件
-initializeDataFiles()
-
-// 确保配置文件存在
-function ensureConfigFile() {
-  if (!fs.existsSync(CONFIG_FILE)) {
-    // 创建默认配置
-    const defaultConfig = {
-      models: [],
-      agents: []
-    };
-    
-    // 如果有模型数据，保留它
-    const existingConfig = loadData(CONFIG_FILE);
-    if (existingConfig && existingConfig.models) {
-      defaultConfig.models = existingConfig.models;
-    }
-    
-    // 保存默认配置
-    saveData(CONFIG_FILE, defaultConfig);
-    console.log('创建默认配置文件');
-  }
-}
+DataManager.initializeDataFiles()
 
 // 在服务器启动时确保配置文件存在
-ensureConfigFile();
+DataManager.ensureConfigFile()
+
+// 初始化API文档
+APIDocService.initializeDocs()
 
 // 调试路由 - 查看当前配置
 app.get('/api/debug/config', (req, res) => {
   try {
-    const config = loadData(CONFIG_FILE);
+    const config = FileUtils.loadData(CONFIG_FILE)
     res.json({
       success: true,
       data: config
-    });
+    })
   } catch (error) {
     res.status(500).json({
       success: false,
       error: '读取配置失败: ' + error.message
-    });
+    })
   }
-});
+})
 
-// 打印所有请求以便调试
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.url}`);
-  next();
-});
+// // 打印所有请求以便调试
+// app.use((req, res, next) => {
+//   console.log(`${req.method} ${req.url}`)
+//   next()
+// })
 
 // 添加明确的响应方法
 app.get('/api/test', (req, res) => {
-  res.json({ success: true, message: 'API服务器正常工作' });
-});
-
-// API 路由
-app.get('/api/load-scenes', (req, res) => {
-  try {
-    const scenes = loadData(SCENES_FILE) || []
-    res.json({ success: true, data: scenes })
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
+  res.json({ success: true, message: 'API服务器正常工作' })
 })
 
-app.get('/api/load-prompts', (req, res) => {
-  try {
-    const prompts = loadData(PROMPTS_FILE) || []
-    res.json({ success: true, data: prompts })
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
-})
+// 使用封装的路由处理器简化路由定义
+app.get('/api/load-scenes', RouteHandler.loadData(SCENES_FILE))
+app.get('/api/load-prompts', RouteHandler.loadData(PROMPTS_FILE))
+app.get('/api/load-tags', RouteHandler.loadData(TAGS_FILE))
+app.get('/api/load-config', RouteHandler.loadData(CONFIG_FILE, {
+  models: [],
+  notepadContent: '',
+  currentSceneId: null,
+  selectedTags: [],
+  currentView: 'main'
+}))
 
-app.get('/api/load-tags', (req, res) => {
-  try {
-    const tags = loadData(TAGS_FILE) || []
-    res.json({ success: true, data: tags })
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
-})
-
-app.get('/api/load-config', (req, res) => {
-  try {
-    const config = loadData(CONFIG_FILE) || {
-      models: [],
-      notepadContent: '',
-      currentSceneId: null,
-      selectedTags: [],
-      currentView: 'main'
-    }
-    res.json({ success: true, data: config })
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
-})
-
-app.post('/api/save-scenes', (req, res) => {
-  try {
-    const scenes = req.body
-    if (saveData(SCENES_FILE, scenes)) {
-      res.json({ success: true })
-    } else {
-      throw new Error('Failed to save scenes')
-    }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
-})
-
-app.post('/api/save-prompts', (req, res) => {
-  try {
-    const prompts = req.body
-    if (saveData(PROMPTS_FILE, prompts)) {
-      res.json({ success: true })
-    } else {
-      throw new Error('Failed to save prompts')
-    }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
-})
-
-app.post('/api/save-tags', (req, res) => {
-  try {
-    const tags = req.body
-    if (saveData(TAGS_FILE, tags)) {
-      res.json({ success: true })
-    } else {
-      throw new Error('Failed to save tags')
-    }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
-})
-
-app.post('/api/save-config', (req, res) => {
-  try {
-    const config = req.body
-    if (saveData(CONFIG_FILE, config)) {
-      res.json({ success: true })
-    } else {
-      throw new Error('Failed to save config')
-    }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    })
-  }
-})
+app.post('/api/save-scenes', RouteHandler.saveData(SCENES_FILE))
+app.post('/api/save-prompts', RouteHandler.saveData(PROMPTS_FILE))
+app.post('/api/save-tags', RouteHandler.saveData(TAGS_FILE))
+app.post('/api/save-config', RouteHandler.saveData(CONFIG_FILE))
 
 // 章节分割函数
 function splitIntoChapters(text) {
@@ -334,46 +449,17 @@ function splitIntoChapters(text) {
   return chapters
 }
 
-// 修改文件上传处理路由
+// 更新文件上传路由
 app.post('/api/split-book', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       throw new Error('没有接收到文件')
     }
 
-    const file = req.file
-    const sceneId = req.body.sceneId
-    
-    console.log('接收到文件:', file.originalname, '大小:', file.size)
-    
-    // 读取文件内容
-    const content = fs.readFileSync(file.path, 'utf8')
-    
-    // 分割章节
-    const chapters = splitIntoChapters(content)
-    
-    // 删除临时文件
-    fs.unlink(file.path, (err) => {
-      if (err) console.error('删除临时文件失败:', err)
-    })
-    
-    // 返回处理结果
-    res.json({
-      success: true,
-      sceneId,
-      chapters: chapters.map((chapter, index) => ({
-        title: chapter.title,
-        content: chapter.content,
-        chapterNumber: index + 1
-      }))
-    })
-    
+    const result = await FileProcessingService.processBookFile(req.file, req.body.sceneId)
+    ResponseHandler.success(res, result)
   } catch (error) {
-    console.error('处理文件失败:', error)
-    res.status(500).json({
-      success: false,
-      error: error.message || '文件处理失败'
-    })
+    ResponseHandler.error(res, error)
   }
 })
 
@@ -389,11 +475,11 @@ app.post('/api/sync-data', async (req, res) => {
     
     // 保存所有数据
     const results = await Promise.all([
-      saveData(SCENES_FILE, scenes),
-      saveData(PROMPTS_FILE, prompts), 
-      saveData(TAGS_FILE, tags),
-      saveData(CONFIG_FILE, config),
-      agents ? saveData(AGENTS_FILE, agents) : true
+      FileUtils.saveData(SCENES_FILE, scenes),
+      FileUtils.saveData(PROMPTS_FILE, prompts), 
+      FileUtils.saveData(TAGS_FILE, tags),
+      FileUtils.saveData(CONFIG_FILE, config),
+      agents ? FileUtils.saveData(AGENTS_FILE, agents) : true
     ])
 
     if(results.every(r => r)) {
@@ -409,22 +495,10 @@ app.post('/api/sync-data', async (req, res) => {
   }
 })
 
-// 添加获取所有数据的路由
+// 更新路由处理，使用封装的函数
 app.get('/api/get-all-data', async (req, res) => {
   try {
-    const data = {
-      scenes: loadData(SCENES_FILE) || [],
-      prompts: loadData(PROMPTS_FILE) || [],
-      tags: loadData(TAGS_FILE) || [],
-      agents: loadData(AGENTS_FILE) || [],
-      config: loadData(CONFIG_FILE) || {
-        models: [],
-        notepadContent: '',
-        currentSceneId: null,
-        selectedTags: [],
-        currentView: 'main'
-      }
-    }
+    const data = DataManager.getAllData()
     res.json({ success: true, data })
   } catch (error) {
     res.status(500).json({
@@ -434,165 +508,83 @@ app.get('/api/get-all-data', async (req, res) => {
   }
 })
 
-// 获取单个代理的API端点
 app.get('/api/agents/:id', (req, res) => {
   try {
-    const agentId = req.params.id;
-    console.log(`获取代理数据，ID: ${agentId}`);
-    
-    // 读取代理数据
-    const agents = loadData(AGENTS_FILE) || [];
-    
-    // 查找指定代理
-    const agent = agents.find(a => String(a.id) === String(agentId));
-    
+    const agent = AgentService.getAgent(req.params.id)
     if (!agent) {
-      console.log(`未找到ID为 ${agentId} 的代理`);
       return res.status(404).json({
         success: false,
         error: '未找到该代理'
-      });
+      })
     }
-    
-    console.log('找到代理:', agent);
-    res.json({
-      success: true,
-      data: agent
-    });
+    res.json({ success: true, data: agent })
   } catch (error) {
-    console.error('获取代理失败:', error);
     res.status(500).json({
       success: false,
       error: '获取代理失败: ' + error.message
-    });
+    })
   }
-});
+})
+
+app.post('/api/agents', (req, res) => {
+  try {
+    const savedAgent = AgentService.saveAgent(req.body)
+    if (!savedAgent) {
+      throw new Error('保存代理数据失败')
+    }
+    res.json({ success: true, data: savedAgent })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: '处理代理数据失败: ' + error.message
+    })
+  }
+})
 
 // 获取所有代理的API端点
 app.get('/api/agents', (req, res) => {
   try {
-    const agents = loadData(AGENTS_FILE) || [];
+    const agents = FileUtils.loadData(AGENTS_FILE) || []
     res.json({
       success: true,
       data: agents
-    });
+    })
   } catch (error) {
-    console.error('获取代理列表失败:', error);
+    console.error('获取代理列表失败:', error)
     res.status(500).json({
       success: false,
       error: '获取代理列表失败: ' + error.message
-    });
+    })
   }
-});
+})
 
-// 统一处理创建和更新的API端点
-app.post('/api/agents', (req, res) => {
-  try {
-    const agentData = req.body;
-    console.log('收到代理数据:', agentData);
-    
-    // 读取现有代理
-    const agents = loadData(AGENTS_FILE) || [];
-    
-    // 更新现有代理或创建新代理
-    if (agentData.id) {
-      // 更新现有代理
-      const agentIndex = agents.findIndex(a => String(a.id) === String(agentData.id));
-      
-      if (agentIndex !== -1) {
-        // 保持原有ID不变
-        const id = agents[agentIndex].id;
-        agentData.updatedAt = new Date().toISOString();
-        agents[agentIndex] = { ...agentData, id };
-        console.log('更新现有代理:', agentData.id);
-      } else {
-        // ID存在但找不到对应代理，添加为新代理
-        agentData.id = Date.now();
-        agentData.createdAt = new Date().toISOString();
-        agentData.updatedAt = new Date().toISOString();
-        agents.push(agentData);
-        console.log('添加带ID的新代理:', agentData.id);
-      }
-    } else {
-      // 创建新代理
-      agentData.id = Date.now();
-      agentData.createdAt = new Date().toISOString();
-      agentData.updatedAt = new Date().toISOString();
-      agents.push(agentData);
-      console.log('添加新代理:', agentData.id);
-    }
-    
-    // 保存更新后的代理列表
-    if (saveData(AGENTS_FILE, agents)) {
-      res.json({
-        success: true,
-        data: agentData
-      });
-    } else {
-      throw new Error('保存代理数据失败');
-    }
-  } catch (error) {
-    console.error('处理代理数据失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '处理代理数据失败: ' + error.message
-    });
-  }
-});
-
-// 添加模型 API 端点
+// 更新模型路由
 app.get('/api/models', (req, res) => {
   try {
-    // 读取配置文件
-    const config = loadData(CONFIG_FILE) || { models: [] };
-    
-    // 提取所有模型信息
-    let allModels = [];
-    
-    // 处理主要模型
-    if (config.models && Array.isArray(config.models)) {
-      // 添加主要模型
-      allModels = config.models.map(model => ({
-        id: model.id,
-        name: model.name,
-        provider: model.provider,
-        modelId: model.modelId
-      }));
-      
-      // 添加可用模型列表中的模型
-      config.models.forEach(model => {
-        if (model.availableModels && Array.isArray(model.availableModels)) {
-          model.availableModels.forEach(availableModel => {
-            // 避免重复添加
-            if (!allModels.some(m => m.id === availableModel.id)) {
-              allModels.push({
-                id: availableModel.id,
-                name: availableModel.name,
-                provider: model.provider || 'unknown',
-                modelId: availableModel.id
-              });
-            }
-          });
-        }
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: allModels
-    });
+    const models = ModelService.getAllModels()
+    ResponseHandler.success(res, models)
   } catch (error) {
-    console.error('获取模型列表失败:', error);
-    res.status(500).json({
-      success: false,
-      error: '获取模型列表失败: ' + error.message
-    });
+    ResponseHandler.error(res, error)
   }
-});
+})
+
+// 添加API文档路由
+app.get('/api/docs', (req, res) => {
+  try {
+    const routes = APIDocService.getAllRoutes()
+    ResponseHandler.success(res, routes)
+  } catch (error) {
+    ResponseHandler.error(res, error)
+  }
+})
 
 // 启动服务器
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`)
   console.log(`Data directory: ${DATA_DIR}`)
+  console.log('\nAvailable API Routes:')
+  APIDocService.getAllRoutes().forEach(route => {
+    console.log(`${route.method.padEnd(6)} ${route.path.padEnd(30)} ${route.description}`)
+  })
 }) 

@@ -1650,13 +1650,13 @@ const fetchModelList = async (model) => {
       })
     }
     else if(model.provider === 'openai'){
+      console.log('openai', model.apiUrl)
       const response = await fetch(`${model.apiUrl}/v1/models`, {
         headers: {
           'Authorization': `Bearer ${model.apiKey}`,
           'Content-Type': 'application/json'
         }
       })
-      console.log('openai', response)
       if (!response.ok) {
         throw new Error(`请求失败: ${response.status}`)
       }

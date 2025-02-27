@@ -3,82 +3,112 @@
     class="task-node"
     :class="{
       'root-node': isRoot,
-      'is-selected': isSelected,
+      'is-selected': task.id === selectedTaskId,
       'status-pending': task.status === 'pending',
       'status-running': task.status === 'running',
       'status-completed': task.status === 'completed',
       'status-failed': task.status === 'failed'
     }"
-    @click.stop="$emit('select', task.id)"
+    @click.stop="handleSelect"
   >
-    <div class="task-header">
-      <div class="task-title">
-        <span class="status-indicator"></span>
-        <h4>{{ task.title }}</h4>
-      </div>
-      <div class="task-assignee" v-if="assignedAgent">
-        <i class="fas fa-user-circle"></i> {{ assignedAgent.name }}
-      </div>
-    </div>
-    
-    <div class="task-description" v-if="task.description">
-      {{ task.description }}
-    </div>
-    
-    <div class="task-actions">
-      <button 
-        @click.stop="$emit('execute', task)"
-        :disabled="task.status === 'running'"
-        class="action-btn execute-btn"
-      >
-        <i class="fas fa-play"></i> 执行
-      </button>
-      <button @click.stop="$emit('add-subtask', task)" class="action-btn add-btn">
-        <i class="fas fa-plus"></i> 添加子任务
-      </button>
-      <button @click.stop="$emit('edit', task)" class="action-btn edit-btn">
-        <i class="fas fa-edit"></i> 编辑
-      </button>
-      <button @click.stop="$emit('delete', task.id)" class="action-btn delete-btn">
-        <i class="fas fa-trash"></i> 删除
-      </button>
-    </div>
-    
-    <div class="task-output" v-if="task.output">
-      <div class="output-header">
-        <h5>任务输出</h5>
-        <div class="output-actions">
-          <button @click.stop="copyOutput" title="复制输出" class="icon-btn">
-            <i class="fas fa-copy"></i>
-          </button>
+    <div class="task-content" @click.stop>
+      <div class="task-header">
+        <div class="task-title">
+          <span class="status-indicator"></span>
+          <h4>{{ task.title }}</h4>
+          <span class="task-status" :class="task.status">{{ getStatusText(task.status) }}</span>
+        </div>
+        <div class="task-assignee" v-if="assignedAgent">
+          <i class="fas fa-user-circle"></i> {{ assignedAgent.name }}
         </div>
       </div>
-      <div class="output-content">{{ task.output }}</div>
+      
+      <div class="task-description" v-if="task.description">
+        {{ task.description }}
+      </div>
+      
+      <div class="task-actions">
+        <button 
+          @click.stop="$emit('execute', task)"
+          :disabled="isExecuting || task.status === 'running'"
+          class="action-btn execute-btn"
+          title="执行任务"
+        >
+          <i class="fas fa-play"></i> 执行
+        </button>
+        <button 
+          v-if="task.subtasks && task.subtasks.length > 0"
+          @click.stop="$emit('execute-all', task)"
+          :disabled="isExecuting"
+          class="action-btn execute-all-btn"
+          title="执行所有子任务"
+        >
+          <i class="fas fa-play-circle"></i> 执行所有
+        </button>
+        <button 
+          @click.stop="$emit('add-subtask', task)"
+          class="action-btn add-btn"
+          title="添加子任务"
+        >
+          <i class="fas fa-plus"></i> 添加子任务
+        </button>
+        <button 
+          @click.stop="$emit('edit', task)"
+          class="action-btn edit-btn"
+          title="编辑任务"
+        >
+          <i class="fas fa-edit"></i> 编辑
+        </button>
+        <button 
+          v-if="!isRoot"
+          @click.stop="$emit('delete', task.id)"
+          class="action-btn delete-btn"
+          title="删除任务"
+        >
+          <i class="fas fa-trash"></i> 删除
+        </button>
+      </div>
+      
+      <div class="task-output" v-if="task.output">
+        <div class="output-header">
+          <h5>任务输出</h5>
+          <div class="output-actions">
+            <button @click.stop="handleCopyOutput" title="复制输出" class="icon-btn">
+              <i class="fas fa-copy"></i>
+            </button>
+          </div>
+        </div>
+        <div class="output-content">{{ task.output }}</div>
+      </div>
+      
+      <div class="task-error" v-if="task.error">
+        <div class="error-header">
+          <h5>执行错误</h5>
+        </div>
+        <div class="error-content">{{ task.error }}</div>
+      </div>
     </div>
     
-    <div class="task-error" v-if="task.error">
-      <div class="error-header">
-        <h5>执行错误</h5>
-      </div>
-      <div class="error-content">{{ task.error }}</div>
-    </div>
-    
-    <div class="subtasks" v-if="task.subtasks && task.subtasks.length > 0">
-      <div class="subtask-list">
-        <task-node
-          v-for="subtask in task.subtasks"
-          :key="subtask.id"
-          :task="subtask"
-          :agents="agents"
-          :scenes="scenes"
-          :selected-id="selectedId"
-          @execute="$emit('execute', subtask)"
-          @add-subtask="$emit('add-subtask', subtask)"
-          @edit="$emit('edit', subtask)"
-          @delete="$emit('delete', subtask.id)"
-          @select="$emit('select', subtask.id)"
-        />
-      </div>
+    <div 
+      v-if="task.subtasks && task.subtasks.length > 0" 
+      class="subtasks"
+      @click.stop
+    >
+      <task-node
+        v-for="subtask in task.subtasks"
+        :key="subtask.id"
+        :task="subtask"
+        :agents="agents"
+        :scenes="scenes"
+        :selected-id="selectedId"
+        :is-executing="isExecuting"
+        @execute="$emit('execute', $event)"
+        @execute-all="$emit('execute-all', $event)"
+        @delete="$emit('delete', $event)"
+        @add-subtask="$emit('add-subtask', $event)"
+        @edit="$emit('edit', $event)"
+        @select="$emit('select', subtask.id)"
+      />
     </div>
   </div>
 </template>
@@ -104,24 +134,22 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  selectedId: {
+  selectedTaskId: {
     type: String,
     default: null
+  },
+  isExecuting: {
+    type: Boolean,
+    default: false
   }
 })
 
-const emit = defineEmits([
-  'execute', 
-  'add-subtask', 
-  'edit', 
-  'delete', 
-  'select'
-])
+const emit = defineEmits(['execute', 'execute-all', 'delete', 'add-subtask', 'edit'])
 
 const isDragging = ref(false)
 
 const isSelected = computed(() => {
-  return props.selectedId === props.task.id
+  return props.selectedTaskId === props.task.id
 })
 
 // 获取分配的代理
@@ -140,17 +168,15 @@ const handleDragEnd = () => {
 }
 
 // 复制输出到剪贴板
-const copyOutput = () => {
+const handleCopyOutput = async () => {
   if (!props.task.output) return
   
-  navigator.clipboard.writeText(props.task.output)
-    .then(() => {
-      // 可以添加一个通知提示复制成功
-      console.log('输出已复制到剪贴板')
-    })
-    .catch(err => {
-      console.error('复制失败:', err)
-    })
+  try {
+    await navigator.clipboard.writeText(props.task.output)
+    console.log('输出已复制到剪贴板')
+  } catch (err) {
+    console.error('复制失败:', err)
+  }
 }
 
 // 重写输出
@@ -215,6 +241,23 @@ watch(() => props.task.title, (newTitle) => {
     }
   }
 }, { immediate: true })
+
+const getStatusText = (status) => {
+  switch (status) {
+    case 'pending': return '待执行'
+    case 'running': return '执行中'
+    case 'completed': return '已完成'
+    case 'failed': return '失败'
+    default: return '未知'
+  }
+}
+
+// 处理任务选择
+const handleSelect = (event) => {
+  event.stopPropagation()
+  console.log('TaskNode: 选择任务:', props.task.id)
+  emit('select', props.task.id)
+}
 </script>
 
 <style scoped>
@@ -353,6 +396,10 @@ watch(() => props.task.title, (newTitle) => {
   background-color: #52c41a;
 }
 
+.execute-all-btn {
+  background-color: #1890ff;
+}
+
 .add-btn {
   background-color: #722ed1;
 }
@@ -431,5 +478,36 @@ watch(() => props.task.title, (newTitle) => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.task-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #f5f5f5;
+}
+
+.task-status.running {
+  background: #e6f7ff;
+  color: #1890ff;
+}
+
+.task-status.completed {
+  background: #f6ffed;
+  color: #52c41a;
+}
+
+.task-status.failed {
+  background: #fff2f0;
+  color: #ff4d4f;
+}
+
+.is-root > .task-content {
+  border-width: 2px;
+}
+
+.task-node.is-selected > .task-content {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
 }
 </style>

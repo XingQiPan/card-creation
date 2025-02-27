@@ -55,55 +55,7 @@
           />
         </div>
   
-        <div class="task-detail" v-if="selectedTask">
-          <div class="detail-header">
-            <h4>{{ selectedTask.title }}</h4>
-            <button @click="selectedTaskId = null" class="close-btn">&times;</button>
-          </div>
-          <div class="detail-body">
-            <div class="detail-section">
-              <h5>任务描述</h5>
-              <p>{{ selectedTask.description || '无描述' }}</p>
-            </div>
-            <div class="detail-section" v-if="assignedAgent">
-              <h5>指派给</h5>
-              <div class="agent-info">
-                <div class="agent-name">{{ assignedAgent.name }}</div>
-                <div class="agent-skills">
-                  <span v-for="(skill, index) in assignedAgent.skills" :key="index" class="skill-tag">
-                    {{ skill }}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div class="detail-section" v-if="selectedTask.output">
-              <h5>任务输出</h5>
-              <div class="output-content">{{ selectedTask.output }}</div>
-            </div>
-            <div class="detail-section" v-if="selectedTask.error">
-              <h5>执行错误</h5>
-              <div class="error-content">{{ selectedTask.error }}</div>
-            </div>
-          </div>
-          <div class="detail-footer">
-            <button 
-              @click="$emit('execute', selectedTask)" 
-              :disabled="isExecuting"
-              class="execute-btn"
-            >
-              <i class="fas fa-play"></i> 执行任务
-            </button>
-            <button @click="handleEditTask(selectedTask)" class="edit-btn">
-              <i class="fas fa-edit"></i> 编辑任务
-            </button>
-            <button @click="handleDeleteTask(selectedTask.id)" class="delete-btn">
-              <i class="fas fa-trash"></i> 删除任务
-            </button>
-            <button @click="handleAddSubtask(selectedTask)" class="add-btn">
-              <i class="fas fa-plus"></i> 添加子任务
-            </button>
-          </div>
-        </div>
+      
       </div>
   
       <div class="task-settings" v-if="showSettings">

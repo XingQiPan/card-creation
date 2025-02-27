@@ -602,9 +602,6 @@ const sendToModel = async (model, message, context = []) => {
         throw new Error(`不支持的模型提供商: ${model.provider}`)
     }
 
-    //console.log('发送请求到:', url)
-    //console.log('请求头:', headers)
-    //console.log('请求体:', JSON.stringify(body, null, 2))
 
     // 添加终止控制器
     const response = await fetch(url, {

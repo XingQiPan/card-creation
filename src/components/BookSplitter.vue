@@ -274,6 +274,9 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { openDB } from 'idb'
+import { useCommon } from '../utils/composables/useCommon'
+import { showToast } from '../utils/common'
+import { sendToModel } from '../utils/modelRequests'
 
 // 定义 props
 const props = defineProps({
@@ -310,11 +313,6 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 const isLoading = ref(true)
 
-const allChaptersSelected = ref(false)
-const hasSelectedChapters = computed(() => {
-  return currentScene.value?.originalCards.some(card => card.selected)
-})
-
 // 添加新的响应式数据
 const allResultsSelected = ref(false)
 const hasSelectedResults = computed(() => {
@@ -327,6 +325,17 @@ const emit = defineEmits(['convert-to-cards'])
 // 添加场景选择相关的响应式变量
 const showSceneSelector = ref(false)
 const selectedSceneId = ref(null)
+
+// 使用 useCommon 组合式 API
+const {
+  exportData,
+  importData,
+  saveToStorage,
+  loadFromStorage,
+  formatTime,
+  truncateText,
+  createDebounce
+} = useCommon()
 
 // 修改 loadScenes 方法
 const loadScenes = async () => {
@@ -398,20 +407,8 @@ const currentScene = computed(() => {
 })
 
 // 修改保存场景方法
-const saveScenes = async () => {
+const saveScenes = createDebounce(async () => {
   try {
-    const db = await openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME, { keyPath: 'id' })
-        }
-      }
-    })
-
-    const tx = db.transaction(STORE_NAME, 'readwrite')
-    const store = tx.objectStore(STORE_NAME)
-
-    // 序列化场景数据
     const serializedScenes = scenes.value.map(scene => ({
       id: scene.id,
       name: scene.name,
@@ -438,15 +435,12 @@ const saveScenes = async () => {
       currentIndex: scene.currentIndex || 0
     }))
 
-    // 清空存储并重新保存所有场景
-    await store.clear()
-    await Promise.all(serializedScenes.map(scene => store.add(scene)))
-    await tx.done
+    saveToStorage('scenes', serializedScenes)
   } catch (error) {
     console.error('保存场景失败:', error)
     showToast('保存场景失败主人~，请重试', 'error')
   }
-}
+}, 500)
 
 // 修改清空所有场景的方法
 const clearAllScenes = async () => {
@@ -497,12 +491,10 @@ const handleBookUpload = async (event, scene) => {
     
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('sceneId', scene.id);
 
     const response = await fetch('http://localhost:3000/api/split-book', {
       method: 'POST',
       body: formData,
-      // 不要设置 Content-Type header，让浏览器自动设置
     });
 
     if (!response.ok) {
@@ -516,8 +508,8 @@ const handleBookUpload = async (event, scene) => {
       throw new Error(result.error || '处理失败');
     }
 
-    // 更新场景的原始卡片
-    scene.originalCards = result.chapters.map((chapter, index) => ({
+    // 更新场景的原始卡片，注意这里使用 result.data.chapters
+    scene.originalCards = result.data.chapters.map((chapter, index) => ({
       id: Date.now() + index,
       chapterNumber: chapter.chapterNumber || (index + 1),
       title: chapter.title || `第${index + 1}章`,
@@ -531,7 +523,7 @@ const handleBookUpload = async (event, scene) => {
     
     // 保存场景数据
     await saveScenes();
-    showToast(`成功导入 ${result.chapters.length} 个章节`, 'success');
+    showToast(`成功导入 ${result.data.chapters.length} 个章节`, 'success');
   } catch (error) {
     console.error('文件处理错误:', error);
     showToast(error.message || '文件处理失败', 'error');
@@ -540,14 +532,6 @@ const handleBookUpload = async (event, scene) => {
   }
 };
 
-// 修改暂停/继续功能
-const toggleProcessing = (scene) => {
-  scene.isPaused = !scene.isPaused
-  if (!scene.isPaused) {
-    processWithPrompt(scene) // 改用 processWithPrompt 替代 continueProcessing
-  }
-  saveScenes()
-}
 
 // 处理单个章节
 const processChapter = async (card, scene) => {
@@ -717,137 +701,19 @@ const processWithAPI = async (card, prompt, scene) => {
       throw new Error('未选择模型')
     }
 
-    // 使用 userPrompt 替代 template
+    // 处理提示词模板
     const processedTemplate = (prompt.userPrompt || prompt.template || "").replace(/{{text}}/g, card.content)
-    const messages = [
-      {
-        role: "user",
-        content: processedTemplate
-      }
-    ]
 
-    // 如果存在 systemPrompt，添加到消息中
-    if (prompt.systemPrompt) {
-      messages.unshift({
-        role: "system",
-        content: prompt.systemPrompt
-      });
-    }
+    // 使用 sendToModel 发送请求
+    const content = await sendToModel(
+      model,
+      processedTemplate,
+      [], // 空的上下文数组
+      null, // 不需要 abortController
+      prompt.systemPrompt // 系统提示词
+    )
 
-    const formatApiUrl = (model) => {
-  switch (model.provider) {
-    case 'openai':
-      return `${model.apiUrl.replace(/\/+$/, '')}/chat/completions`
-    case 'gemini':
-      return `https://generativelanguage.googleapis.com/v1beta/models/${model.modelId}:generateContent`
-    case 'ollama':
-      return 'http://localhost:11434/api/chat'
-    case 'custom':
-      return model.apiUrl // 自定义API使用完整URL
-    default:
-      return model.apiUrl
-  }
-}
-
-    let modelUrl = formatApiUrl(model)
-
-
-    let response
-    let result
-
-    // 构建基础请求配置
-    const baseHeaders = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${model.apiKey}`
-    }
-
-    // 根据不同提供商处理请求
-    switch (model.provider) {
-      case 'openai':
-      case 'stepfun':
-      case 'mistral':
-        response = await fetch(`${modelUrl}`, {
-          method: 'POST',
-          headers: baseHeaders,
-          body: JSON.stringify({
-            model: model.modelId,
-            messages: messages,
-            max_tokens: Number(model.maxTokens),
-            temperature: Number(model.temperature)
-          })
-        })
-        break
-
-      case 'custom': // 直接使用提供的 URL，不附加路径
-        response = await fetch(model.apiUrl, {
-          method: 'POST',
-          headers: baseHeaders,
-          body: JSON.stringify({
-            model: model.modelId,
-            messages: messages,
-            max_tokens: Number(model.maxTokens),
-            temperature: Number(model.temperature)
-          })
-        })
-        break
-
-      case 'gemini':
-        response = await fetch(`${modelUrl}?key=${model.apiKey}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: processedTemplate
-              }]
-            }],
-            generationConfig: {
-              temperature: Number(model.temperature),
-              maxOutputTokens: Number(model.maxTokens)
-            }
-          })
-        })
-        break
-
-      default:
-        throw new Error(`不支持的模型提供商: ${model.provider}`)
-    }
-
-    // 检查响应状态
-    if (!response || !response.ok) {
-      const errorData = await response?.json().catch(() => ({}))
-      console.error('API Error Response:', errorData)
-      
-      // 处理错误响应
-      let errorMessage = '请求失败'
-      if (errorData.error) {
-        if (typeof errorData.error === 'string') {
-          errorMessage = errorData.error
-        } else if (errorData.error.message) {
-          errorMessage = errorData.error.message
-        } else if (errorData.error.code) {
-          errorMessage = `服务器错误 (${errorData.error.code})`
-        }
-      }
-      throw new Error(`${errorMessage}: ${response?.status || 'Unknown Error'}`)
-    }
-
-    result = await response.json()
-    
-    // 解析不同提供商的响应
-    switch (model.provider) {
-      case 'openai':
-      case 'stepfun':
-      case 'mistral':
-      case 'custom':
-        return result.choices[0].message.content
-      case 'gemini':
-        return result.candidates[0].content.parts[0].text
-      default:
-        throw new Error(`不支持的模型提供商: ${model.provider}`)
-    }
+    return content
 
   } catch (error) {
     console.error('API 请求错误:', error)
@@ -870,29 +736,16 @@ const exportResults = (scene) => {
       promptId: card.promptId
     }))
   }
-
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { 
-    type: 'application/json' 
-  })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'book-processing-results.json'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  
+  exportData(exportData, 'book-processing-results')
 }
 
-// 添加导入结果的方法
+// 导入结果
 const importResults = async (event) => {
   const file = event.target.files[0]
   if (!file) return
 
-  try {
-    const content = await file.text()
-    const importData = JSON.parse(content)
-    
+  importData(file, (importData) => {
     // 创建新场景
     const newScene = {
       id: Date.now(),
@@ -913,7 +766,7 @@ const importResults = async (event) => {
       selectedPromptId: '',
       processing: false,
       isPaused: false,
-      currentIndex: importData.results.length // 设置为已处理的章节数
+      currentIndex: importData.results.length
     }
 
     // 添加到场景列表
@@ -923,77 +776,7 @@ const importResults = async (event) => {
 
     // 清空文件输入
     event.target.value = ''
-    
-  } catch (error) {
-    console.error('导入错误:', error)
-    alert('导入失败: ' + error.message)
-  }
-}
-
-// 添加显示提示消息的方法
-const showToast = (message, type = 'success') => {
-  // 先移除可能存在的旧提示框
-  const existingToast = document.querySelector('.toast-notification')
-  if (existingToast) {
-    document.body.removeChild(existingToast)
-  }
-
-  // 创建提示框容器
-  const toastContainer = document.createElement('div')
-  toastContainer.className = 'toast-notification'
-  toastContainer.style.cssText = `
-    position: fixed;
-    top: 60px;
-    left: 50%;
-    transform: translateX(-50%) translateY(-100%);
-    background: white;
-    border-radius: 4px;
-    padding: 8px 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    z-index: 1000;
-    opacity: 0;
-    transition: all 0.3s ease;
-    min-width: 200px;
-    justify-content: center;
-    border-left: 4px solid ${type === 'success' ? '#10b981' : '#ef4444'};
-  `
-
-  // 创建图标
-  const icon = document.createElement('i')
-  icon.className = type === 'success' ? 'fas fa-check' : 'fas fa-exclamation-circle'
-  icon.style.color = type === 'success' ? '#10b981' : '#ef4444'
-
-  // 创建文本
-  const text = document.createElement('span')
-  text.textContent = message
-  text.style.fontSize = '14px'
-
-  // 组装提示框
-  toastContainer.appendChild(icon)
-  toastContainer.appendChild(text)
-  document.body.appendChild(toastContainer)
-
-  // 显示动画
-  requestAnimationFrame(() => {
-    toastContainer.style.transform = 'translateX(-50%) translateY(0)'
-    toastContainer.style.opacity = '1'
   })
-
-  // 2秒后消失
-  setTimeout(() => {
-    toastContainer.style.transform = 'translateX(-50%) translateY(-100%)'
-    toastContainer.style.opacity = '0'
-    
-    // 动画结束后移除元素
-    setTimeout(() => {
-      if (toastContainer.parentNode) {
-        document.body.removeChild(toastContainer)
-      }
-    }, 300)
-  }, 2000)
 }
 
 // 添加重新处理单章的方法
@@ -1171,16 +954,6 @@ const canProcessChapter = (scene) => {
   return prompt && 
          prompt.selectedModel && 
          !scene.processing
-}
-
-// 添加终止处理的方法
-const stopProcessing = async (scene) => {
-  scene.processing = false
-  scene.isPaused = false
-  scene.currentIndex = 0
-  scene.shouldStop = true // 添加终止标记
-  await saveScenes()
-  showToast('已终止处理主人~', 'success')
 }
 
 // 添加全选/取消全选方法

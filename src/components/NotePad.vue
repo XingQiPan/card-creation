@@ -194,6 +194,7 @@
 import { ref, computed, onMounted, watch, inject, onUnmounted, nextTick } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { useCommon } from '../utils/composables/useCommon'
 
 // 修改 props
 const props = defineProps({
@@ -248,14 +249,22 @@ const isGenerating = ref(false)
 const generationTime = ref(0)
 const generationTimer = ref(null)
 
-// 修改保存笔记的方法
+// 使用通用方法
+const {
+  isLoading,
+  saveToStorage,
+  loadFromStorage,
+  formatTime,
+  truncateText
+} = useCommon()
+
+// 使用通用方法
 const saveNotes = () => {
-  if (!notes.value) return
-  try {
-    localStorage.setItem('notes', JSON.stringify(notes.value))
-  } catch (error) {
-    console.error('Failed to save notes:', error)
-  }
+  saveToStorage('notes', notes.value)
+}
+
+const loadNotes = () => {
+  notes.value = loadFromStorage('notes', [])
 }
 
 // 修改标题输入的处理
@@ -575,32 +584,12 @@ const createNewNote = () => {
 
 // 删除笔记
 const deleteNote = (id) => {
-  //if (!confirm('确定要删除这个笔记吗？')) return
   
   notes.value = notes.value.filter(note => note.id !== id)
   if (currentNoteId.value === id) {
     currentNoteId.value = notes.value[0]?.id || null
   }
   saveNotes()
-}
-
-// 加载笔记
-const loadNotes = () => {
-  const savedNotes = localStorage.getItem('notes')
-  if (savedNotes) {
-    try {
-      notes.value = JSON.parse(savedNotes)
-      // 如果有笔记，默认选中第一个
-      if (notes.value.length > 0 && !currentNoteId.value) {
-        currentNoteId.value = notes.value[0].id
-      }
-    } catch (error) {
-      console.error('Failed to parse saved notes:', error)
-      notes.value = []
-    }
-  } else {
-    notes.value = []
-  }
 }
 
 // 组件挂载时加载笔记
@@ -637,16 +626,12 @@ onMounted(() => {
 
 // 监听卡片传输的内容，添加更多调试日志
 watch(() => props.initialContent, (newContent, oldContent) => {
-  //console.log('Watch triggered:', { newContent, oldContent })
-  
   // 确保笔记已加载
   if (!notes.value) {
     loadNotes()
   }
-  
   // 只有当新内容不为空且与上一次的内容不同时才创建新笔记
   if (newContent && newContent.trim() && newContent !== oldContent) {
-    //console.log('Creating new note with content:', newContent)
     
     // 从格式化内容中提取标题和内容
     const lines = newContent.split('\n')
@@ -662,39 +647,23 @@ watch(() => props.initialContent, (newContent, oldContent) => {
       updatedAt: new Date()
     }
     
-    //console.log('New note to be created:', newNote)
-    
     // 使用 push 将新笔记添加到数组末尾
     if (Array.isArray(notes.value)) {
       notes.value.push(newNote)
       currentNoteId.value = newNote.id
       saveNotes()
-      //console.log('New note created and saved:', newNote)
-      //console.log('Current notes after save:', notes.value)
     } else {
       console.error('notes.value is not an array:', notes.value)
       notes.value = [newNote]
       currentNoteId.value = newNote.id
       saveNotes()
     }
-  } else {
-    //console.log('Content not changed or empty:', {
-    //  newContent,
-    //  oldContent,
-    //  isEmpty: !newContent || !newContent.trim()
-    //})
   }
 }, { immediate: false })
 
 // 获取预览文本
 const getPreview = (content) => {
   return content?.slice(0, 50) || '空笔记'
-}
-
-// 格式化时间
-const formatTime = (timestamp) => {
-  if (!timestamp) return ''
-  return new Date(timestamp).toLocaleString()
 }
 
 // Markdown 渲染
@@ -814,70 +783,9 @@ const showPromptModal = ref(false)
 const selectedPrompt = ref(null)
 const showSuggestion = ref(false)
 const suggestion = ref('')
-const suggestionPosition = ref({ top: 0, left: 0 })
 const autoWriteTimer = ref(null)
 const textarea = ref(null)
 
-// 添加文本选择相关状态
-const selectedText = ref('')
-const selectionStart = ref(0)
-const selectionEnd = ref(0)
-
-// 检查提示词是否可以插入文本
-const canInsertText = (prompt) => {
-  return prompt.template.includes('{{text}}')
-}
-
-// 获取需要插入的文本数量
-const getInsertCount = (template) => {
-  return (template.match(/{{text}}/g) || []).length
-}
-
-// 截断文本显示
-const truncateText = (text, length = 30) => {
-  if (!text) return ''
-  return text.length > length ? text.slice(0, length) + '...' : text
-}
-
-// 处理文本选择
-const handleTextSelection = () => {
-  if (!textarea.value) return
-  
-  const start = textarea.value.selectionStart
-  const end = textarea.value.selectionEnd
-  
-  if (start !== end) {
-    selectedText.value = textarea.value.value.substring(start, end)
-    selectionStart.value = start
-    selectionEnd.value = end
-  }
-}
-
-// 插入当前选中的文本
-const insertCurrentSelection = (prompt) => {
-  if (!selectedText.value) {
-    showToast('请先选择要插入的文本', 'error')
-    return
-  }
-  
-  if (!prompt.insertedContents) {
-    prompt.insertedContents = []
-  }
-  
-  prompt.insertedContents.push(selectedText.value)
-}
-
-// 移除已插入的文本
-const removeInsertedContent = (prompt, index) => {
-  prompt.insertedContents.splice(index, 1)
-}
-
-// 检查提示词是否可以使用
-const canUsePrompt = (prompt) => {
-  if (!prompt.selectedModel) return false
-  if (!canInsertText(prompt)) return true
-  return prompt.insertedContents?.length === getInsertCount(prompt.template)
-}
 
 // 修改获取建议样式的方法
 const getSuggestionStyle = () => {
@@ -1018,17 +926,12 @@ const selectPrompt = (prompt) => {
     showToast('请先选择模型', 'error')
     return
   }
-  
-  console.log('Selecting prompt:', prompt)
-  
   // 先停止之前的续写
   stopAutoWriting()
-  
   // 重置状态并开始新的续写
   selectedPrompt.value = prompt
   showPromptModal.value = false
   isAutoWriting.value = true
-  
   // 立即开始续写
   startAutoWriting()
 }

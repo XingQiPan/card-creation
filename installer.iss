@@ -1,5 +1,5 @@
 #define MyAppName "星卡写作"
-#define MyAppVersion "1.3.0"
+#define MyAppVersion "1.4.0"
 #define MyAppPublisher "山河"
 #define MyAppURL "https://github.com/XingQiPan/card-creation/releases/latest"
 #define MyAppExeName "星卡写作.exe"

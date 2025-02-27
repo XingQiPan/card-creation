@@ -481,9 +481,9 @@ func main() {
 
 	// 获取版本信息
 	// 前端
-	currentFrontendVersion := "0.1.0"
+	currentFrontendVersion := "0.9.2"
 	// 后端
-	currentBackendVersion := "1.3.0"
+	currentBackendVersion := "1.4.0"
 	// 获取最新前端版本
 	latestFrontendVersion := getFrontendVersion()
 	// 获取最新后端版本和下载URL

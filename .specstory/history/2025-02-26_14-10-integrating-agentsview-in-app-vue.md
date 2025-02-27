@@ -17565,11 +17565,132 @@ _**User**_
 
 _**Assistant**_
 
+让我们实现"包含父任务内容"的功能。需要修改 AgentsView.vue 中的任务执行逻辑：
+
+````vue:src/components/AgentsView.vue
+// 执行单个任务
+const executeTask = async (task) => {
+  console.log('执行任务:', task.title, task)
+  
+  if (isExecuting.value && !task._isPartOfBatch) {
+    console.warn('已有任务正在执行，请等待完成')
+    return
+  }
+  
+  // 如果不是批量执行的一部分，设置执行状态
+  if (!task._isPartOfBatch) {
+    isExecuting.value = true
+  }
+  
+  task.status = 'running'
+  task.error = null
+  task.output = null
+  
+  try {
+    // 查找指定的AI成员
+    const agent = agents.value.find(a => a.id === task.assignedTo)
+    if (!agent) throw new Error('未找到指定的AI成员')
+    
+    // 查找指定的模型
+    const model = props.models.find(m => m.id === agent.modelId)
+    if (!model) throw new Error('未找到指定的模型')
+    
+    // 构建提示词
+    let prompt = agent.systemPrompt + '\n\n'
+    
+    // 添加任务描述
+    prompt += `任务: ${task.title}\n`
+    prompt += `描述: ${task.description || ''}\n\n`
+    
+    // 添加父任务上下文
+    if (task.includeParentContext) {
+      const parent = findParentTask(task.id)
+      if (parent) {
+        if (parent.output) {
+          prompt += `父任务[${parent.title}]输出:\n${parent.output}\n\n`
+          console.log('已添加父任务内容:', parent.title)
+        } else {
+          console.log('父任务尚未有输出:', parent.title)
+        }
+      } else if (task._parentOutput) {
+        // 批量执行时使用临时存储的父任务输出
+        prompt += `父任务输出:\n${task._parentOutput}\n\n`
+        console.log('使用临时存储的父任务输出')
+      }
+    }
+    
+    // 添加场景卡片内容
+    if (task.readSceneCard && task.sourceSceneId) {
+      // ... 现有的场景卡片处理代码 ...
+    }
+    
+    console.log('发送提示词:', prompt)
+    
+    // 调用API
+    const content = await callAI(model, prompt)
+    console.log('API返回结果:', content)
+    
+    // ... 其他现有代码 ...
+    
+  } catch (error) {
+    console.error('执行任务失败:', error)
+    task.status = 'failed'
+    task.error = error.message
+  } finally {
+    if (!task._isPartOfBatch) {
+      isExecuting.value = false
+    }
+    localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
+  }
+}
+
+// 查找父任务的辅助函数
+const findParentTask = (taskId) => {
+  if (!rootTask.value) return null
+  
+  const findParent = (task) => {
+    if (task.subtasks) {
+      for (const subtask of task.subtasks) {
+        if (subtask.id === taskId) {
+          return task
+        }
+        const found = findParent(subtask)
+        if (found) return found
+      }
+    }
+    return null
+  }
+  
+  return findParent(rootTask.value)
+}
+````
+
+主要改进：
+
+1. **父任务内容获取**：
+   - 使用 findParentTask 函数查找父任务
+   - 如果父任务存在且有输出，将其添加到提示词中
+   - 支持批量执行时的临时父任务输出
+
+2. **提示词构建**：
+   - 在任务描述后添加父任务内容
+   - 清晰标记父任务的标题和输出
+
+3. **日志输出**：
+   - 添加详细的日志，便于调试
+   - 记录父任务内容的添加状态
+
+4. **错误处理**：
+   - 完善错误处理逻辑
+   - 提供清晰的错误信息
+
+这样实现后，当任务启用了"包含父任务内容"选项时：
+1. 系统会自动查找并获取父任务的输出
+2. 将父任务输出添加到当前任务的提示词中
+3. 在批量执行时也能正确传递父任务内容
 
 
----
 
 
 
----
 

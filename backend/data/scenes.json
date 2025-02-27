@@ -2,25 +2,6 @@
   {
     "id": 1740403919177,
     "name": "测试自动化",
-    "cards": [
-      {
-        "id": "1b4c8564-215a-4377-8c4d-1410c6a0fdbf",
-        "title": "星月",
-        "content": "星月是小女孩呀",
-        "height": "120px",
-        "tags": [
-          1740636464764
-        ],
-        "insertedContents": []
-      },
-      {
-        "id": "27c7f8ed-21f4-496e-a1f1-c478c94c62b9",
-        "title": "新建卡片",
-        "content": "123123",
-        "height": "120px",
-        "tags": [],
-        "insertedContents": []
-      }
-    ]
+    "cards": []
   }
 ]

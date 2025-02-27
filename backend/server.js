@@ -218,9 +218,67 @@ const RouteHandler = {
   }
 }
 
-// 封装文件处理服务
+// 添加章节分割函数
+const splitIntoChapters = (text) => {
+  const chapters = []
+  const lines = text.split('\n')
+  let currentChapter = {
+    title: '',
+    content: []
+  }
+  
+  // 章节匹配模式
+  const chapterPatterns = [
+    /^第[一二三四五六七八九十百千]+[章节]/,
+    /^第\d+[章节]/,
+    /^[一二三四五六七八九十][、.．]/,
+    /^[（(]\d+[)）]/,
+    /^#+\s+/
+  ]
+  
+  const isChapterTitle = (line) => {
+    const trimmedLine = line.trim()
+    if (trimmedLine.length > 100) return false
+    return chapterPatterns.some(pattern => pattern.test(trimmedLine))
+  }
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+
+    if (isChapterTitle(line)) {
+      if (currentChapter.title && currentChapter.content.length > 0) {
+        chapters.push({
+          ...currentChapter,
+          content: currentChapter.content.join('\n')
+        })
+      }
+      currentChapter = {
+        title: line,
+        content: []
+      }
+    } else if (currentChapter.title) {
+      currentChapter.content.push(line)
+    } else {
+      currentChapter.title = '引言'
+      currentChapter.content.push(line)
+    }
+  }
+  
+  // 保存最后一章
+  if (currentChapter.title && currentChapter.content.length > 0) {
+    chapters.push({
+      ...currentChapter,
+      content: currentChapter.content.join('\n')
+    })
+  }
+  
+  return chapters
+}
+
+// 修改文件处理服务
 const FileProcessingService = {
-  async processBookFile(file, sceneId) {
+  async processBookFile(file) {
     console.log('处理文件:', file.originalname, '大小:', file.size)
     
     try {
@@ -234,12 +292,14 @@ const FileProcessingService = {
       await fs.promises.unlink(file.path)
       
       return {
-        sceneId,
-        chapters: chapters.map((chapter, index) => ({
-          title: chapter.title,
-          content: chapter.content,
-          chapterNumber: index + 1
-        }))
+        success: true,
+        data: {
+          chapters: chapters.map((chapter, index) => ({
+            title: chapter.title,
+            content: chapter.content,
+            chapterNumber: index + 1
+          }))
+        }
       }
     } catch (error) {
       // 确保清理临时文件
@@ -362,12 +422,6 @@ app.get('/api/debug/config', (req, res) => {
   }
 })
 
-// // 打印所有请求以便调试
-// app.use((req, res, next) => {
-//   console.log(`${req.method} ${req.url}`)
-//   next()
-// })
-
 // 添加明确的响应方法
 app.get('/api/test', (req, res) => {
   res.json({ success: true, message: 'API服务器正常工作' })
@@ -390,65 +444,6 @@ app.post('/api/save-prompts', RouteHandler.saveData(PROMPTS_FILE))
 app.post('/api/save-tags', RouteHandler.saveData(TAGS_FILE))
 app.post('/api/save-config', RouteHandler.saveData(CONFIG_FILE))
 
-// 章节分割函数
-function splitIntoChapters(text) {
-  const chapters = []
-  const lines = text.split('\n')
-  let currentChapter = {
-    title: '',
-    content: []
-  }
-  
-  // 章节匹配模式
-  const chapterPatterns = [
-    /^第[一二三四五六七八九十百千]+[章节]/,
-    /^第\d+[章节]/,
-    /^[一二三四五六七八九十][、.．]/,
-    /^[（(]\d+[)）]/,
-    /^[【［][^】］]+[】］]/,
-    /^#+\s+/
-  ]
-  
-  const isChapterTitle = (line) => {
-    const trimmedLine = line.trim()
-    if (trimmedLine.length > 100) return false
-    return chapterPatterns.some(pattern => pattern.test(trimmedLine))
-  }
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line) continue
-
-    if (isChapterTitle(line)) {
-      if (currentChapter.title && currentChapter.content.length > 0) {
-        chapters.push({
-          ...currentChapter,
-          content: currentChapter.content.join('\n')
-        })
-      }
-      currentChapter = {
-        title: line,
-        content: []
-      }
-    } else if (currentChapter.title) {
-      currentChapter.content.push(line)
-    } else {
-      currentChapter.title = '引言'
-      currentChapter.content.push(line)
-    }
-  }
-  
-  // 保存最后一章
-  if (currentChapter.title && currentChapter.content.length > 0) {
-    chapters.push({
-      ...currentChapter,
-      content: currentChapter.content.join('\n')
-    })
-  }
-  
-  return chapters
-}
-
 // 更新文件上传路由
 app.post('/api/split-book', upload.single('file'), async (req, res) => {
   try {
@@ -456,10 +451,13 @@ app.post('/api/split-book', upload.single('file'), async (req, res) => {
       throw new Error('没有接收到文件')
     }
 
-    const result = await FileProcessingService.processBookFile(req.file, req.body.sceneId)
-    ResponseHandler.success(res, result)
+    const result = await FileProcessingService.processBookFile(req.file)
+    res.json(result) // 直接返回处理结果
   } catch (error) {
-    ResponseHandler.error(res, error)
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
   }
 })
 

@@ -259,22 +259,18 @@
         </div>
       </div>
     </div>
-
-    <!-- 添加 Toast 提示 -->
-    <div 
-      v-if="showToast" 
-      :class="['toast', `toast-${toastType}`]"
-    >
-      {{ toastMessage }}
-    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch, onUnmounted } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { showToastMessage, detectContentType, splitContent } from '../utils/common'
+import { useCommon } from '../utils/composables/useCommon'
+import { sendToModel } from '../utils/modelRequests'
 
+// Props 定义
 const props = defineProps({
   models: {
     type: Array,
@@ -290,10 +286,37 @@ const props = defineProps({
   }
 })
 
+// Emits 定义
+const emit = defineEmits(['add-cards-to-scene'])
+
+// 从 useCommon 中导入所需方法
+const {
+  isLoading,
+  exportData,
+  importData,
+  saveToStorage,
+  loadFromStorage,
+  formatTime,
+  formatResponseTime,
+  truncateText
+} = useCommon()
+
+// 响应式数据声明
 const chatSessions = ref([])
 const currentChatId = ref(null)
 const inputMessage = ref('')
 const messagesContainer = ref(null)
+const isRequesting = ref(false)
+const elapsedTime = ref(0)
+const showSplitModal = ref(false)
+const splitSections = ref([])
+const selectedSceneId = ref('')
+const expandedKeywords = ref([])
+const abortController = ref(null)
+const requestStartTime = ref(0)
+
+// 添加计时器
+let elapsedTimer = null
 
 // 当前聊天会话
 const currentChat = computed(() => 
@@ -318,7 +341,6 @@ const allKeywords = computed(() => {
     id: title,
     name: title
   }))
-  //console.log("all keywords:", result) // 打印最终的关键词列表
   return result
 })
 
@@ -382,24 +404,26 @@ const deleteChat = (id) => {
   }
 }
 
-// 添加响应式变量来跟踪请求时间和请求状态
-const requestStartTime = ref(null)
-const responseTime = ref(null)
-const isRequesting = ref(false)
-const abortController = ref(null)
-const elapsedTime = ref(0)  // 添加用于实时显示的计时器变量
-const timerInterval = ref(null)  // 添加计时器间隔引用
-
-// 终止请求的方法
+// 添加终止请求方法
 const abortRequest = () => {
-  if (abortController.value) {
-    abortController.value.abort()
-    abortController.value = null
-    isRequesting.value = false
-    clearInterval(timerInterval.value)  // 清除计时器
-    timerInterval.value = null
-    elapsedTime.value = 0
-    showToastMessage('已终止请求', 'info')
+  try {
+    if (abortController.value) {
+      abortController.value.abort()
+      abortController.value = null
+      isRequesting.value = false
+      
+      // 清除计时器
+      if (elapsedTimer) {
+        clearInterval(elapsedTimer)
+        elapsedTimer = null
+      }
+      
+      elapsedTime.value = 0
+      showToastMessage('已终止回答', 'success')
+    }
+  } catch (error) {
+    console.error('终止请求失败:', error)
+    showToastMessage('终止请求失败: ' + error.message, 'error')
   }
 }
 
@@ -417,266 +441,109 @@ const sendMessage = async () => {
   currentChat.value.messages.push(userMessage)
   inputMessage.value = ''
   
+  await nextTick()
+  scrollToBottom()
+  
   try {
-    // 设置请求状态
     isRequesting.value = true
     requestStartTime.value = Date.now()
-    elapsedTime.value = 0  // 重置计时器
+    elapsedTime.value = 0
     
-    // 启动计时器，每10毫秒更新一次
-    timerInterval.value = setInterval(() => {
+    elapsedTimer = setInterval(() => {
       elapsedTime.value = Date.now() - requestStartTime.value
-    }, 10)
+    }, 100)
     
     abortController.value = new AbortController()
     
     const model = props.models.find(m => m.id === currentChat.value.modelId)
     if (!model) throw new Error('未找到选择的模型')
 
-    // 获取对话历史时使用设定的轮数，默认值改为20
-    const historyTurns = currentChat.value.historyTurns || 20
-    const context = []
-    
-    // 如果选择了提示词，添加为 system 消息
+    // 获取提示词模板
+    let promptTemplate = null
     if (currentChat.value.promptId) {
       const prompt = props.prompts.find(p => p.id === currentChat.value.promptId)
       if (prompt) {
-        context.push({
-          role: 'system',
-          content: prompt.systemPrompt || prompt.template || prompt.userPrompt
-        })
+        promptTemplate = prompt.systemPrompt || prompt.template || prompt.userPrompt
       }
     }
 
-    // 添加历史消息，限制轮数
-    const recentMessages = currentChat.value.messages
-      .slice(-(historyTurns * 2)) // 每轮包含用户和助手的消息，所以乘以2
+    // 获取对话历史
+    const historyTurns = currentChat.value.historyTurns || 20
+    const context = currentChat.value.messages
+      .slice(-(historyTurns * 2))
       .map(msg => ({
         role: msg.role === 'user' ? 'user' : 'assistant',
         content: msg.content
       }))
-
-    context.push(...recentMessages)
-    context.pop() // 移除最后一条消息，因为它会作为当前消息发送
+    context.pop() // 移除最后一条消息，因为它会作为主要输入
 
     // 处理关键词检测
     let processedContent = userMessage.content
     if (currentChat.value.enableKeywords) {
-      // 检测关键词
-      const keywords = allKeywords.value.filter(keyword => {
-        return userMessage.content.toLowerCase().includes(keyword.name.toLowerCase())
-      })
+      const keywords = allKeywords.value.filter(keyword => 
+        userMessage.content.toLowerCase().includes(keyword.name.toLowerCase())
+      )
 
       if (keywords.length > 0) {
         let keywordsContext = '检测到以下相关内容:\n\n'
-        
         for (const keyword of keywords) {
           const content = getKeywordContent(keyword)
           if (content) {
             keywordsContext += `【${keyword.name}】:\n${content}\n\n`
           }
         }
-        
-        // 将关键词内容添加到用户消息前面
         processedContent = keywordsContext + '用户问题:\n' + userMessage.content
       }
     }
+
+    // 调用 sendToModel 发送请求
+    const response = await sendToModel(
+      model,
+      processedContent,
+      context,
+      abortController.value,
+      promptTemplate
+    )
     
-    // 调用 API 获取回复
-    const response = await sendToModel(model, processedContent, context)
-    
-    // 计算响应时间
     const endTime = Date.now()
-    responseTime.value = endTime - requestStartTime.value
-    
-    // 清除计时器
-    clearInterval(timerInterval.value)
-    timerInterval.value = null
+    const responseTimeValue = endTime - requestStartTime.value
     
     const assistantMessage = {
       id: Date.now(),
       role: 'assistant',
       content: response,
       timestamp: new Date(),
-      responseTime: responseTime.value // 保存响应时间
+      responseTime: responseTimeValue
     }
 
     currentChat.value.messages.push(assistantMessage)
     saveSessions()
 
     await nextTick()
-    if (messagesContainer.value) {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-    }
+    scrollToBottom()
 
   } catch (error) {
     console.error('发送失败:', error)
     
-    // 清除计时器
-    clearInterval(timerInterval.value)
-    timerInterval.value = null
-    
-    // 如果是用户主动终止，不显示错误
     if (error.name === 'AbortError') {
       currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== userMessage.id)
       return
     }
     
     currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== userMessage.id)
-    alert(error.message)
+    showToastMessage(error.message, 'error')
   } finally {
     isRequesting.value = false
     abortController.value = null
-    elapsedTime.value = 0  // 重置计时器
-  }
-}
-
-const formatApiUrl = (model) => {
-  switch (model.provider) {
-    case 'openai':
-      return `${model.apiUrl.replace(/\/+$/, '')}/chat/completions`
-    case 'gemini':
-      return `https://generativelanguage.googleapis.com/v1beta/models/${model.modelId}:generateContent`
-    case 'ollama':
-      return 'http://localhost:11434/api/chat'
-    case 'custom':
-      return model.apiUrl // 自定义API使用完整URL
-    default:
-      return model.apiUrl
-  }
-}
-
-// 修改调用模型 API
-const sendToModel = async (model, message, context = []) => {
-  try {
-    let url = ''
-    let body = {}
-    let headers = {
-      'Content-Type': 'application/json'
-    }
-
-    let modelUrl = formatApiUrl(model)
-
-    // 根据不同的提供商构建请求
-    switch (model.provider) {
-      case 'openai':
-      case 'stepfun':
-      case 'mistral':
-        url = `${modelUrl}`
-        headers['Authorization'] = `Bearer ${model.apiKey}`
-        body = {
-          model: model.modelId,
-          messages: [
-            ...context,
-            { role: 'user', content: message }
-          ],
-          max_tokens: Number(model.maxTokens) || 2048,
-          temperature: Number(model.temperature) || 0.7
-        }
-        break
-      case 'gemini':
-        url = `${modelUrl}?key=${model.apiKey}`
-        const contents = []
-        
-        // 处理上下文消息
-        for (const msg of context) {
-          contents.push({
-            role: msg.role === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.content }]
-          })
-        }
-        
-        // 添加当前用户消息
-        contents.push({
-          role: 'user',
-          parts: [{ text: message }]
-        })
-        
-        body = {
-          contents,
-          generationConfig: {
-            maxOutputTokens: Number(model.maxTokens) || 2048,
-            temperature: Number(model.temperature) || 0.7
-          }
-        }
-        
- 
-        break
-      case 'custom':
-        url = apiUrl
-        headers['Authorization'] = `Bearer ${model.apiKey}`
-        body = {
-          model: model.modelId,
-          messages: [
-            ...context,
-            { role: 'user', content: message }
-          ],
-          max_tokens: Number(model.maxTokens) || 2048,
-          temperature: Number(model.temperature) || 0.7
-        }
-        break
-      default:
-        throw new Error(`不支持的模型提供商: ${model.provider}`)
-    }
-
-
-    // 添加终止控制器
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: abortController.value?.signal
-    })
-
-    if (!response.ok) {
-      let errorMessage = `请求失败: ${response.status}`
-      
-      // 尝试解析错误信息
-      const errorData = await response.json().catch(() => ({}))
-      console.error('错误响应数据:', errorData)
-      
-      if (errorData) {
-        if (errorData.error?.message) {
-          errorMessage = errorData.error.message
-        } else if (errorData.error?.code) {
-          errorMessage = `服务器错误 (${errorData.error.code})`
-        }
-      }
-      
-      // 特别处理 Gemini API 认证错误
-      if (model.provider === 'gemini' && response.status === 403) {
-        errorMessage = "Gemini API 认证失败 (403)。请检查您的 API 密钥是否正确，并确保它有权访问 Gemini API。"
-      }
-      
-      throw new Error(`${errorMessage}: ${response?.status || 'Unknown Error'}`)
-    }
-
-    const result = await response.json()
-    //console.log('API 响应:', result)
+    elapsedTime.value = 0
     
-    // 解析不同提供商的响应
-    switch (model.provider) {
-      case 'openai':
-      case 'stepfun':
-      case 'mistral':
-      case 'custom': // 将 custom 也使用 OpenAI 格式
-        return result.choices[0].message.content
-      case 'gemini':
-        // 修改 Gemini 响应解析
-        if (result.candidates && result.candidates.length > 0) {
-          const candidate = result.candidates[0]
-          if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
-            return candidate.content.parts[0].text
-          }
-        }
-        throw new Error('无法解析 Gemini 响应')
-      default:
-        throw new Error(`不支持的模型提供商: ${model.provider}`)
+    if (elapsedTimer) {
+      clearInterval(elapsedTimer)
+      elapsedTimer = null
     }
-
-  } catch (error) {
-    console.error('API 请求错误:', error)
-    throw error // 直接抛出错误，让调用者处理
+    
+    await nextTick()
+    scrollToBottom()
   }
 }
 
@@ -686,15 +553,14 @@ const formatMessage = (content) => {
   return DOMPurify.sanitize(html)
 }
 
-// 格式化时间
-const formatTime = (timestamp) => {
-  return new Date(timestamp).toLocaleString()
-}
 
 // 滚动到底部
 const scrollToBottom = () => {
   if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    messagesContainer.value.scrollTo({
+      top: messagesContainer.value.scrollHeight,
+      behavior: 'smooth'
+    })
   }
 }
 
@@ -754,9 +620,6 @@ const deleteMessage = (msgId) => {
   saveSessions()
 }
 
-// 添加展开状态管理
-const expandedKeywords = ref([])
-
 // 切换关键词内容显示
 const toggleKeywordContent = (keyword) => {
   const index = expandedKeywords.value.indexOf(keyword.id)
@@ -767,133 +630,43 @@ const toggleKeywordContent = (keyword) => {
   }
 }
 
-// 添加新的响应式变量
-const showSplitModal = ref(false)
-const splitSections = ref([])
-const selectedSceneId = ref('')
-
-// 修改计算属性
-const canSaveSections = computed(() => {
-  const hasSelectedSections = splitSections.value.some(s => s.selected)
-  const hasSelectedScene = Boolean(selectedSceneId.value)
-  return hasSelectedSections && hasSelectedScene
-})
-
 // 修改拆分消息方法
 const splitMessage = (msg) => {
-  console.log('Splitting message:', msg.content)
-  
-  // 使用修改后的拆分函数
-  const sections = splitMarkdownContent(msg.content)
-  
-  // 初始化每个部分
-  splitSections.value = sections.map(section => ({
-    selected: false,
-    title: section.title || '',
-    content: section.content.trim(),
-    type: section.type
-  }))
-  
-  // 如果有场景，默认选择第一个
-  if (props.scenes.length > 0) {
-    selectedSceneId.value = props.scenes[0].id
+  try {
+    const sections = splitContent(msg.content)
+    if (sections.length <= 1) {
+      showToastMessage('当前内容无法拆分主人~', 'error')
+      return
+    }
+    
+    splitSections.value = sections
+    showSplitModal.value = true
+  } catch (error) {
+    console.error('拆分消息失败:', error)
+    showToastMessage('拆分失败: ' + error.message, 'error')
   }
-  
-  showSplitModal.value = true
-}
-
-// 修改 Markdown 内容拆分函数
-const splitMarkdownContent = (content) => {
-  const sections = []
-  
-  // 按照空行分割段落
-  const paragraphs = content.split(/\n\s*\n/)
-  
-  // 处理每个段落
-  paragraphs.forEach((paragraph, index) => {
-    const lines = paragraph.trim().split('\n')
-    if (lines.length === 0 || !paragraph.trim()) return
-    
-    // 检查是否是代码块
-    if (paragraph.startsWith('```')) {
-      sections.push({
-        title: '代码片段',
-        content: paragraph.trim(),
-        type: 'code'
-      })
-      return
-    }
-    
-    // 检查是否以 Markdown 标题开始
-    if (lines[0].startsWith('#')) {
-      sections.push({
-        title: lines[0].replace(/^#+\s*/, ''),
-        content: lines.slice(1).join('\n').trim() || lines[0].replace(/^#+\s*/, ''),
-        type: 'heading'
-      })
-      return
-    }
-    
-    // 检查是否是列表
-    if (lines[0].match(/^[-*+]\s|^\d+\.\s/)) {
-      sections.push({
-        title: `列表片段 ${index + 1}`,
-        content: paragraph.trim(),
-        type: 'list'
-      })
-      return
-    }
-    
-    // 普通段落
-    const title = lines[0].length > 30 ? lines[0].slice(0, 30) + '...' : lines[0]
-    sections.push({
-      title: `片段 ${index + 1}`,
-      content: paragraph.trim(),
-      type: 'text'
-    })
-  })
-  
-  //console.log('Split into sections:', sections)
-  return sections
-}
-
-// 定义 emit
-const emit = defineEmits(['add-cards-to-scene'])
-
-// 添加 toast 相关的响应式变量
-const showToast = ref(false)
-const toastMessage = ref('')
-const toastType = ref('success')
-
-// 添加显示 toast 的方法
-const showToastMessage = (message, type = 'success') => {
-  toastMessage.value = message
-  toastType.value = type
-  showToast.value = true
-  setTimeout(() => {
-    showToast.value = false
-  }, 3000)
 }
 
 // 修改保存方法
-const saveSplitSections = () => {
-  //console.log('Saving sections...') // 添加调试日志
-  const selectedSections = splitSections.value.filter(s => s.selected)
-  
-  if (selectedSections.length === 0) {
-    showToastMessage('请选择要保存的片段主人~', 'error')
-    return
-  }
-  
-  if (!selectedSceneId.value) {
-    showToastMessage('请选择目标场景主人~', 'error')
-    return
-  }
-
+const saveSplitSections = async () => {
   try {
-    //console.log('Selected sections:', selectedSections) // 添加调试日志
-    //console.log('Target scene:', selectedSceneId.value) // 添加调试日志
-    
+    if (!selectedSceneId.value) {
+      showToastMessage('请选择目标场景主人~', 'error')
+      return
+    }
+
+    const selectedSections = splitSections.value.filter(s => s.selected)
+    if (selectedSections.length === 0) {
+      showToastMessage('请选择要保存的片段主人~', 'error')
+      return
+    }
+
+    // 找到目标场景
+    const targetScene = props.scenes.find(s => Number(s.id) === Number(selectedSceneId.value))
+    if (!targetScene) {
+      throw new Error('目标场景不存在')
+    }
+
     // 创建新卡片
     const cards = selectedSections.map(section => ({
       id: Date.now() + Math.random(),
@@ -902,29 +675,22 @@ const saveSplitSections = () => {
       tags: [],
       height: '200px',
       timestamp: new Date().toISOString(),
-      type: detectContentType(section.content)
+      type: detectContentType(section.content),
+      selected: false // 添加选中状态属性
     }))
-    
+
     // 发出事件，将卡片添加到选中的场景
     emit('add-cards-to-scene', {
       sceneId: selectedSceneId.value,
-      cards
+      cards: cards
     })
-    
-    showToastMessage('已成功添加到场景主人~')
+
+    showToastMessage(`已成功添加 ${cards.length} 个卡片到场景主人~`, 'success')
     closeSplitModal()
   } catch (error) {
     console.error('保存片段失败:', error)
     showToastMessage('保存片段失败主人~: ' + error.message, 'error')
   }
-}
-
-// 添加内容类型检测函数
-const detectContentType = (content) => {
-  if (content.startsWith('```')) return 'code'
-  if (/^[-*+]\s|^\d+\.\s/.test(content)) return 'list'
-  if (/^#{1,6}\s/.test(content)) return 'heading'
-  return 'text'
 }
 
 // 修改关闭模态框方法
@@ -933,15 +699,6 @@ const closeSplitModal = () => {
   splitSections.value = []
   selectedSceneId.value = ''
 }
-
-// 添加监听器
-watch(selectedSceneId, (newValue) => {
-  console.log('Selected scene changed:', newValue)
-})
-
-watch(splitSections, (newValue) => {
-  console.log('Selected sections changed:', newValue.filter(s => s.selected).length)
-}, { deep: true })
 
 // 添加合并方法
 const mergeToPrevious = (index) => {
@@ -970,40 +727,29 @@ const resendMessage = async (msg) => {
   }
 
   try {
-    // 设置请求状态
     isRequesting.value = true
     requestStartTime.value = Date.now()
-    elapsedTime.value = 0  // 重置计时器
-    
-    // 启动计时器，每10毫秒更新一次
-    timerInterval.value = setInterval(() => {
-      elapsedTime.value = Date.now() - requestStartTime.value
-    }, 10)
+    elapsedTime.value = 0
     
     abortController.value = new AbortController()
 
     const model = props.models.find(m => m.id === currentChat.value.modelId)
     if (!model) throw new Error('未找到选择的模型')
 
-    // 获取对话历史
-    const context = []
-    
-    // 如果选择了提示词，添加为 system 消息
+    // 获取提示词模板
+    let promptTemplate = null
     if (currentChat.value.promptId) {
       const prompt = props.prompts.find(p => p.id === currentChat.value.promptId)
       if (prompt) {
-        context.push({
-          role: 'system',
-          content: prompt.systemPrompt || prompt.template || prompt.userPrompt
-        })
+        promptTemplate = prompt.systemPrompt || prompt.template || prompt.userPrompt
       }
     }
 
-    // 添加历史消息
-    context.push(...currentChat.value.messages.map(m => ({
+    // 获取历史消息
+    const context = currentChat.value.messages.map(m => ({
       role: m.role === 'user' ? 'user' : 'assistant',
       content: m.content
-    })))
+    }))
     context.pop()
 
     // 处理关键词检测
@@ -1025,23 +771,23 @@ const resendMessage = async (msg) => {
       }
     }
 
-    // 调用 API 获取回复
-    const response = await sendToModel(model, processedContent, context)
+    const response = await sendToModel(
+      model,
+      processedContent,
+      context,
+      abortController.value,
+      promptTemplate
+    )
     
-    // 计算响应时间
     const endTime = Date.now()
     const responseTimeValue = endTime - requestStartTime.value
-    
-    // 清除计时器
-    clearInterval(timerInterval.value)
-    timerInterval.value = null
     
     const assistantMessage = {
       id: Date.now(),
       role: 'assistant',
       content: response,
       timestamp: new Date(),
-      responseTime: responseTimeValue // 保存响应时间
+      responseTime: responseTimeValue
     }
 
     currentChat.value.messages.push(assistantMessage)
@@ -1060,9 +806,7 @@ const resendMessage = async (msg) => {
   } finally {
     isRequesting.value = false
     abortController.value = null
-    elapsedTime.value = 0  // 重置计时器
-    clearInterval(timerInterval.value)  // 确保清除计时器
-    timerInterval.value = null
+    elapsedTime.value = 0
   }
 }
 
@@ -1095,69 +839,21 @@ const splitSection = (index) => {
 
 // 添加导出和导入方法
 const exportChatSessions = () => {
-  try {
-    const data = JSON.stringify(chatSessions.value, null, 2)
-    const blob = new Blob([data], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `chat-sessions-${new Date().toISOString().slice(0, 10)}.json`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-    
-    showToast('聊天记录导出成功', 'success')
-  } catch (error) {
-    console.error('导出聊天记录失败:', error)
-    showToast('导出聊天记录失败: ' + error.message, 'error')
-  }
+  exportData(chatSessions.value, 'chat-sessions')
 }
 
 const importChatSessions = (event) => {
-  try {
-    const file = event.target.files[0]
-    if (!file) return
-
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      try {
-        const importedData = JSON.parse(e.target.result)
-        
-        // 更新聊天会话数据
-        chatSessions.value = importedData
-        
-        // 立即保存到 localStorage
-        localStorage.setItem('chatSessions', JSON.stringify(importedData))
-        
-        // 如果有聊天会话，设置当前会话为第一个
-        if (importedData.length > 0) {
-          currentChatId.value = importedData[0].id
-        }
-        
-        showToast('聊天记录导入成功', 'success')
-      } catch (error) {
-        console.error('解析导入文件失败:', error)
-        showToast('导入失败: 无效的文件格式', 'error')
-      }
+  const file = event.target.files[0]
+  if (!file) return
+  
+  importData(file, (importedData) => {
+    chatSessions.value = importedData
+    saveToStorage('chatSessions', importedData)
+    if (importedData.length > 0) {
+      currentChatId.value = importedData[0].id
     }
-    reader.readAsText(file)
-    // 清除文件输入值，允许重复导入相同文件
-    event.target.value = ''
-  } catch (error) {
-    console.error('导入聊天记录失败:', error)
-    showToast('导入聊天记录失败: ' + error.message, 'error')
-  }
-}
-
-// 添加格式化响应时间的方法
-const formatResponseTime = (ms) => {
-  if (ms < 1000) {
-    return `${ms}毫秒`
-  } else {
-    const seconds = (ms / 1000).toFixed(2)
-    return `${seconds}秒`
-  }
+  })
+  event.target.value = ''
 }
 
 // 添加格式化实时计时的方法
@@ -1181,6 +877,16 @@ const handleHistoryTurnsChange = () => {
     saveSessions()
   }
 }
+
+// 组件卸载时清理
+onUnmounted(() => {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+})
+
+// 不需要显式的 return 语句，setup script 会自动暴露声明的变量和方法
 </script>
 
 <style scoped>

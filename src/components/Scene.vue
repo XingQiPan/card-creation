@@ -276,7 +276,6 @@ const showMoveModal = ref(false)
 const cardToMove = ref(null)
 const isLinkMode = ref(false)
 const selectedForLink = ref([])
-const sourceCard = ref(null)
 
 // 添加 UUID 生成函数
 const generateUUID = () => {
@@ -319,13 +318,6 @@ const taggedCardsMap = computed(() => {
     })
   })
   return map
-})
-
-const filteredCards = computed(() => {
-  if (!props.selectedTags.length) {
-    return props.scene.cards
-  }
-  return Array.from(taggedCardsMap.value.values())
 })
 
 

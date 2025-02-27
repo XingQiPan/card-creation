@@ -609,8 +609,6 @@ const executeTask = async (task) => {
       if (parentTask.output) {
         prompt += `父任务输出:\n${parentTask.output}\n\n`
       }
-    } else {
-      console.log('未找到父任务')
     }
     
     // 添加关联任务上下文
@@ -645,7 +643,6 @@ const executeTask = async (task) => {
           matchedCards.forEach(card => {
             prompt += `【${card.title}】\n${card.content}\n\n`
           })
-          console.log('找到匹配的卡片:', matchedCards.length, '个')
         }
       }
     }
@@ -655,7 +652,6 @@ const executeTask = async (task) => {
       prompt += `请以JSON格式返回结果，格式如下:\n{"content": "", "isComplete": true}\n其中content字段包含你的回答内容(不需要json格式)，isComplete字段表示任务是否完成。\n\n请注意：直接返回JSON对象，不要使用Markdown代码块包装，确保JSON格式正确且不包含特殊控制字符，只需要这两个字段！！！\n\n`
     }
     
-    //console.log('发送提示词:', prompt)
     
     // 调用API
     const content = await callAI(model, prompt)

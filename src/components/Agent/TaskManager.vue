@@ -61,7 +61,7 @@
       <div class="task-settings" v-if="showSettings">
         <div class="settings-header">
           <h4>任务执行设置</h4>
-          <button @click="showSettings = false" class="close-btn">&times;</button>
+          <button @click="closeSettings" class="close-btn">&times;</button>
         </div>
         <div class="settings-body">
           <div class="form-group">
@@ -317,6 +317,10 @@
     console.log('TaskManager: 删除任务', taskId);
     emit('delete-task', taskId);
   };
+  
+  const closeSettings = () => {
+    showSettings.value = false
+  }
   
   // 生命周期钩子
   onMounted(() => {
@@ -578,5 +582,138 @@
 
   ::-webkit-scrollbar-thumb:hover {
     background: #bbb;
+  }
+
+  /* 任务设置面板 */
+  .task-settings {
+    position: absolute;
+    left: 20px;
+    top: 60px;
+    width: 300px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+  }
+
+  .settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #e8e8e8;
+  }
+
+  .settings-header h4 {
+    margin: 0;
+    font-size: 16px;
+    color: #333;
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: #999;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .close-btn:hover {
+    color: #666;
+    background-color: #f0f0f0;
+    border-radius: 4px;
+  }
+
+  .settings-body {
+    padding: 16px;
+  }
+
+  .form-group {
+    margin-bottom: 16px;
+  }
+
+  .form-group:last-child {
+    margin-bottom: 0;
+  }
+
+  .form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #333;
+    font-size: 14px;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+
+  select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    font-size: 14px;
+    color: #333;
+  }
+
+  textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    font-size: 14px;
+    color: #333;
+    resize: vertical;
+    min-height: 80px;
+  }
+
+  .settings-footer {
+    padding: 12px 16px;
+    border-top: 1px solid #e8e8e8;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .save-btn {
+    padding: 6px 16px;
+    background-color: #1890ff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.3s;
+  }
+
+  .save-btn:hover {
+    background-color: #40a9ff;
+  }
+
+  /* 响应式设计 */
+  @media (max-width: 768px) {
+    .task-settings {
+      position: fixed;
+      right: 10px;
+      left: 10px;
+      width: auto;
+      max-width: 400px;
+      margin: 0 auto;
+    }
   }
   </style>

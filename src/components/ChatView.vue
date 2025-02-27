@@ -59,6 +59,17 @@
               {{ prompt.title }}
             </option>
           </select>
+          <div class="history-control">
+            <label for="historyTurns">(默认20轮)对话轮数:</label>
+            <input 
+              type="number" 
+              id="historyTurns"
+              v-model="currentChat.historyTurns" 
+              min="1" 
+              max="1000"
+              @change="handleHistoryTurnsChange"
+            >
+          </div>
           <div class="keyword-toggle">
             <input 
               type="checkbox" 
@@ -343,7 +354,7 @@ const getKeywordContent = (keyword) => {
   return null
 }
 
-// 创建新对话
+// 修改创建新对话的函数
 const createNewChat = () => {
   const newChat = {
     id: Date.now(),
@@ -351,7 +362,8 @@ const createNewChat = () => {
     messages: [],
     modelId: '',
     promptId: '',
-    enableKeywords: false
+    enableKeywords: false,
+    historyTurns: 20  // 修改默认值为20
   }
   
   chatSessions.value.push(newChat)
@@ -421,7 +433,8 @@ const sendMessage = async () => {
     const model = props.models.find(m => m.id === currentChat.value.modelId)
     if (!model) throw new Error('未找到选择的模型')
 
-    // 获取对话历史
+    // 获取对话历史时使用设定的轮数，默认值改为20
+    const historyTurns = currentChat.value.historyTurns || 20
     const context = []
     
     // 如果选择了提示词，添加为 system 消息
@@ -435,11 +448,15 @@ const sendMessage = async () => {
       }
     }
 
-    // 添加历史消息
-    context.push(...currentChat.value.messages.map(msg => ({
-      role: msg.role === 'user' ? 'user' : 'assistant',
-      content: msg.content
-    })))
+    // 添加历史消息，限制轮数
+    const recentMessages = currentChat.value.messages
+      .slice(-(historyTurns * 2)) // 每轮包含用户和助手的消息，所以乘以2
+      .map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      }))
+
+    context.push(...recentMessages)
     context.pop() // 移除最后一条消息，因为它会作为当前消息发送
 
     // 处理关键词检测
@@ -1150,6 +1167,18 @@ const formatElapsedTime = (ms) => {
   } else {
     const seconds = (ms / 1000).toFixed(2)
     return `${seconds}秒`
+  }
+}
+
+// 添加处理对话轮数变化的函数
+const handleHistoryTurnsChange = () => {
+  if (currentChat.value) {
+    // 确保值在合理范围内
+    let turns = parseInt(currentChat.value.historyTurns)
+    if (isNaN(turns) || turns < 1) turns = 1
+    if (turns > 1000) turns = 1000
+    currentChat.value.historyTurns = turns
+    saveSessions()
   }
 }
 </script>

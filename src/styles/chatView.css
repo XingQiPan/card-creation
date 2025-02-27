@@ -140,6 +140,7 @@
     align-items: center;
     gap: 16px;
     margin-bottom: 12px;
+    flex-wrap: wrap;
   }
   
   .model-select {
@@ -787,4 +788,35 @@
   
   .abort-btn i {
     font-size: 14px;
+  }
+  
+  .history-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: white;
+  }
+  
+  .history-control label {
+    font-size: 0.95em;
+    color: #666;
+    white-space: nowrap;
+  }
+  
+  .history-control input {
+    width: 60px;
+    padding: 4px 8px;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    font-size: 0.95em;
+    color: #333;
+    text-align: center;
+  }
+  
+  .history-control input:focus {
+    outline: none;
+    border-color: #2196f3;
   }

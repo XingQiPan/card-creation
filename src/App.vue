@@ -8,7 +8,7 @@
         <!-- 左侧提示词模板区 -->
         <div class="prompt-panel" :style="{ width: promptPanelWidth + 'px' }">
           <div class="panel-header">
-            <h2>提示词模板</h2>
+            <h2>提示词模板(v{{ version }})</h2>
             <div class="header-actions">
               <button @click="showTagModal = true">
                 <i class="fas fa-tags"></i> 管理标签
@@ -23,20 +23,20 @@
           </div>
           <div class="prompt-panel-header">
             <div class="header-actions">
-              <button @click="showPromptModal = true">
-                <i class="fas fa-plus"></i> 新建提示词
-              </button>
-              <label class="import-btn">
-                <input 
-                  type="file" 
-                  multiple
-                  accept=".txt,.md,.json,.text"
-                  @change="importPrompts"
-                  ref="promptFileInput"
-                >
-                <i class="fas fa-file-import"></i> 导入提示词
-              </label>
-            </div>
+            <button @click="exportPrompts">
+              <i class="fas fa-file-export"></i> 导出提示词
+            </button>
+            <label class="import-btn">
+              <input 
+                type="file" 
+                multiple
+                accept=".txt,.md,.json,.text"
+                @change="importPrompts"
+                ref="promptFileInput"
+              >
+              <i class="fas fa-file-import"></i> 导入提示词
+            </label>
+          </div>
           </div>
           <div class="prompt-list">
             <div 
@@ -203,10 +203,11 @@
       </div>
 
       <BookSplitter 
-        v-else-if="currentView === 'book'"
+        v-if="currentView === 'book'"
+        :scenes="scenes"
         :prompts="prompts"
         :models="models"
-        :scenes="scenes"
+        @convert-to-cards="handleBatchConvertToCards"
       />
       <ChatView
         v-else-if="currentView === 'chat'"
@@ -592,17 +593,6 @@
         </div>
       </div>
     </div>
-
-    <!-- Toast 组件 -->
-    <Teleport to="body">
-      <div 
-        v-if="toast.show" 
-        class="toast"
-        :class="toast.type"
-      >
-        {{ toast.message }}
-      </div>
-    </Teleport>
 </template>
 
 
@@ -617,6 +607,8 @@ import ChatView from './components/ChatView.vue'
 import NotePad from './components/NotePad.vue'
 import AgentsView from './components/AgentsView.vue'  // Add this import
 
+// 添加版本号
+const version = __APP_VERSION__
 
 // 将状态声明移到最前面
 const currentView = ref('main') // 添加视图切换状态
@@ -998,42 +990,42 @@ watch(
 )
 
 
-// 修改保存到本地存储的方法
-const saveToLocalStorage = () => {
-  try {
-    if (!scenes.value?.length) {
-      console.warn('No valid scenes data to save')
-      return
-    }
+// // 修改保存到本地存储的方法
+// const saveToLocalStorage = () => {
+//   try {
+//     if (!scenes.value?.length) {
+//       console.warn('No valid scenes data to save')
+//       return
+//     }
 
-    // 确保场景数据的完整性
-    const scenesToSave = scenes.value.map(scene => ({
-      ...scene,
-      id: scene.id,
-      name: scene.name,
-      cards: Array.isArray(scene.cards) ? 
-        scene.cards.map(card => ({
-          ...card,
-          id: card.id,
-          title: card.title || '',
-          content: card.content || '',
-          height: card.height || '120px',
-          tags: Array.isArray(card.tags) ? card.tags : []
-        })) : []
-    }))
+//     // 确保场景数据的完整性
+//     const scenesToSave = scenes.value.map(scene => ({
+//       ...scene,
+//       id: scene.id,
+//       name: scene.name,
+//       cards: Array.isArray(scene.cards) ? 
+//         scene.cards.map(card => ({
+//           ...card,
+//           id: card.id,
+//           title: card.title || '',
+//           content: card.content || '',
+//           height: card.height || '120px',
+//           tags: Array.isArray(card.tags) ? card.tags : []
+//         })) : []
+//     }))
 
-    console.log('Saving scenes to localStorage:', scenesToSave)
+//     console.log('Saving scenes to localStorage:', scenesToSave)
     
-    localStorage.setItem('scenes', JSON.stringify(scenesToSave))
-    localStorage.setItem('currentSceneId', currentScene.value?.id?.toString())
-    localStorage.setItem('prompts', JSON.stringify(prompts.value || []))
-    localStorage.setItem('tags', JSON.stringify(tags.value || []))
-    localStorage.setItem('aiModels', JSON.stringify(models.value || []))
-  } catch (error) {
-    console.error('保存到本地存储失败:', error)
-    showToast('保存到本地存储失败: ' + error.message, 'error')
-  }
-}
+//     localStorage.setItem('scenes', JSON.stringify(scenesToSave))
+//     localStorage.setItem('currentSceneId', currentScene.value?.id?.toString())
+//     localStorage.setItem('prompts', JSON.stringify(prompts.value || []))
+//     localStorage.setItem('tags', JSON.stringify(tags.value || []))
+//     localStorage.setItem('aiModels', JSON.stringify(models.value || []))
+//   } catch (error) {
+//     console.error('保存到本地存储失败:', error)
+//     showToast('保存到本地存储失败: ' + error.message, 'error')
+//   }
+// }
 
 // 修改场景切换方法
 const switchScene = (scene) => {
@@ -1080,28 +1072,36 @@ const savePrompts = async () => {
   await syncData() // 改为使用 syncData
 }
 
-// 修改保存标签的方法
-const saveTags = async () => {
-  localStorage.setItem('tags', JSON.stringify(tags.value))
-  await syncData() // 改为使用 syncData
-}
-
 // 修改保存模型的方法
 const saveModels = async () => {
   try {
-    localStorage.setItem('aiModels', JSON.stringify(models.value))
+    // 保存到本地存储
+    dataService.saveToLocalStorage('aiModels', models.value)
+    
+    // 准备要保存的数据
+    const dataToSave = {
+      scenes: scenes.value,
+      prompts: prompts.value,
+      tags: tags.value,
+      config: {
+        models: models.value,
+        notepadContent: notepadInitialContent.value,
+        currentSceneId: currentScene.value?.id,
+        selectedTags: selectedTags.value,
+        currentView: currentView.value
+      }
+    }
+
+    // 同步到后端
+    await dataService.syncToBackend(dataToSave)
+    
     showToast('模型配置已保存', 'success')
-    await syncData() // 改为使用 syncData
   } catch (error) {
     console.error('保存模型失败:', error)
     showToast('保存模型失败: ' + error.message, 'error')
   }
 }
 
-const closeModelEditor = () => {
-  saveModels() // 关闭前自动保存
-  //showModelEditor.value = false
-}
 
 // 在组件挂载时加载数据
 onMounted(async () => {
@@ -1139,6 +1139,7 @@ const canInsertSelected = () => {
   if (!selectedPrompt.value) return false
   return selectedCards.value.length === getInsertCount(selectedPrompt.value.template)
 }
+
 // 提示词相关方法
 const createNewPrompt = () => {
   showPromptModal.value = true
@@ -1304,36 +1305,11 @@ const sendPromptRequest = async (prompt) => {
       const insertedTexts = prompt.insertedContents.map(item => item.content).join('\n')
       processedTemplate = processedTemplate.replace(/{{text}}/g, insertedTexts)
     }
-
+    console.log('processedTemplate', prompt.detectKeywords)
     // 只在启用关键词检测时执行关键词处理
     if (prompt.detectKeywords) {
-      // 检查关键词
-      let keywordContexts = []
-      const keywordTags = tags.value.filter(tag => tag.isKeyword)
-      
-      // 获取当前场景中带有关键词标签的卡片
-      const keywordCards = currentScene.value.cards.filter(card => 
-        card.tags?.some(tagId => keywordTags.some(tag => tag.id === tagId)) && 
-        card.title
-      )
-
-      // 检查每个关键词卡片
-      keywordCards.forEach(card => {
-        if (card.title && processedTemplate.includes(card.title)) {
-          keywordContexts.push({
-            keyword: card.title,
-            content: card.content
-          })
-        }
-      })
-
-      // 如果找到关键词，添加上下文
-      if (keywordContexts.length > 0) {
-        const contextSection = keywordContexts.map(ctx => 
-          `关键词「${ctx.keyword}」的上下文:\n${ctx.content}`
-        ).join('\n\n')
-        processedTemplate = `${contextSection}\n\n---\n\n${processedTemplate}`
-      }
+      processedTemplate = processKeywords(processedTemplate)
+      console.log('processedTemplate', processedTemplate)
     }
 
     console.log('processedTemplate', processedTemplate)
@@ -1472,7 +1448,7 @@ const importPrompts = async (event) => {
               id: Date.now() + Math.random(),
               title: prompt.title || file.name,
               systemPrompt: prompt.systemPrompt || '',
-              userPrompt: prompt.userPrompt || prompt.template || content.trim(), // 兼容旧版本
+              userPrompt: prompt.userPrompt || prompt.template || '{{text}}', // 默认添加占位符
               defaultModel: prompt.defaultModel || models.value[0]?.id || '',
               insertedContents: [],
               detectKeywords: prompt.detectKeywords ?? true
@@ -1483,20 +1459,20 @@ const importPrompts = async (event) => {
           prompts.value.push({
             id: Date.now() + Math.random(),
             title: file.name,
-            systemPrompt: '',
-            userPrompt: content.trim(),
+            systemPrompt: content.trim(), // 非JSON文件内容作为系统提示词
+            userPrompt: '{{text}}', // 默认添加占位符
             defaultModel: models.value[0]?.id || '',
             insertedContents: [],
             detectKeywords: true
           })
         }
       } else {
-        // 处理普通文本文件
+        // 处理普通文本文件，内容作为系统提示词
         prompts.value.push({
           id: Date.now() + Math.random(),
           title: file.name,
-          systemPrompt: '',
-          userPrompt: content.trim(),
+          systemPrompt: content.trim(), // 文本内容作为系统提示词
+          userPrompt: '{{text}}', // 默认添加占位符
           defaultModel: models.value[0]?.id || '',
           insertedContents: [],
           detectKeywords: true
@@ -1514,74 +1490,12 @@ const importPrompts = async (event) => {
   }
 }
 
-// 添加文件拖放支持
-const handleDragOver = (event) => {
-  event.preventDefault()
-  event.stopPropagation()
-}
-
-const handleDrop = async (event) => {
-  event.preventDefault()
-  event.stopPropagation()
-  
-  const files = event.dataTransfer.files
-  if (files.length > 0) {
-    try {
-      for (const file of files) {
-        let content = await file.text()
-        
-        if (file.name.endsWith('.json')) {
-          try {
-            const jsonData = JSON.parse(content)
-            content = JSON.stringify(jsonData, null, 2)
-          } catch (e) {
-            console.warn('JSON 解析失败，作为普通文本处理')
-          }
-        }
-
-        textCards.value.push({
-          id: Date.now() + Math.random(),
-          content: content.trim(),
-          title: file.name,
-          height: '200px'
-        })
-      }
-    } catch (error) {
-      console.error('文件导入错误:', error)
-      alert('文件导入失败: ' + error.message)
-    }
-  }
-}
-
 // 新增的插入提示词相关方法
 const insertPromptAtCursor = (card) => {
   currentEditingCard.value = card
   showPromptSelectModal.value = true
 }
 
-const insertPromptToCard = (prompt) => {
-  if (!currentEditingCard.value) return
-  
-  const insertCount = getInsertCount(prompt.userPrompt)
-  if (insertCount === 0) return
-  
-  // 初始化插入内容数组
-  if (!prompt.insertedContents) {
-    prompt.insertedContents = []
-  }
-  
-  // 检查是否还能插入更多内容
-  if (prompt.insertedContents.length >= insertCount) {
-    alert('已达到最大插入数量')
-    return
-  }
-  
-  // 添加插入的内容
-  prompt.insertedContents.push(currentEditingCard.value.content)
-  
-  showPromptSelectModal.value = false
-  currentEditingCard.value = null
-}
 
 const removeInsertedContent = (prompt, index) => {
   prompt.insertedContents.splice(index, 1)
@@ -1752,23 +1666,6 @@ const refreshModelList = async (model) => {
   }
 }
 
-// 添加 API URL 验证
-const validateApiUrl = (url) => {
-  return url.startsWith('https://') || url.startsWith('http://')
-}
-
-// 修改默认的 Gemini 模型配置
-const defaultGeminiModel = {
-  id: 'gemini',
-  name: 'Gemini',
-  provider: PROVIDERS.GEMINI,
-  apiUrl: '', // 用户自己填写 API 地址
-  modelId: '', // 用户自己填写模型 ID
-  apiKey: '',
-  maxTokens: 2048,
-  temperature: 0.7
-}
-
 // 面板宽度调整
 const startPanelResize = (e) => {
   isResizing = true
@@ -1789,28 +1686,6 @@ const stopPanelResize = () => {
   isResizing = false
   document.removeEventListener('mousemove', handlePanelResize)
   document.removeEventListener('mouseup', stopPanelResize)
-}
-
-// 卡片高度调整
-const startCardResize = (e, card) => {
-  e.stopPropagation()
-  const textarea = e.target.parentElement.querySelector('textarea')
-  const startY = e.clientY
-  const startHeight = textarea.offsetHeight
-
-  const handleMouseMove = (e) => {
-    const diff = e.clientY - startY
-    const newHeight = Math.max(120, startHeight + diff)
-    card.height = `${newHeight}px`
-  }
-
-  const handleMouseUp = () => {
-    document.removeEventListener('mousemove', handleMouseMove)
-    document.removeEventListener('mouseup', handleMouseUp)
-  }
-
-  document.addEventListener('mousemove', handleMouseMove)
-  document.addEventListener('mouseup', handleMouseUp)
 }
 
 // 显示提示词详情
@@ -1875,53 +1750,6 @@ const editSceneName = (scene) => {
   if (newName && newName.trim()) {
     scene.name = newName.trim()
     saveScenes() // 保存更改
-  }
-}
-
-// 添加标签相关的方法
-const addTag = () => {
-  if (newTagName.value.trim()) {
-    const tag = {
-      id: Date.now(),
-      name: newTagName.value.trim(),
-      isKeyword: false // 添加关键词标记
-    }
-    tags.value.push(tag)
-    saveTags()
-    newTagName.value = ''
-  }
-}
-
-const deleteTag = (tagId) => {
-  tags.value = tags.value.filter(tag => tag.id !== tagId)
-  // 同时从所有卡片中移除该标签
-  currentScene.value.cards.forEach(card => {
-    if (card.tags) {
-      card.tags = card.tags.filter(tag => tag !== tagId)
-    }
-  })
-  saveTags()
-}
-
-const toggleCardTag = (card, tagId) => {
-  if (!card.tags) {
-    card.tags = []
-  }
-  const index = card.tags.indexOf(tagId)
-  if (index === -1) {
-    card.tags.push(tagId)
-  } else {
-    card.tags.splice(index, 1)
-  }
-  saveScenes()
-}
-
-const toggleTagFilter = (tagId) => {
-  const index = selectedTags.value.indexOf(tagId)
-  if (index === -1) {
-    selectedTags.value.push(tagId)
-  } else {
-    selectedTags.value.splice(index, 1)
   }
 }
 
@@ -2000,14 +1828,6 @@ const toggleTagKeyword = (tagId) => {
   }
 }
 
-// 加载标签
-const loadTags = () => {
-  const savedTags = localStorage.getItem('tags')
-  if (savedTags) {
-    tags.value = JSON.parse(savedTags)
-  }
-}
-
 // 在 prompts 相关方法中添加删除提示词的方法
 const deletePrompt = (promptId) => {
   try {
@@ -2019,67 +1839,6 @@ const deletePrompt = (promptId) => {
   } catch (error) {
     console.error('删除提示词失败:', error)
     showToast('删除提示词失败: ' + error.message, 'error')
-  }
-}
-
-// 修改场景加载方法
-const loadScenes = () => {
-  try {
-    // 优先从本地存储加载
-    const savedScenes = localStorage.getItem('scenes')
-    const savedPrompts = localStorage.getItem('prompts')
-    const savedTags = localStorage.getItem('tags')
-    const savedModels = localStorage.getItem('aiModels')
-
-    console.log('Loading saved scenes:', savedScenes) // 调试用
-
-    // 只在没有保存的场景数据时创建默认场景
-    if (!savedScenes) {
-      const defaultScene = {
-        id: Date.now(),
-        name: '默认场景',
-        cards: []
-      }
-      scenes.value = [defaultScene]
-      currentScene.value = defaultScene
-      
-      // 保存默认场景到本地存储
-      localStorage.setItem('scenes', JSON.stringify(scenes.value))
-    } else {
-      // 加载保存的场景数据
-      const parsedScenes = JSON.parse(savedScenes)
-      scenes.value = parsedScenes.map(scene => ({
-        ...scene,
-        cards: Array.isArray(scene.cards) ? scene.cards : []
-      }))
-      
-      // 恢复之前的当前场景
-      if (scenes.value.length > 0) {
-        const savedCurrentSceneId = localStorage.getItem('currentSceneId')
-        if (savedCurrentSceneId) {
-          currentScene.value = scenes.value.find(s => s.id === parseInt(savedCurrentSceneId))
-        }
-        // 如果找不到保存的当前场景，使用第一个场景
-        if (!currentScene.value) {
-          currentScene.value = scenes.value[0]
-        }
-      }
-    }
-
-    // 加载其他数据
-    if (savedPrompts) prompts.value = JSON.parse(savedPrompts)
-    if (savedTags) tags.value = JSON.parse(savedTags)
-    if (savedModels) models.value = JSON.parse(savedModels)
-
-    // 打印加载后的数据（调试用）
-    console.log('Loaded scenes:', scenes.value)
-    console.log('Current scene:', currentScene.value)
-
-    // 异步同步到后端
-    syncToBackend()
-  } catch (error) {
-    console.error('加载场景失败:', error)
-    showToast('加载场景失败: ' + error.message, 'error')
   }
 }
 
@@ -2122,7 +1881,6 @@ const handleMoveCard = ({ card, sourceSceneId, targetSceneId }) => {
 
 // 修改提供的移动到场景方法
 provide('moveToScene', (cardData, targetSceneId) => {
-  console.log('Moving to scene:', { cardData, targetSceneId }) // 添加调试日志
   const targetScene = scenes.value.find(s => s.id === targetSceneId)
   if (!targetScene) {
     console.error('Target scene not found:', targetSceneId)
@@ -2162,31 +1920,8 @@ const handleAddCardsToScene = async (sceneId, cards) => {
 
 // 添加合并卡片的方法
 const handleMergeCards = (cards) => {
-  // 合并卡片的逻辑
   console.log('Merging cards:', cards)
-  // 这里可以添加合并卡片的逻辑
 }
-
-// 修改创建新卡片的逻辑
-const createNewCard = () => {
-  if (!currentScene.value) return
-  
-  const newCard = {
-    id: Date.now(),
-    title: '新建卡片',
-    content: '',
-    height: '120px',
-    tags: []
-  }
-  
-  if (!currentScene.value.cards) {
-    currentScene.value.cards = []
-  }
-  
-  currentScene.value.cards.push(newCard)
-  updateScene(currentScene.value)
-}
-
 
 // Add new method to prevent text selection during scene drag
 const preventTextSelection = (prevent) => {
@@ -2206,7 +1941,6 @@ onUnmounted(() => {
 
 // 修改处理添加到笔记本的方法
 const handleAddToNotepad = (cardData) => {
-  //console.log('Handling add to notepad:', cardData)
   // 先切换到笔记本视图
   
   showToast('已添加到记事本')
@@ -2215,7 +1949,6 @@ const handleAddToNotepad = (cardData) => {
   nextTick(() => {
     // 设置笔记本初始内容，包含标题和完整信息
     const formattedContent = `# ${cardData.title}\n\n${cardData.content}`
-    //console.log('Formatted content for notepad:', formattedContent)
     
     // 重置后设置新值
     notepadInitialContent.value = ''
@@ -2468,37 +2201,6 @@ const updateCardTags = async (card, newTags) => {
   }
 }
 
-// 修改卡片高度更新方法
-const updateCardHeight = async (card, newHeight) => {
-  try {
-    if (!currentScene.value) return
-
-    // 更新卡片高度
-    const cardIndex = currentScene.value.cards.findIndex(c => c.id === card.id)
-    if (cardIndex !== -1) {
-      currentScene.value.cards[cardIndex] = {
-        ...currentScene.value.cards[cardIndex],
-        height: newHeight
-      }
-
-      // 更新scenes数组中的场景
-      const sceneIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
-      if (sceneIndex !== -1) {
-        scenes.value[sceneIndex] = {
-          ...currentScene.value,
-          cards: [...currentScene.value.cards]
-        }
-      }
-
-      // 保存到localStorage
-      localStorage.setItem('scenes', JSON.stringify(scenes.value))
-    }
-  } catch (error) {
-    console.error('更新卡片高度失败:', error)
-    showToast('更新卡片高度失败: ' + error.message, 'error')
-  }
-}
-
 // 处理插入卡片到提示词
 const handleInsertToPrompt = (card) => {
   try {
@@ -2639,17 +2341,6 @@ const selectPromptAndInsert = (prompt) => {
       showToast(`该提示词最多只能插入 ${textPlaceholders} 个内容`, 'error')
       return
     }
-    
-    // 检查是否已经插入过相同内容
-    // const isDuplicate = prompt.insertedContents.some(item => 
-    //   item.content === cardToInsert.value.content && 
-    //   item.cardId === cardToInsert.value.id
-    // )
-    
-    // if (isDuplicate) {
-    //   showToast('该内容已经插入过', 'error')
-    //   return
-    // }
 
     // 添加新的插入内容
     prompt.insertedContents.push({
@@ -2684,54 +2375,44 @@ const getInsertCount = (promptTemplate) => {
   return (promptTemplate.match(/{{text}}/g) || []).length
 }
 
-// 修改发送消息的方法
-const sendMessage = async () => {
-  try {
-    // 获取选中的模型和提示词
-    const selectedModel = models.value.find(m => m.id === currentModelId.value)
-    const currentPrompt = selectedPrompt.value
-    
-    if (!selectedModel || !currentPrompt) {
-      showToast('请选择模型和提示词', 'error')
-      return
+// 修改添加标签的方法
+const addTag = () => {
+  if (newTagName.value.trim()) {
+    const tag = {
+      id: Date.now(),
+      name: newTagName.value.trim(),
+      isKeyword: false
     }
-
-    // 获取提示词的已插入内容
-    const insertedContents = currentPrompt.insertedContents || []
-    const insertedTexts = insertedContents.map(item => item.content).join('\n')
-    
-    // 构建完整的提示词内容
-    const fullPrompt = currentPrompt.userPrompt.replace(/{{text}}/g, insertedTexts)
-
-    // 添加用户消息到聊天记录
-    messages.value.push({
-      role: 'user',
-      content: fullPrompt
-    })
-
-    // 显示加载状态
-    isLoading.value = true
-
-    // 发送请求到API
-    const response = await sendToAPI(selectedModel, messages.value)
-    
-    if (response.success) {
-      messages.value.push({
-        role: 'assistant',
-        content: response.message
-      })
-    } else {
-      showToast(response.error || '发送失败', 'error')
-    }
-
-  } catch (error) {
-    console.error('发送消息失败:', error)
-    showToast('发送失败: ' + error.message, 'error')
-  } finally {
-    isLoading.value = false
+    tags.value.push(tag)
+    saveTags()
+    newTagName.value = '' // 清空输入
+    showToast('标签添加成功', 'success')
   }
 }
 
+// 确保有保存标签的方法
+const saveTags = () => {
+  try {
+    localStorage.setItem('tags', JSON.stringify(tags.value))
+  } catch (error) {
+    console.error('保存标签失败:', error)
+    showToast('保存标签失败', 'error')
+  }
+}
+
+// 在组件挂载时加载标签
+onMounted(() => {
+  // 加载标签
+  const savedTags = localStorage.getItem('tags')
+  if (savedTags) {
+    try {
+      tags.value = JSON.parse(savedTags)
+    } catch (error) {
+      console.error('加载标签失败:', error)
+      tags.value = []
+    }
+  }
+})
 
 // 修改导入文件处理方法
 const handleFilesImport = async (event) => {
@@ -2911,7 +2592,6 @@ const handleSceneUpdate = async (updatedScene) => {
     // 触发视图更新
     nextTick(() => {
       // 如果需要，可以在这里添加额外的更新逻辑
-      console.log('场景已更新:', updatedScene.name)
     })
   } catch (error) {
     console.error('更新场景失败:', error)
@@ -2920,7 +2600,7 @@ const handleSceneUpdate = async (updatedScene) => {
 }
 
 // 初始化数据
-onMounted(() => {
+onMounted(async () => {
   try {
     // 加载场景
     const savedScenes = localStorage.getItem('scenes')
@@ -2929,7 +2609,7 @@ onMounted(() => {
     }
     
     // 加载其他数据
-    loadData()
+    await loadData()
   } catch (error) {
     console.error('初始化数据失败:', error)
     showToast('初始化数据失败: ' + error.message, 'error')
@@ -2937,60 +2617,171 @@ onMounted(() => {
 })
 
 // 加载数据的辅助函数
-const loadData = () => {
+const loadData = async () => {
   try {
-    // 加载模型配置
-    const savedModels = localStorage.getItem('models')
-    if (savedModels) {
-      // 确保每个模型都有正确的 provider 字段
-      models.value = JSON.parse(savedModels).map(model => ({
-        ...model,
-        provider: model.provider || 'custom', // 如果没有 provider 字段，默认为 custom
-        maxTokens: model.maxTokens || 512,
-        temperature: model.temperature || 0.7
-      }))
+    // 从后端加载所有数据
+    const response = await fetch('http://localhost:3000/api/get-all-data')
+    const result = await response.json()
+    
+    if (result.success && result.data) {
+      const backendData = result.data
+      
+      // 加载模型配置
+      if (backendData.config?.models) {
+        models.value = backendData.config.models.map(model => ({
+          ...model,
+          provider: model.provider || 'custom',
+          maxTokens: model.maxTokens || 512,
+          temperature: model.temperature || 0.7
+        }))
+      }
+      
+      // 加载提示词
+      if (Array.isArray(backendData.prompts)) {
+        prompts.value = backendData.prompts
+      }
+      
+      // 加载其他数据
+      if (Array.isArray(backendData.tags)) {
+        tags.value = backendData.tags
+      }
+      
+      // 加载场景
+      if (Array.isArray(backendData.scenes)) {
+        scenes.value = backendData.scenes
+      }
+      
+      // 加载其他配置
+      if (backendData.config) {
+        notepadInitialContent.value = backendData.config.notepadContent || ''
+        currentView.value = backendData.config.currentView || 'main'
+        selectedTags.value = backendData.config.selectedTags || []
+        
+        // 设置当前场景
+        if (backendData.config.currentSceneId && scenes.value.length > 0) {
+          currentScene.value = scenes.value.find(s => s.id === backendData.config.currentSceneId) || scenes.value[0]
+        } else if (scenes.value.length > 0) {
+          currentScene.value = scenes.value[0]
+        }
+      }
+      
+      // 保存到localStorage作为备份
+      localStorage.setItem('models', JSON.stringify(models.value))
+      localStorage.setItem('prompts', JSON.stringify(prompts.value))
+      
+      dataLoaded.value = true
+    } else {
+      throw new Error('后端数据加载失败')
     }
-    
-    // 保存处理后的模型数据
-    localStorage.setItem('models', JSON.stringify(models.value))
-    
-    // 加载提示词
-    const savedPrompts = localStorage.getItem('prompts')
-    if (savedPrompts) {
-      prompts.value = JSON.parse(savedPrompts)
-    }
-    
-    dataLoaded.value = true
-    console.log('数据加载完成，模型:', models.value)
   } catch (error) {
     console.error('加载数据失败:', error)
-    showToast('加载数据失败: ' + error.message, 'error')
+    showToast('从后端加载数据失败，尝试从本地加载: ' + error.message, 'warning')
+    
+    // 如果后端加载失败，尝试从localStorage加载
+    try {
+      const savedModels = localStorage.getItem('models')
+      if (savedModels) {
+        models.value = JSON.parse(savedModels).map(model => ({
+          ...model,
+          provider: model.provider || 'custom',
+          maxTokens: model.maxTokens || 512,
+          temperature: model.temperature || 0.7
+        }))
+      }
+      
+      const savedPrompts = localStorage.getItem('prompts')
+      if (savedPrompts) {
+        prompts.value = JSON.parse(savedPrompts)
+      }
+      
+      dataLoaded.value = true
+    } catch (localError) {
+      console.error('从localStorage加载备份数据失败:', localError)
+      showToast('加载数据完全失败: ' + localError.message, 'error')
+    }
   }
 }
 
-
-
-
-// 监听场景变化
-watch(scenes, (newScenes) => {
-  // 保存到本地存储
-  localStorage.setItem('scenes', JSON.stringify(newScenes))
+const processKeywords = (text) => {
+  const keywordMatches = []
+  const keywordTags = tags.value.filter(tag => tag.isKeyword)
   
-  // 触发所有相关组件的更新
-  nextTick(() => {
-    if (currentView.value === 'main') {
-      // 主视图相关更新
-    } else if (currentView.value === 'agents') {
-      // Agents视图相关更新
-    }
-    // ... 其他视图的更新逻辑
+  
+  // 遍历所有场景和卡片，查找带有关键词标签的卡片
+  scenes.value.forEach(scene => {
+    scene.cards.forEach(card => {
+      // 检查卡片是否有关键词标签
+      if (card.tags?.some(tagId => keywordTags.some(tag => tag.id === tagId))) {
+        // 检查文本中是否包含卡片标题
+        if (card.title && text.toLowerCase().includes(card.title.toLowerCase())) {
+          
+          // 避免重复添加相同的卡片
+          const isDuplicate = keywordMatches.some(match => match.title === card.title)
+          
+          if (!isDuplicate) {
+            keywordMatches.push({
+              keyword: card.title,
+              title: card.title,
+              content: card.content || '无内容'
+            })
+          }
+        }
+      }
+    })
   })
-}, { deep: true })
+  // 如果找到关键词匹配，构建上下文信息
+  if (keywordMatches.length > 0) {
+    const contextInfo = keywordMatches.map(match => 
+      `关键词「${match.title}」相关内容：\n${match.content}`
+    ).join('\n\n')
+    
+    const processedText = `${contextInfo}\n\n---\n\n${text}`
+    return processedText
+  }
+  return text
+}
+
+// 修改处理批量转换的方法
+const handleBatchConvertToCards = ({ cards, targetSceneId }) => {
+  try {
+    console.log('Converting cards:', cards.length)
+    console.log('Target Scene ID:', targetSceneId)
+    console.log('Available Scenes:', scenes.value.map(s => ({ id: s.id, name: s.name })))
+    
+    // 转换为数字类型进行比较
+    const targetScene = scenes.value.find(s => Number(s.id) === Number(targetSceneId))
+    
+    if (!targetScene) {
+      console.error('Scene not found. Available scenes:', scenes.value.map(s => s.id))
+      throw new Error(`目标场景不存在 (ID: ${targetSceneId})`)
+    }
+    
+    console.log('Found target scene:', targetScene.name)
+    
+    // 确保场景有 cards 数组
+    if (!Array.isArray(targetScene.cards)) {
+      targetScene.cards = []
+    }
+    
+    // 添加卡片到目标场景
+    targetScene.cards.push(...cards)
+    
+    // 保存更改
+    saveScenes()
+    
+    // 切换到主视图并选中目标场景
+    currentView.value = 'main'
+    currentScene.value = targetScene
+    
+    showToast(`成功添加 ${cards.length} 个卡片到场景：${targetScene.name}`, 'success')
+  } catch (error) {
+    console.error('转换卡片失败:', error)
+    showToast('转换卡片失败: ' + error.message, 'error')
+  }
+}
 </script>
 
 <style scoped>
 @import url("./styles/app.css");
 @import url("./styles/common.css");
-
-
 </style> 

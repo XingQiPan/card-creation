@@ -180,6 +180,13 @@
                 全选
               </label>
               <button 
+                @click="convertSelectedToCards"
+                class="convert-selected-btn"
+                :disabled="!hasSelectedResults"
+              >
+                <i class="fas fa-share-square"></i> 转换选中
+              </button>
+              <button 
                 @click="deleteSelectedResults"
                 class="delete-selected-btn"
                 :disabled="!hasSelectedResults"
@@ -235,27 +242,29 @@
     </div>
 
     <!-- 添加场景选择模态框 -->
-    <div v-if="showMoveModal" class="modal" @click="closeMoveModal">
-      <div class="modal-content" @click.stop>
+    <div v-if="showSceneSelector" class="scene-selector-modal">
+      <div class="modal-content">
         <h3>选择目标场景</h3>
-        <div class="scene-list">
-          <div v-if="props.scenes && props.scenes.length > 0">
-            <div 
-              v-for="scene in props.scenes"
-              :key="scene.id"
-              class="scene-item"
-              @click="moveCardToScene(scene)"
-            >
-              <span>{{ scene.name }}</span>
-              <i class="fas fa-chevron-right"></i>
-            </div>
-          </div>
-          <div v-else class="empty-scenes">
-            暂无可用场景
-          </div>
-        </div>
+        <select 
+          v-model="selectedSceneId"
+        >
+          <option value="">请选择场景</option>
+          <option 
+            v-for="scene in props.scenes" 
+            :key="scene.id" 
+            :value="scene.id"
+          >
+            {{ scene.name || '未命名场景' }}
+          </option>
+        </select>
         <div class="modal-actions">
-          <button @click="closeMoveModal">取消</button>
+          <button @click="showSceneSelector = false">取消</button>
+          <button 
+            @click="confirmConversion"
+            :disabled="!selectedSceneId"
+          >
+            确认转换
+          </button>
         </div>
       </div>
     </div>
@@ -311,6 +320,13 @@ const allResultsSelected = ref(false)
 const hasSelectedResults = computed(() => {
   return currentScene.value?.resultCards.some(card => card.selected)
 })
+
+// 定义 emit
+const emit = defineEmits(['convert-to-cards'])
+
+// 添加场景选择相关的响应式变量
+const showSceneSelector = ref(false)
+const selectedSceneId = ref(null)
 
 // 修改 loadScenes 方法
 const loadScenes = async () => {
@@ -1018,40 +1034,86 @@ const reprocessChapter = async (card, scene) => {
   }
 }
 
-// 修改转换为卡片的方法
-const showMoveModal = ref(false)
-const cardToMove = ref(null)
-
+// 修改单个卡片转换方法
 const convertToCard = (card) => {
-  cardToMove.value = {
-    id: Date.now(),
-    title: card.title || `第${card.originalNumber}章`, // 使用章节标题
+  // 显示场景选择器，并存储当前要转换的卡片
+  showSceneSelector.value = true
+  selectedSceneId.value = null
+  
+  // 存储要转换的单个卡片
+  const cardToAdd = {
+    id: Date.now() + Math.random(),
+    title: card.title || `第${card.originalNumber}章`,
     content: card.content,
     height: '200px',
-    tags: [],
-    insertedContents: []
+    tags: []
   }
-  showMoveModal.value = true
+  
+  // 修改确认转换方法以处理单个卡片
+  const confirmSingleCard = () => {
+    if (!selectedSceneId.value) {
+      showToast('请选择目标场景', 'error')
+      return
+    }
+
+    emit('convert-to-cards', {
+      cards: [cardToAdd],
+      targetSceneId: Number(selectedSceneId.value)
+    })
+    
+    showSceneSelector.value = false
+    selectedSceneId.value = null
+    showToast('已将章纲转换为卡片', 'success')
+  }
+  
+  // 替换原有的确认方法
+  confirmConversion.value = confirmSingleCard
 }
 
-const moveCardToScene = (scene) => {
-  if (!cardToMove.value) return
+// 修改批量转换方法
+const convertSelectedToCards = () => {
+  if (!currentScene.value) return
   
-  // 添加到选中的场景
-  scene.cards.push(cardToMove.value)
+  const selectedCards = currentScene.value.resultCards.filter(card => card.selected)
+  if (selectedCards.length === 0) {
+    showToast('请选择要转换的章纲', 'warning')
+    return
+  }
   
- // 关闭模态框
-  showMoveModal.value = false
-  cardToMove.value = null
+  showSceneSelector.value = true
+  selectedSceneId.value = null
   
-  // 显示成功提示
-  showToast('已添加到场景：' + scene.name, 'success')
+  // 修改确认转换方法以处理多个卡片
+  const confirmMultipleCards = () => {
+    if (!selectedSceneId.value) {
+      showToast('请选择目标场景', 'error')
+      return
+    }
+    
+    const cardsToAdd = selectedCards.map(card => ({
+      id: Date.now() + Math.random(),
+      title: card.title || `第${card.originalNumber}章`,
+      content: card.content,
+      height: '200px',
+      tags: []
+    }))
+
+    emit('convert-to-cards', {
+      cards: cardsToAdd,
+      targetSceneId: Number(selectedSceneId.value)
+    })
+    
+    showSceneSelector.value = false
+    selectedSceneId.value = null
+    showToast(`已将${selectedCards.length}个章纲转换为卡片`, 'success')
+  }
+  
+  // 替换原有的确认方法
+  confirmConversion.value = confirmMultipleCards
 }
 
-const closeMoveModal = () => {
-  showMoveModal.value = false
-  cardToMove.value = null
-}
+// 使用 ref 来存储当前的确认方法
+const confirmConversion = ref(() => {})
 
 // 添加 addScene 方法
 const addScene = () => {
@@ -1180,4 +1242,31 @@ const cancelPromptSelection = async () => {
 
 <style scoped>
 @import url("../styles/bookSplitter.css");
+
+.scene-selector-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  min-width: 300px;
+}
+
+.modal-actions {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
 </style> 

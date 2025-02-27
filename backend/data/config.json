@@ -7,7 +7,7 @@
       "modelId": "gemini-2.0-flash",
       "apiKey": "AIzaSyDyYRVo3mKdvYQWDU33Ju_CaCDF-8CsQOs",
       "maxTokens": 8137,
-      "temperature": 0.7,
+      "temperature": 1,
       "topP": 0.7,
       "topK": 50,
       "frequencyPenalty": 0.5,
@@ -21,7 +21,7 @@
       "apiKey": "7c0bf766cd8344edaa9882df36799e2c.BZ1ccAsNaWUyIYR3",
       "maxTokens": 512,
       "temperature": 0.7,
-      "provider": "openai"
+      "provider": "custom"
     },
     {
       "id": 1740044697210,
@@ -57,5 +57,5 @@
   "notepadContent": "",
   "currentSceneId": 1740403919177,
   "selectedTags": [],
-  "currentView": "agents"
+  "currentView": "main"
 }

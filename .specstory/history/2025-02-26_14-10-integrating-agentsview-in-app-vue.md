@@ -17420,6 +17420,275 @@ _**Assistant**_
 
 
 
+看起来您还在 test 分支上。让我们重新执行正确的步骤：
+
+1. 先保存当前更改（如果需要）：
+````bash
+git add .
+git commit -m "保存当前更改"
+````
+
+2. 切换到 main 分支：
+````bash
+git checkout main
+````
+
+3. 将 main 分支重置到 test 分支的状态：
+````bash
+git reset --hard test
+````
+
+4. 强制推送到远程 main 分支：
+````bash
+git push -f origin main
+````
+
+或者，您也可以直接在 test 分支上执行：
+````bash
+git push -f origin test:main
+````
+
+这个命令的意思是：强制将本地的 test 分支推送到远程的 main 分支。这样可以不用切换分支就完成操作。
+
+选择上面任意一种方式执行即可。第二种方式（直接推送）可能更适合您当前的情况。
+
+---
+
+_**User**_
+
+子任务下嵌套子任务就获取不到前文内容了，增加一个是否获取父级内容的选择框，增加一个是否关联相关任务的选择框（相关任务检测），是否关联某人具体任务选择框。然后逐步实现
+
+---
+
+_**Assistant**_
+
+好的，让我们一步步实现这些功能。首先在任务编辑器中添加这些选项：
+
+````vue:src/components/Agent/TaskEditor.vue
+<template>
+  <div class="task-editor">
+    <!-- ... 其他表单项 ... -->
+    
+    <div class="form-group">
+      <label>
+        <input 
+          type="checkbox" 
+          v-model="editingTask.includeParentContext"
+        > 包含父任务内容
+      </label>
+    </div>
+
+    <div class="form-group">
+      <label>
+        <input 
+          type="checkbox" 
+          v-model="editingTask.includeRelatedContext"
+        > 包含相关任务内容
+      </label>
+    </div>
+
+    <div class="form-group" v-if="editingTask.includeRelatedContext">
+      <label>选择相关任务：</label>
+      <select v-model="editingTask.relatedTaskId">
+        <option value="">请选择任务</option>
+        <option 
+          v-for="task in allTasks" 
+          :key="task.id"
+          :value="task.id"
+        >
+          {{ task.title }}
+        </option>
+      </select>
+    </div>
+
+    <!-- ... 其他表单项 ... -->
+  </div>
+</template>
+
+<script setup>
+const props = defineProps({
+  task: {
+    type: Object,
+    required: true
+  },
+  parentTask: {
+    type: Object,
+    default: null
+  },
+  allTasks: {  // 新增：所有可选的任务列表
+    type: Array,
+    default: () => []
+  }
+})
+
+const editingTask = ref({
+  ...props.task,
+  includeParentContext: props.task.includeParentContext || false,
+  includeRelatedContext: props.task.includeRelatedContext || false,
+  relatedTaskId: props.task.relatedTaskId || ''
+})
+
+// ... 其他代码 ...
+</script>
+````
+
+然后在 AgentsView.vue 中传递必要的参数：
+
+````vue:src/components/AgentsView.vue
+<template>
+  <!-- ... 其他代码 ... -->
+  <task-editor
+    :task="editingTask"
+    :parent-task="parentTask"
+    :all-tasks="allTasks"  <!-- 添加这一行 -->
+    @save="saveTask"
+    @close="showTaskEditor = false"
+  />
+  <!-- ... 其他代码 ... -->
+</template>
+````
+
+这是第一步：添加UI界面。接下来我们可以实现相关的逻辑功能。您想先实现哪个功能？
+1. 包含父任务内容
+2. 包含相关任务内容
+3. 相关任务选择
+
+我们可以一个一个来实现。
+
+---
+
+_**User**_
+
+第一个
+
+---
+
+_**Assistant**_
+
+让我们实现"包含父任务内容"的功能。需要修改 AgentsView.vue 中的任务执行逻辑：
+
+````vue:src/components/AgentsView.vue
+// 执行单个任务
+const executeTask = async (task) => {
+  console.log('执行任务:', task.title, task)
+  
+  if (isExecuting.value && !task._isPartOfBatch) {
+    console.warn('已有任务正在执行，请等待完成')
+    return
+  }
+  
+  // 如果不是批量执行的一部分，设置执行状态
+  if (!task._isPartOfBatch) {
+    isExecuting.value = true
+  }
+  
+  task.status = 'running'
+  task.error = null
+  task.output = null
+  
+  try {
+    // 查找指定的AI成员
+    const agent = agents.value.find(a => a.id === task.assignedTo)
+    if (!agent) throw new Error('未找到指定的AI成员')
+    
+    // 查找指定的模型
+    const model = props.models.find(m => m.id === agent.modelId)
+    if (!model) throw new Error('未找到指定的模型')
+    
+    // 构建提示词
+    let prompt = agent.systemPrompt + '\n\n'
+    
+    // 添加任务描述
+    prompt += `任务: ${task.title}\n`
+    prompt += `描述: ${task.description || ''}\n\n`
+    
+    // 添加父任务上下文
+    if (task.includeParentContext) {
+      const parent = findParentTask(task.id)
+      if (parent) {
+        if (parent.output) {
+          prompt += `父任务[${parent.title}]输出:\n${parent.output}\n\n`
+          console.log('已添加父任务内容:', parent.title)
+        } else {
+          console.log('父任务尚未有输出:', parent.title)
+        }
+      } else if (task._parentOutput) {
+        // 批量执行时使用临时存储的父任务输出
+        prompt += `父任务输出:\n${task._parentOutput}\n\n`
+        console.log('使用临时存储的父任务输出')
+      }
+    }
+    
+    // 添加场景卡片内容
+    if (task.readSceneCard && task.sourceSceneId) {
+      // ... 现有的场景卡片处理代码 ...
+    }
+    
+    console.log('发送提示词:', prompt)
+    
+    // 调用API
+    const content = await callAI(model, prompt)
+    console.log('API返回结果:', content)
+    
+    // ... 其他现有代码 ...
+    
+  } catch (error) {
+    console.error('执行任务失败:', error)
+    task.status = 'failed'
+    task.error = error.message
+  } finally {
+    if (!task._isPartOfBatch) {
+      isExecuting.value = false
+    }
+    localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
+  }
+}
+
+// 查找父任务的辅助函数
+const findParentTask = (taskId) => {
+  if (!rootTask.value) return null
+  
+  const findParent = (task) => {
+    if (task.subtasks) {
+      for (const subtask of task.subtasks) {
+        if (subtask.id === taskId) {
+          return task
+        }
+        const found = findParent(subtask)
+        if (found) return found
+      }
+    }
+    return null
+  }
+  
+  return findParent(rootTask.value)
+}
+````
+
+主要改进：
+
+1. **父任务内容获取**：
+   - 使用 findParentTask 函数查找父任务
+   - 如果父任务存在且有输出，将其添加到提示词中
+   - 支持批量执行时的临时父任务输出
+
+2. **提示词构建**：
+   - 在任务描述后添加父任务内容
+   - 清晰标记父任务的标题和输出
+
+3. **日志输出**：
+   - 添加详细的日志，便于调试
+   - 记录父任务内容的添加状态
+
+4. **错误处理**：
+   - 完善错误处理逻辑
+   - 提供清晰的错误信息
+
+这样实现后，当任务启用了"包含父任务内容"选项时：
+1. 系统会自动查找并获取父任务的输出
+2. 将父任务输出添加到当前任务的提示词中
+3. 在批量执行时也能正确传递父任务内容
+
 ---
 
 

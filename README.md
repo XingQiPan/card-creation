@@ -152,7 +152,7 @@ start-dev.bat
 ### 贡献列表
 
 - [IssaCic0](https://github.com/IssaCic0)
-- [山河](https://github.com/shanhe)
+- [山河](https://github.com/shanheinfo)
 
 ## 📧 联系方式
 

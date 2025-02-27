@@ -22,6 +22,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"go-card-creation/logger"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -222,41 +223,53 @@ func getFrontendVersion() string {
 
 // 从GitHub获取后端版本
 func getBackendVersion() (string, string) {
-	url := "https://api.github.com/repos/XingQiPan/card-creation/releases/latest"
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
+	// 获取 GitHub 最新版本
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("https://api.github.com/repos/XingQiPan/card-creation/releases/latest")
 
-	resp, err := client.Get(url)
 	if err != nil {
-		log.Printf("获取后端版本失败: %v", err)
+		log.Printf("创建请求失败: %v", err)
 		return "", "与GitHub仓库断连"
 	}
+
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("获取后端版本失败，状态码: %d", resp.StatusCode)
+		return "", "与GitHub仓库断连"
+	}
 
 	var releaseInfo struct {
 		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&releaseInfo); err != nil {
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("读取响应失败: %v", err)
+		return "", "与GitHub仓库断连"
+	}
+
+	log.Printf("GitHub API 响应: %s", string(body)) // 添加调试日志
+
+	if err := json.Unmarshal(body, &releaseInfo); err != nil {
 		log.Printf("解析JSON失败: %v", err)
 		return "", "与GitHub仓库断连"
 	}
 
-	version := strings.TrimPrefix(releaseInfo.TagName, "v")
-
-	// 查找安装包
-	for _, asset := range releaseInfo.Assets {
-		if strings.Contains(asset.Name, "安装程序") && strings.HasSuffix(asset.Name, ".exe") {
-			return version, asset.BrowserDownloadURL
-		}
+	if releaseInfo.TagName == "" {
+		log.Printf("获取版本号失败，TagName为空")
+		return "", "与GitHub仓库断连"
 	}
 
-	return version, "未找到安装包"
+	// 获取版本号（包含v前缀）
+	version := strings.TrimPrefix(releaseInfo.TagName, "v")
+	// 构造固定格式的下载URL
+	downloadURL := fmt.Sprintf("https://github.com/XingQiPan/card-creation/releases/download/v%s/v%s.exe", version, version)
+
+	log.Printf("最新版本: %s", version)
+	log.Printf("下载地址: %s", downloadURL)
+
+	return version, downloadURL
 }
 
 // 注册表集成
@@ -391,48 +404,15 @@ func createMenu(ctx context.Context, backend *Backend, updater *Updater, version
 
 		if needUpdate && updater.latestVersion != "" {
 			// 询问用户是否要更新
-			result, _ := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+			_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 				Type:          runtime.QuestionDialog,
 				Title:         "发现新版本",
 				Message:       fmt.Sprintf("当前版本：%s\n最新版本：%s\n\n是否立即更新？", version, updater.latestVersion),
-				Buttons:       []string{"更新", "取消"},
-				DefaultButton: "更新",
+				Buttons:       []string{"是", "否"},
+				DefaultButton: "是",
 			})
 
-			// 如果用户选择更新
-			if result == "更新" {
-				// 下载并应用更新
-				go func() {
-					// 显示下载进度对话框
-					runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-						Type:    runtime.InfoDialog,
-						Title:   "正在更新",
-						Message: "正在下载更新，请稍候...",
-					})
-
-					// 下载更新
-					downloadPath, err := updater.DownloadUpdate()
-					if err != nil {
-						runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-							Type:    runtime.ErrorDialog,
-							Title:   "更新失败",
-							Message: fmt.Sprintf("下载更新失败: %v", err),
-						})
-						return
-					}
-
-					// 应用更新
-					err = updater.ApplyUpdate(downloadPath)
-					if err != nil {
-						runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-							Type:    runtime.ErrorDialog,
-							Title:   "更新失败",
-							Message: fmt.Sprintf("应用更新失败: %v", err),
-						})
-						return
-					}
-				}()
-			}
+			runtime.BrowserOpenURL(ctx, fmt.Sprintf("https://github.com/XingQiPan/card-creation/releases/download/v%s/v%s.exe", updater.latestVersion, updater.latestVersion))
 		} else {
 			runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 				Type:    runtime.InfoDialog,
@@ -459,6 +439,32 @@ func createMenu(ctx context.Context, backend *Backend, updater *Updater, version
 }
 
 func main() {
+	// 获取应用安装路径
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Printf("获取应用路径失败: %v", err)
+		return
+	}
+	appPath := filepath.Dir(exePath)
+
+	// 初始化错误日志记录器
+	if err := logger.InitErrorLogger(appPath); err != nil {
+		log.Printf("初始化错误日志记录器失败: %v", err)
+	}
+
+	// 捕获全局panic
+	defer func() {
+		if r := recover(); r != nil {
+			logger.LogError(r)
+			// 显示错误对话框
+			runtime.MessageDialog(context.Background(), runtime.MessageDialogOptions{
+				Type:    runtime.ErrorDialog,
+				Title:   "程序发生错误",
+				Message: "程序遇到了一个错误，详细信息已记录到错误日志。",
+			})
+		}
+	}()
+
 	// 检查命令行参数
 	for _, arg := range os.Args {
 		if arg == "--uninstall" {
@@ -468,7 +474,7 @@ func main() {
 	}
 
 	// 注册应用到注册表
-	err := RegisterApplication()
+	err = RegisterApplication()
 	if err != nil {
 		log.Printf("注册应用失败: %v", err)
 	}
@@ -483,7 +489,7 @@ func main() {
 	// 前端
 	currentFrontendVersion := "0.9.2"
 	// 后端
-	currentBackendVersion := "1.4.0"
+	currentBackendVersion := "1.5.0"
 	// 获取最新前端版本
 	latestFrontendVersion := getFrontendVersion()
 	// 获取最新后端版本和下载URL

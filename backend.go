@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"go-card-creation/logger"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -100,6 +102,14 @@ type Chapter struct {
 	ChapterNumber int    `json:"chapterNumber"`
 }
 
+type Route struct {
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	Description string `json:"description"`
+}
+
+const maxUploadSize = 50 * 1024 * 1024 // 50MB
+
 // NewBackend 创建新的后端服务
 func NewBackend() *Backend {
 	// 获取应用数据目录
@@ -135,7 +145,6 @@ func (b *Backend) StartServer(ctx context.Context, updater *Updater) string {
 
 	// 注册API路由
 	mux.HandleFunc("/health", b.healthHandler)
-	mux.HandleFunc("/api/test", b.testHandler)
 	mux.HandleFunc("/api/debug/config", b.debugConfigHandler)
 	mux.HandleFunc("/api/load-scenes", b.loadScenesHandler)
 	mux.HandleFunc("/api/load-prompts", b.loadPromptsHandler)
@@ -150,6 +159,7 @@ func (b *Backend) StartServer(ctx context.Context, updater *Updater) string {
 	mux.HandleFunc("/api/get-all-data", b.getAllDataHandler)
 	mux.HandleFunc("/api/agents", b.agentsHandler)
 	mux.HandleFunc("/api/models", b.modelsHandler)
+	mux.HandleFunc("/api/docs", b.apiDocsHandler)
 
 	// 添加更新处理器
 	if updater != nil {
@@ -158,6 +168,8 @@ func (b *Backend) StartServer(ctx context.Context, updater *Updater) string {
 
 	// 添加设置菜单
 	b.AddSettingsHandler()
+
+	mux.HandleFunc("/api/test", errorMiddleware(b.testHandler))
 
 	// 启动HTTP服务器
 	b.server = &http.Server{
@@ -208,6 +220,19 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// 添加错误处理中间件
+func errorMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				logger.LogError(err)
+				http.Error(w, "内部服务器错误", http.StatusInternalServerError)
+			}
+		}()
+		next(w, r)
+	}
+}
+
 // 初始化数据文件
 func (b *Backend) initializeDataFiles() {
 	// 确保所有数据文件存在
@@ -225,35 +250,59 @@ func (b *Backend) initializeDataFiles() {
 		},
 	}
 
+	// 只为不存在的文件创建默认数据
 	for file, defaultData := range files {
 		if _, err := os.Stat(file); os.IsNotExist(err) {
+			log.Printf("创建默认数据文件: %s", file)
 			b.saveData(file, defaultData)
 		}
 	}
 
-	// 确保配置文件存在
+	// 确保配置文件包含必要的字段
 	b.ensureConfigFile()
 }
 
-// 确保配置文件存在
+// 确保配置文件包含必要的字段
 func (b *Backend) ensureConfigFile() {
 	configFile := filepath.Join(b.dataDir, "config.json")
-	if _, err := os.Stat(configFile); os.IsNotExist(err) {
-		// 创建默认配置
-		defaultConfig := map[string]interface{}{
-			"models": []interface{}{},
-			"agents": []interface{}{},
+	var existingConfig map[string]interface{}
+
+	// 添加日志
+	log.Printf("检查配置文件: %s", configFile)
+
+	// 读取现有配置
+	if b.loadData(configFile, &existingConfig) {
+		log.Printf("成功加载现有配置: %+v", existingConfig)
+
+		// 检查并添加缺失的必要字段
+		modified := false
+
+		// 检查必要字段
+		necessaryFields := map[string]interface{}{
+			"models":         []interface{}{},
+			"notepadContent": "",
+			"currentSceneId": nil,
+			"selectedTags":   []interface{}{},
+			"currentView":    "main",
 		}
 
-		// 如果有模型数据，保留它
-		var existingConfig map[string]interface{}
-		if b.loadData(configFile, &existingConfig) && existingConfig["models"] != nil {
-			defaultConfig["models"] = existingConfig["models"]
+		for field, defaultValue := range necessaryFields {
+			if _, exists := existingConfig[field]; !exists {
+				log.Printf("发现缺失字段: %s，添加默认值", field)
+				existingConfig[field] = defaultValue
+				modified = true
+			}
 		}
 
-		// 保存默认配置
-		b.saveData(configFile, defaultConfig)
-		log.Println("创建默认配置文件")
+		// 如果有修改，保存更新后的配置
+		if modified {
+			log.Printf("配置文件已修改，准备保存更新")
+			b.saveData(configFile, existingConfig)
+		} else {
+			log.Printf("配置文件包含所有必要字段，无需更新")
+		}
+	} else {
+		log.Printf("无法加载配置文件或文件不存在")
 	}
 }
 
@@ -276,7 +325,11 @@ func (b *Backend) saveData(filePath string, data interface{}) bool {
 
 // 从文件加载数据
 func (b *Backend) loadData(filePath string, v interface{}) bool {
+	// 添加日志
+	log.Printf("尝试加载文件: %s", filePath)
+
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		log.Printf("文件不存在: %s", filePath)
 		return false
 	}
 
@@ -292,6 +345,7 @@ func (b *Backend) loadData(filePath string, v interface{}) bool {
 		return false
 	}
 
+	log.Printf("成功加载文件: %s", filePath)
 	return true
 }
 
@@ -330,21 +384,18 @@ func (b *Backend) debugConfigHandler(w http.ResponseWriter, r *http.Request) {
 // 加载场景处理器
 func (b *Backend) loadScenesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		sendErrorResponse(w, r, errors.New("方法不允许"), http.StatusMethodNotAllowed)
 		return
 	}
 
 	var scenes []Scene
 	scenesFile := filepath.Join(b.dataDir, "scenes.json")
 	if !b.loadData(scenesFile, &scenes) {
+		logger.LogFileError("读取", scenesFile, errors.New("加载场景失败"))
 		scenes = []Scene{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"data":    scenes,
-	})
+	sendSuccessResponse(w, scenes)
 }
 
 // 加载提示处理器
@@ -396,7 +447,13 @@ func (b *Backend) loadConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 	var config Config
 	configFile := filepath.Join(b.dataDir, "config.json")
+
+	// 添加日志来追踪加载过程
+	log.Printf("正在加载配置文件: %s", configFile)
+
 	if !b.loadData(configFile, &config) {
+		// 如果加载失败，使用默认配置
+		log.Printf("加载配置失败，使用默认配置")
 		config = Config{
 			Models:         []Model{},
 			NotepadContent: "",
@@ -489,11 +546,17 @@ func (b *Backend) saveConfigHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 添加日志来追踪保存请求
+	log.Printf("收到保存配置请求")
+
 	var config Config
 	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
 		http.Error(w, "无效的JSON数据", http.StatusBadRequest)
 		return
 	}
+
+	// 添加日志记录保存的内容
+	log.Printf("准备保存配置: %+v", config)
 
 	configFile := filepath.Join(b.dataDir, "config.json")
 	if !b.saveData(configFile, config) {
@@ -507,29 +570,22 @@ func (b *Backend) saveConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 // 分割书籍处理器
 func (b *Backend) splitBookHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// 解析多部分表单
-	err := r.ParseMultipartForm(50 * 1024 * 1024) // 50MB 限制
-	if err != nil {
-		http.Error(w, "解析表单失败: "+err.Error(), http.StatusBadRequest)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		sendErrorResponse(w, r, fmt.Errorf("文件太大: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	// 获取场景ID
 	sceneId := r.FormValue("sceneId")
 	if sceneId == "" {
-		http.Error(w, "缺少场景ID", http.StatusBadRequest)
+		sendErrorResponse(w, r, errors.New("缺少场景ID"), http.StatusBadRequest)
 		return
 	}
 
-	// 获取上传的文件
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, "获取文件失败: "+err.Error(), http.StatusBadRequest)
+		sendErrorResponse(w, r, fmt.Errorf("获取文件失败: %v", err), http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
@@ -539,10 +595,11 @@ func (b *Backend) splitBookHandler(w http.ResponseWriter, r *http.Request) {
 	// 创建临时文件
 	tempFile, err := ioutil.TempFile(b.uploadsDir, "upload-*")
 	if err != nil {
-		http.Error(w, "创建临时文件失败: "+err.Error(), http.StatusInternalServerError)
+		logger.LogFileError("创建临时文件", b.uploadsDir, err)
+		sendErrorResponse(w, r, fmt.Errorf("创建临时文件失败: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer os.Remove(tempFile.Name())
+	defer os.Remove(tempFile.Name()) // 确保清理临时文件
 	defer tempFile.Close()
 
 	// 将上传的文件内容复制到临时文件
@@ -938,165 +995,6 @@ func (b *Backend) AddUpdateHandler(updater *Updater) {
 		return
 	}
 	b.updateHandlerRegistered = true
-
-	// 添加更新API
-	http.HandleFunc("/api/check-update", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"data": map[string]interface{}{
-				"needUpdate":     updater.needUpdate,
-				"currentVersion": updater.currentVersion,
-				"latestVersion":  updater.latestVersion,
-			},
-		})
-	})
-
-	// 添加下载更新API
-	http.HandleFunc("/api/download-update", func(w http.ResponseWriter, r *http.Request) {
-		downloadPath, err := updater.DownloadUpdate()
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"error":   err.Error(),
-			})
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"data": map[string]interface{}{
-				"downloadPath": downloadPath,
-			},
-		})
-	})
-
-	// 添加应用更新API
-	http.HandleFunc("/api/apply-update", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-			return
-		}
-
-		var data struct {
-			DownloadPath string `json:"downloadPath"`
-		}
-
-		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"error":   "解析请求失败",
-			})
-			return
-		}
-
-		err := updater.ApplyUpdate(data.DownloadPath)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"error":   err.Error(),
-			})
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"data":    "更新将在应用重启后应用",
-		})
-	})
-
-	// 添加更新页面
-	http.HandleFunc("/update", func(w http.ResponseWriter, r *http.Request) {
-		html := `
-		<!DOCTYPE html>
-		<html>
-		<head>
-			<title>版本更新通知</title>
-			<meta charset="utf-8">
-			<style>
-				body { font-family: Arial, sans-serif; margin: 20px; }
-				.notification { background-color: #f8f9fa; border: 1px solid #ddd; padding: 20px; border-radius: 5px; }
-				.update-btn { background-color: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; }
-				.version { font-weight: bold; }
-				.progress { margin-top: 10px; display: none; }
-				.progress-bar { height: 20px; background-color: #e9ecef; border-radius: 5px; overflow: hidden; }
-				.progress-bar-fill { height: 100%; width: 0%; background-color: #007bff; transition: width 0.3s; }
-				.status { margin-top: 5px; font-size: 14px; }
-			</style>
-		</head>
-		<body>
-			<div class="notification">
-				<h2>发现新版本</h2>
-				<p>当前版本: <span class="version">v%s</span></p>
-				<p>最新版本: <span class="version">v%s</span></p>
-				<p>建议更新到最新版本以获取最新功能和修复。</p>
-				<button id="updateBtn" class="update-btn">立即更新</button>
-				<div id="progress" class="progress">
-					<div class="progress-bar">
-						<div id="progressBarFill" class="progress-bar-fill"></div>
-					</div>
-					<div id="status" class="status">准备更新...</div>
-				</div>
-			</div>
-			
-			<script>
-				document.getElementById('updateBtn').addEventListener('click', async function() {
-					this.disabled = true;
-					document.getElementById('progress').style.display = 'block';
-					document.getElementById('status').textContent = '正在下载更新...';
-					
-					try {
-						// 下载更新
-						const downloadResponse = await fetch('/api/download-update');
-						const downloadResult = await downloadResponse.json();
-						
-						if (!downloadResult.success) {
-							throw new Error(downloadResult.error || '下载更新失败');
-						}
-						
-						document.getElementById('progressBarFill').style.width = '50%';
-						document.getElementById('status').textContent = '下载完成，准备安装...';
-						
-						// 应用更新
-						const applyResponse = await fetch('/api/apply-update', {
-							method: 'POST',
-							headers: {
-								'Content-Type': 'application/json'
-							},
-							body: JSON.stringify({
-								downloadPath: downloadResult.data.downloadPath
-							})
-						});
-						
-						const applyResult = await applyResponse.json();
-						
-						if (!applyResult.success) {
-							throw new Error(applyResult.error || '应用更新失败');
-						}
-						
-						document.getElementById('progressBarFill').style.width = '100%';
-						document.getElementById('status').textContent = '更新成功，应用将重启...';
-						
-					} catch (error) {
-						document.getElementById('status').textContent = '更新失败: ' + error.message;
-						this.disabled = false;
-					}
-				});
-			</script>
-		</body>
-		</html>
-		`
-
-		html = fmt.Sprintf(html, updater.currentVersion, updater.latestVersion)
-
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(html))
-	})
 }
 
 // 添加设置菜单
@@ -1145,128 +1043,36 @@ func (b *Backend) AddSettingsHandler() {
 		})
 	})
 
-	// 添加设置页面
-	http.HandleFunc("/settings", func(w http.ResponseWriter, r *http.Request) {
-		// 设置页面HTML
-		html := `<!DOCTYPE html>
-		<html>
-		<head>
-			<meta charset="UTF-8">
-			<title>星卡写作 - 设置</title>
-			<style>
-				body {
-					font-family: Arial, sans-serif;
-					line-height: 1.6;
-					margin: 0;
-					padding: 20px;
-					color: #333;
-					background-color: #f5f5f5;
-				}
-				h1 {
-					color: #2c3e50;
-					border-bottom: 1px solid #eee;
-					padding-bottom: 10px;
-				}
-				.container {
-					max-width: 800px;
-					margin: 0 auto;
-					background-color: white;
-					padding: 20px;
-					border-radius: 5px;
-					box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-				}
-				.setting-group {
-					margin-bottom: 20px;
-					padding-bottom: 20px;
-					border-bottom: 1px solid #eee;
-				}
-				.setting-title {
-					font-weight: bold;
-					margin-bottom: 10px;
-				}
-				.setting-value {
-					background-color: #f8f8f8;
-					padding: 10px;
-					border-radius: 3px;
-					font-family: Consolas, monospace;
-				}
-				button {
-					background-color: #3498db;
-					color: white;
-					border: none;
-					padding: 8px 15px;
-					border-radius: 3px;
-					cursor: pointer;
-				}
-				button:hover {
-					background-color: #2980b9;
-				}
-				.danger-button {
-					background-color: #e74c3c;
-				}
-				.danger-button:hover {
-					background-color: #c0392b;
-				}
-			</style>
-		</head>
-		<body>
-			<div class="container">
-				<h1>星卡写作 - 设置</h1>
-				
-				<div class="setting-group">
-					<div class="setting-title">数据存储位置</div>
-					<div class="setting-value" id="dataDir">加载中...</div>
-					<p>这是您的卡片数据、场景和配置存储的位置。</p>
-					<button id="openDataDirBtn">打开数据目录</button>
-				</div>
-				
-				<div class="setting-group">
-					<div class="setting-title">危险操作</div>
-					<p>以下操作可能会导致数据丢失，请谨慎操作。</p>
-					<button id="uninstallBtn" class="danger-button">卸载应用</button>
-				</div>
-			</div>
-			
-			<script>
-				async function loadSettings() {
-					try {
-						const response = await fetch('/api/settings');
-						const result = await response.json();
-						
-						if (result.success) {
-							document.getElementById('dataDir').textContent = result.data.dataDir;
-						} else {
-							document.getElementById('dataDir').textContent = '获取失败';
-						}
-					} catch (error) {
-						document.getElementById('dataDir').textContent = '获取失败: ' + error.message;
-					}
-				}
-				
-				// 打开数据目录
-				document.getElementById('openDataDirBtn').addEventListener('click', async function() {
-					try {
-						await fetch('/api/open-data-dir');
-					} catch (error) {
-						alert('打开数据目录失败: ' + error.message);
-					}
-				});
-				
-				// 卸载应用
-				document.getElementById('uninstallBtn').addEventListener('click', function() {
-					if (confirm('确定要卸载应用吗？这将删除所有数据！')) {
-						window.location.href = 'app://uninstall';
-					}
-				});
-				
-				// 加载设置
-				loadSettings();
-			</script>
-		</body>
-		</html>
-		`
+}
 
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(html))
+func (b *Backend) apiDocsHandler(w http.ResponseWriter, r *http.Request) {
+	routes := []Route{
+		{"GET", "/health", "服务器健康检查"},
+		{"GET", "/api/test", "测试API服务器是否正常工作"},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    routes,
+	})
+}
+
+// 统一的响应处理函数
+func sendSuccessResponse(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    data,
+	})
+}
+
+func sendErrorResponse(w http.ResponseWriter, r *http.Request, err error, status int) {
+	logger.LogAPIError(r.Method, r.URL.Path, err)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": false,
+		"error":   err.Error(),
 	})
 }

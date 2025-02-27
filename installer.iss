@@ -1,5 +1,5 @@
 #define MyAppName "星卡写作"
-#define MyAppVersion "1.4.0"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "山河"
 #define MyAppURL "https://github.com/XingQiPan/card-creation/releases/latest"
 #define MyAppExeName "星卡写作.exe"
@@ -16,6 +16,8 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
+; 允许用户选择安装目录
+DisableDirPage=no
 DisableProgramGroupPage=no
 LicenseFile=LICENSE.txt
 ; 以下行取消注释，以在非管理安装模式下运行（仅为当前用户安装）。
@@ -53,6 +55,9 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Fil
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
+[Dirs]
+; 添加 error 目录，并设置权限
+Name: "{app}\error"; Permissions: everyone-full
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);

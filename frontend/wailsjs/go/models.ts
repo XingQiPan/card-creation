@@ -1,5 +1,17 @@
 export namespace main {
 	
+	export class Updater {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new Updater(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
+	    }
+	}
 	export class VersionInfo {
 	    frontendVersion: string;
 	    backendVersion: string;

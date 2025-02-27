@@ -8,19 +8,23 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
 
 type Backend struct {
-	ctx        context.Context
-	server     *http.Server
-	dataDir    string
-	uploadsDir string
-	port       int
-	running    bool
+	ctx                       context.Context
+	server                    *http.Server
+	dataDir                   string
+	uploadsDir                string
+	port                      int
+	running                   bool
+	settingsHandlerRegistered bool
+	updateHandlerRegistered   bool
 }
 
 type Scene struct {
@@ -119,7 +123,7 @@ func NewBackend() *Backend {
 }
 
 // 启动服务器
-func (b *Backend) StartServer(ctx context.Context) string {
+func (b *Backend) StartServer(ctx context.Context, updater *Updater) string {
 	if b.running {
 		return fmt.Sprintf("服务器已在端口 %d 上运行", b.port)
 	}
@@ -146,6 +150,14 @@ func (b *Backend) StartServer(ctx context.Context) string {
 	mux.HandleFunc("/api/get-all-data", b.getAllDataHandler)
 	mux.HandleFunc("/api/agents", b.agentsHandler)
 	mux.HandleFunc("/api/models", b.modelsHandler)
+
+	// 添加更新处理器
+	if updater != nil {
+		b.AddUpdateHandler(updater)
+	}
+
+	// 添加设置菜单
+	b.AddSettingsHandler()
 
 	// 启动HTTP服务器
 	b.server = &http.Server{
@@ -916,5 +928,345 @@ func (b *Backend) modelsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"data":    allModels,
+	})
+}
+
+// 添加更新处理器
+func (b *Backend) AddUpdateHandler(updater *Updater) {
+	// 添加一个标志，防止重复注册
+	if b.updateHandlerRegistered {
+		return
+	}
+	b.updateHandlerRegistered = true
+
+	// 添加更新API
+	http.HandleFunc("/api/check-update", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data": map[string]interface{}{
+				"needUpdate":     updater.needUpdate,
+				"currentVersion": updater.currentVersion,
+				"latestVersion":  updater.latestVersion,
+			},
+		})
+	})
+
+	// 添加下载更新API
+	http.HandleFunc("/api/download-update", func(w http.ResponseWriter, r *http.Request) {
+		downloadPath, err := updater.DownloadUpdate()
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data": map[string]interface{}{
+				"downloadPath": downloadPath,
+			},
+		})
+	})
+
+	// 添加应用更新API
+	http.HandleFunc("/api/apply-update", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var data struct {
+			DownloadPath string `json:"downloadPath"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "解析请求失败",
+			})
+			return
+		}
+
+		err := updater.ApplyUpdate(data.DownloadPath)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data":    "更新将在应用重启后应用",
+		})
+	})
+
+	// 添加更新页面
+	http.HandleFunc("/update", func(w http.ResponseWriter, r *http.Request) {
+		html := `
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<title>版本更新通知</title>
+			<meta charset="utf-8">
+			<style>
+				body { font-family: Arial, sans-serif; margin: 20px; }
+				.notification { background-color: #f8f9fa; border: 1px solid #ddd; padding: 20px; border-radius: 5px; }
+				.update-btn { background-color: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; }
+				.version { font-weight: bold; }
+				.progress { margin-top: 10px; display: none; }
+				.progress-bar { height: 20px; background-color: #e9ecef; border-radius: 5px; overflow: hidden; }
+				.progress-bar-fill { height: 100%; width: 0%; background-color: #007bff; transition: width 0.3s; }
+				.status { margin-top: 5px; font-size: 14px; }
+			</style>
+		</head>
+		<body>
+			<div class="notification">
+				<h2>发现新版本</h2>
+				<p>当前版本: <span class="version">v%s</span></p>
+				<p>最新版本: <span class="version">v%s</span></p>
+				<p>建议更新到最新版本以获取最新功能和修复。</p>
+				<button id="updateBtn" class="update-btn">立即更新</button>
+				<div id="progress" class="progress">
+					<div class="progress-bar">
+						<div id="progressBarFill" class="progress-bar-fill"></div>
+					</div>
+					<div id="status" class="status">准备更新...</div>
+				</div>
+			</div>
+			
+			<script>
+				document.getElementById('updateBtn').addEventListener('click', async function() {
+					this.disabled = true;
+					document.getElementById('progress').style.display = 'block';
+					document.getElementById('status').textContent = '正在下载更新...';
+					
+					try {
+						// 下载更新
+						const downloadResponse = await fetch('/api/download-update');
+						const downloadResult = await downloadResponse.json();
+						
+						if (!downloadResult.success) {
+							throw new Error(downloadResult.error || '下载更新失败');
+						}
+						
+						document.getElementById('progressBarFill').style.width = '50%';
+						document.getElementById('status').textContent = '下载完成，准备安装...';
+						
+						// 应用更新
+						const applyResponse = await fetch('/api/apply-update', {
+							method: 'POST',
+							headers: {
+								'Content-Type': 'application/json'
+							},
+							body: JSON.stringify({
+								downloadPath: downloadResult.data.downloadPath
+							})
+						});
+						
+						const applyResult = await applyResponse.json();
+						
+						if (!applyResult.success) {
+							throw new Error(applyResult.error || '应用更新失败');
+						}
+						
+						document.getElementById('progressBarFill').style.width = '100%';
+						document.getElementById('status').textContent = '更新成功，应用将重启...';
+						
+					} catch (error) {
+						document.getElementById('status').textContent = '更新失败: ' + error.message;
+						this.disabled = false;
+					}
+				});
+			</script>
+		</body>
+		</html>
+		`
+
+		html = fmt.Sprintf(html, updater.currentVersion, updater.latestVersion)
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(html))
+	})
+}
+
+// 添加设置菜单
+func (b *Backend) AddSettingsHandler() {
+	// 添加一个标志，防止重复注册
+	if b.settingsHandlerRegistered {
+		return
+	}
+	b.settingsHandlerRegistered = true
+
+	// 添加设置API
+	http.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data": map[string]interface{}{
+				"dataDir": b.dataDir,
+			},
+		})
+	})
+
+	// 添加打开数据目录API
+	http.HandleFunc("/api/open-data-dir", func(w http.ResponseWriter, r *http.Request) {
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("explorer", b.dataDir)
+		} else if runtime.GOOS == "darwin" {
+			cmd = exec.Command("open", b.dataDir)
+		} else {
+			cmd = exec.Command("xdg-open", b.dataDir)
+		}
+
+		err := cmd.Start()
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+		})
+	})
+
+	// 添加设置页面
+	http.HandleFunc("/settings", func(w http.ResponseWriter, r *http.Request) {
+		// 设置页面HTML
+		html := `<!DOCTYPE html>
+		<html>
+		<head>
+			<meta charset="UTF-8">
+			<title>星卡写作 - 设置</title>
+			<style>
+				body {
+					font-family: Arial, sans-serif;
+					line-height: 1.6;
+					margin: 0;
+					padding: 20px;
+					color: #333;
+					background-color: #f5f5f5;
+				}
+				h1 {
+					color: #2c3e50;
+					border-bottom: 1px solid #eee;
+					padding-bottom: 10px;
+				}
+				.container {
+					max-width: 800px;
+					margin: 0 auto;
+					background-color: white;
+					padding: 20px;
+					border-radius: 5px;
+					box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+				}
+				.setting-group {
+					margin-bottom: 20px;
+					padding-bottom: 20px;
+					border-bottom: 1px solid #eee;
+				}
+				.setting-title {
+					font-weight: bold;
+					margin-bottom: 10px;
+				}
+				.setting-value {
+					background-color: #f8f8f8;
+					padding: 10px;
+					border-radius: 3px;
+					font-family: Consolas, monospace;
+				}
+				button {
+					background-color: #3498db;
+					color: white;
+					border: none;
+					padding: 8px 15px;
+					border-radius: 3px;
+					cursor: pointer;
+				}
+				button:hover {
+					background-color: #2980b9;
+				}
+				.danger-button {
+					background-color: #e74c3c;
+				}
+				.danger-button:hover {
+					background-color: #c0392b;
+				}
+			</style>
+		</head>
+		<body>
+			<div class="container">
+				<h1>星卡写作 - 设置</h1>
+				
+				<div class="setting-group">
+					<div class="setting-title">数据存储位置</div>
+					<div class="setting-value" id="dataDir">加载中...</div>
+					<p>这是您的卡片数据、场景和配置存储的位置。</p>
+					<button id="openDataDirBtn">打开数据目录</button>
+				</div>
+				
+				<div class="setting-group">
+					<div class="setting-title">危险操作</div>
+					<p>以下操作可能会导致数据丢失，请谨慎操作。</p>
+					<button id="uninstallBtn" class="danger-button">卸载应用</button>
+				</div>
+			</div>
+			
+			<script>
+				async function loadSettings() {
+					try {
+						const response = await fetch('/api/settings');
+						const result = await response.json();
+						
+						if (result.success) {
+							document.getElementById('dataDir').textContent = result.data.dataDir;
+						} else {
+							document.getElementById('dataDir').textContent = '获取失败';
+						}
+					} catch (error) {
+						document.getElementById('dataDir').textContent = '获取失败: ' + error.message;
+					}
+				}
+				
+				// 打开数据目录
+				document.getElementById('openDataDirBtn').addEventListener('click', async function() {
+					try {
+						await fetch('/api/open-data-dir');
+					} catch (error) {
+						alert('打开数据目录失败: ' + error.message);
+					}
+				});
+				
+				// 卸载应用
+				document.getElementById('uninstallBtn').addEventListener('click', function() {
+					if (confirm('确定要卸载应用吗？这将删除所有数据！')) {
+						window.location.href = 'app://uninstall';
+					}
+				});
+				
+				// 加载设置
+				loadSettings();
+			</script>
+		</body>
+		</html>
+		`
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(html))
 	})
 }

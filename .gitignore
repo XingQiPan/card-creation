@@ -1,0 +1,16 @@
+# Go相关
+
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Wails相关
+build/bin
+
+
+# 其他
+.DS_Store

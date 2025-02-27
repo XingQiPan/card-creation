@@ -1,0 +1,21 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "星卡写作",
+  "outputfilename": "go-card-creation",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "frontend:dev:serverUrl": "",
+  "author": {
+    "name": "shanhe",
+    "email": "shanhel@qq.com"
+  },
+  "info": {
+    "companyName": "shanhe",
+    "productName": "星卡写作",
+    "productVersion": "1.0.0",
+    "copyright": "基于 https://github.com/XingQiPan/card-creation",
+    "comments": "本项目是基于XingQiPan的web项目打包的前端，使用go语言修改制作而成的exe包，exe制作者：山河",
+    "webVersion": "0.1.0"
+  }
+}

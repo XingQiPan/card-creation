@@ -455,7 +455,7 @@ const sendMessage = async () => {
         role: msg.role === 'user' ? 'user' : 'assistant',
         content: msg.content
       }))
-    
+
     context.push(...recentMessages)
     context.pop() // 移除最后一条消息，因为它会作为当前消息发送
 

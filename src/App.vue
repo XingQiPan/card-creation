@@ -203,10 +203,11 @@
       </div>
 
       <BookSplitter 
-        v-else-if="currentView === 'book'"
+        v-if="currentView === 'book'"
+        :scenes="scenes"
         :prompts="prompts"
         :models="models"
-        :scenes="scenes"
+        @convert-to-cards="handleBatchConvertToCards"
       />
       <ChatView
         v-else-if="currentView === 'chat'"
@@ -589,57 +590,6 @@
               </button>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Toast 组件 -->
-    <Teleport to="body">
-      <div 
-        v-if="toast.show" 
-        class="toast"
-        :class="toast.type"
-      >
-        {{ toast.message }}
-      </div>
-    </Teleport>
-
-    <!-- 在适当的位置添加标签管理组件 -->
-    <div class="tags-panel">
-      <div class="tags-header">
-        <h3>标签管理</h3>
-        <div class="tag-input">
-          <input 
-            v-model="newTagName" 
-            @keyup.enter="addTag"
-            placeholder="输入标签名称"
-          >
-          <button @click="addTag">
-            <i class="fas fa-plus"></i>
-          </button>
-        </div>
-      </div>
-      
-      <div class="tags-list">
-        <div v-for="tag in tags" :key="tag.id" class="tag-item">
-          <span class="tag-name">{{ tag.name }}</span>
-          <div class="tag-actions">
-            <button @click="deleteTag(tag.id)" class="delete-btn">
-              <i class="fas fa-times"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-      
-      <!-- 标签筛选器 -->
-      <div class="tags-filter">
-        <div 
-          v-for="tag in tags" 
-          :key="tag.id"
-          :class="['filter-tag', { active: selectedTags.includes(tag.id) }]"
-          @click="toggleTagFilter(tag.id)"
-        >
-          {{ tag.name }}
         </div>
       </div>
     </div>
@@ -1878,14 +1828,6 @@ const toggleTagKeyword = (tagId) => {
   }
 }
 
-// 加载标签
-const loadTags = () => {
-  const savedTags = localStorage.getItem('tags')
-  if (savedTags) {
-    tags.value = JSON.parse(savedTags)
-  }
-}
-
 // 在 prompts 相关方法中添加删除提示词的方法
 const deletePrompt = (promptId) => {
   try {
@@ -1897,67 +1839,6 @@ const deletePrompt = (promptId) => {
   } catch (error) {
     console.error('删除提示词失败:', error)
     showToast('删除提示词失败: ' + error.message, 'error')
-  }
-}
-
-// 修改场景加载方法
-const loadScenes = () => {
-  try {
-    // 优先从本地存储加载
-    const savedScenes = localStorage.getItem('scenes')
-    const savedPrompts = localStorage.getItem('prompts')
-    const savedTags = localStorage.getItem('tags')
-    const savedModels = localStorage.getItem('aiModels')
-
-    console.log('Loading saved scenes:', savedScenes) // 调试用
-
-    // 只在没有保存的场景数据时创建默认场景
-    if (!savedScenes) {
-      const defaultScene = {
-        id: Date.now(),
-        name: '默认场景',
-        cards: []
-      }
-      scenes.value = [defaultScene]
-      currentScene.value = defaultScene
-      
-      // 保存默认场景到本地存储
-      localStorage.setItem('scenes', JSON.stringify(scenes.value))
-    } else {
-      // 加载保存的场景数据
-      const parsedScenes = JSON.parse(savedScenes)
-      scenes.value = parsedScenes.map(scene => ({
-        ...scene,
-        cards: Array.isArray(scene.cards) ? scene.cards : []
-      }))
-      
-      // 恢复之前的当前场景
-      if (scenes.value.length > 0) {
-        const savedCurrentSceneId = localStorage.getItem('currentSceneId')
-        if (savedCurrentSceneId) {
-          currentScene.value = scenes.value.find(s => s.id === parseInt(savedCurrentSceneId))
-        }
-        // 如果找不到保存的当前场景，使用第一个场景
-        if (!currentScene.value) {
-          currentScene.value = scenes.value[0]
-        }
-      }
-    }
-
-    // 加载其他数据
-    if (savedPrompts) prompts.value = JSON.parse(savedPrompts)
-    if (savedTags) tags.value = JSON.parse(savedTags)
-    if (savedModels) models.value = JSON.parse(savedModels)
-
-    // 打印加载后的数据（调试用）
-    console.log('Loaded scenes:', scenes.value)
-    console.log('Current scene:', currentScene.value)
-
-    // 异步同步到后端
-    syncToBackend()
-  } catch (error) {
-    console.error('加载场景失败:', error)
-    showToast('加载场景失败: ' + error.message, 'error')
   }
 }
 
@@ -2000,7 +1881,6 @@ const handleMoveCard = ({ card, sourceSceneId, targetSceneId }) => {
 
 // 修改提供的移动到场景方法
 provide('moveToScene', (cardData, targetSceneId) => {
-  console.log('Moving to scene:', { cardData, targetSceneId }) // 添加调试日志
   const targetScene = scenes.value.find(s => s.id === targetSceneId)
   if (!targetScene) {
     console.error('Target scene not found:', targetSceneId)
@@ -2040,31 +1920,8 @@ const handleAddCardsToScene = async (sceneId, cards) => {
 
 // 添加合并卡片的方法
 const handleMergeCards = (cards) => {
-  // 合并卡片的逻辑
   console.log('Merging cards:', cards)
-  // 这里可以添加合并卡片的逻辑
 }
-
-// 修改创建新卡片的逻辑
-const createNewCard = () => {
-  if (!currentScene.value) return
-  
-  const newCard = {
-    id: Date.now(),
-    title: '新建卡片',
-    content: '',
-    height: '120px',
-    tags: []
-  }
-  
-  if (!currentScene.value.cards) {
-    currentScene.value.cards = []
-  }
-  
-  currentScene.value.cards.push(newCard)
-  updateScene(currentScene.value)
-}
-
 
 // Add new method to prevent text selection during scene drag
 const preventTextSelection = (prevent) => {
@@ -2084,7 +1941,6 @@ onUnmounted(() => {
 
 // 修改处理添加到笔记本的方法
 const handleAddToNotepad = (cardData) => {
-  //console.log('Handling add to notepad:', cardData)
   // 先切换到笔记本视图
   
   showToast('已添加到记事本')
@@ -2093,7 +1949,6 @@ const handleAddToNotepad = (cardData) => {
   nextTick(() => {
     // 设置笔记本初始内容，包含标题和完整信息
     const formattedContent = `# ${cardData.title}\n\n${cardData.content}`
-    //console.log('Formatted content for notepad:', formattedContent)
     
     // 重置后设置新值
     notepadInitialContent.value = ''
@@ -2737,7 +2592,6 @@ const handleSceneUpdate = async (updatedScene) => {
     // 触发视图更新
     nextTick(() => {
       // 如果需要，可以在这里添加额外的更新逻辑
-      console.log('场景已更新:', updatedScene.name)
     })
   } catch (error) {
     console.error('更新场景失败:', error)
@@ -2816,7 +2670,6 @@ const loadData = async () => {
       localStorage.setItem('prompts', JSON.stringify(prompts.value))
       
       dataLoaded.value = true
-      console.log('数据从后端加载完成')
     } else {
       throw new Error('后端数据加载失败')
     }
@@ -2842,7 +2695,6 @@ const loadData = async () => {
       }
       
       dataLoaded.value = true
-      console.log('数据从本地加载完成')
     } catch (localError) {
       console.error('从localStorage加载备份数据失败:', localError)
       showToast('加载数据完全失败: ' + localError.message, 'error')
@@ -2854,7 +2706,6 @@ const processKeywords = (text) => {
   const keywordMatches = []
   const keywordTags = tags.value.filter(tag => tag.isKeyword)
   
-  console.log('关键词标签:', keywordTags) // 调试：查看关键词标签
   
   // 遍历所有场景和卡片，查找带有关键词标签的卡片
   scenes.value.forEach(scene => {
@@ -2863,7 +2714,6 @@ const processKeywords = (text) => {
       if (card.tags?.some(tagId => keywordTags.some(tag => tag.id === tagId))) {
         // 检查文本中是否包含卡片标题
         if (card.title && text.toLowerCase().includes(card.title.toLowerCase())) {
-          console.log('找到关键词卡片:', card.title) // 调试：找到匹配的卡片
           
           // 避免重复添加相同的卡片
           const isDuplicate = keywordMatches.some(match => match.title === card.title)
@@ -2879,9 +2729,6 @@ const processKeywords = (text) => {
       }
     })
   })
-  
-  //console.log('关键词匹配结果:', keywordMatches) // 调试：最终匹配结果
-  
   // 如果找到关键词匹配，构建上下文信息
   if (keywordMatches.length > 0) {
     const contextInfo = keywordMatches.map(match => 
@@ -2889,18 +2736,52 @@ const processKeywords = (text) => {
     ).join('\n\n')
     
     const processedText = `${contextInfo}\n\n---\n\n${text}`
-    //console.log('处理后的文本:', processedText) // 调试：最终处理结果
     return processedText
   }
-  
   return text
 }
 
+// 修改处理批量转换的方法
+const handleBatchConvertToCards = ({ cards, targetSceneId }) => {
+  try {
+    console.log('Converting cards:', cards.length)
+    console.log('Target Scene ID:', targetSceneId)
+    console.log('Available Scenes:', scenes.value.map(s => ({ id: s.id, name: s.name })))
+    
+    // 转换为数字类型进行比较
+    const targetScene = scenes.value.find(s => Number(s.id) === Number(targetSceneId))
+    
+    if (!targetScene) {
+      console.error('Scene not found. Available scenes:', scenes.value.map(s => s.id))
+      throw new Error(`目标场景不存在 (ID: ${targetSceneId})`)
+    }
+    
+    console.log('Found target scene:', targetScene.name)
+    
+    // 确保场景有 cards 数组
+    if (!Array.isArray(targetScene.cards)) {
+      targetScene.cards = []
+    }
+    
+    // 添加卡片到目标场景
+    targetScene.cards.push(...cards)
+    
+    // 保存更改
+    saveScenes()
+    
+    // 切换到主视图并选中目标场景
+    currentView.value = 'main'
+    currentScene.value = targetScene
+    
+    showToast(`成功添加 ${cards.length} 个卡片到场景：${targetScene.name}`, 'success')
+  } catch (error) {
+    console.error('转换卡片失败:', error)
+    showToast('转换卡片失败: ' + error.message, 'error')
+  }
+}
 </script>
 
 <style scoped>
 @import url("./styles/app.css");
 @import url("./styles/common.css");
-
-
 </style> 

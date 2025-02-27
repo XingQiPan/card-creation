@@ -8,7 +8,7 @@
         <!-- 左侧提示词模板区 -->
         <div class="prompt-panel" :style="{ width: promptPanelWidth + 'px' }">
           <div class="panel-header">
-            <h2>提示词模板</h2>
+            <h2>提示词模板(v{{ version }})</h2>
             <div class="header-actions">
               <button @click="showTagModal = true">
                 <i class="fas fa-tags"></i> 管理标签
@@ -617,6 +617,8 @@ import ChatView from './components/ChatView.vue'
 import NotePad from './components/NotePad.vue'
 import AgentsView from './components/AgentsView.vue'  // Add this import
 
+// 添加版本号
+const version = __APP_VERSION__
 
 // 将状态声明移到最前面
 const currentView = ref('main') // 添加视图切换状态
@@ -998,42 +1000,42 @@ watch(
 )
 
 
-// 修改保存到本地存储的方法
-const saveToLocalStorage = () => {
-  try {
-    if (!scenes.value?.length) {
-      console.warn('No valid scenes data to save')
-      return
-    }
+// // 修改保存到本地存储的方法
+// const saveToLocalStorage = () => {
+//   try {
+//     if (!scenes.value?.length) {
+//       console.warn('No valid scenes data to save')
+//       return
+//     }
 
-    // 确保场景数据的完整性
-    const scenesToSave = scenes.value.map(scene => ({
-      ...scene,
-      id: scene.id,
-      name: scene.name,
-      cards: Array.isArray(scene.cards) ? 
-        scene.cards.map(card => ({
-          ...card,
-          id: card.id,
-          title: card.title || '',
-          content: card.content || '',
-          height: card.height || '120px',
-          tags: Array.isArray(card.tags) ? card.tags : []
-        })) : []
-    }))
+//     // 确保场景数据的完整性
+//     const scenesToSave = scenes.value.map(scene => ({
+//       ...scene,
+//       id: scene.id,
+//       name: scene.name,
+//       cards: Array.isArray(scene.cards) ? 
+//         scene.cards.map(card => ({
+//           ...card,
+//           id: card.id,
+//           title: card.title || '',
+//           content: card.content || '',
+//           height: card.height || '120px',
+//           tags: Array.isArray(card.tags) ? card.tags : []
+//         })) : []
+//     }))
 
-    console.log('Saving scenes to localStorage:', scenesToSave)
+//     console.log('Saving scenes to localStorage:', scenesToSave)
     
-    localStorage.setItem('scenes', JSON.stringify(scenesToSave))
-    localStorage.setItem('currentSceneId', currentScene.value?.id?.toString())
-    localStorage.setItem('prompts', JSON.stringify(prompts.value || []))
-    localStorage.setItem('tags', JSON.stringify(tags.value || []))
-    localStorage.setItem('aiModels', JSON.stringify(models.value || []))
-  } catch (error) {
-    console.error('保存到本地存储失败:', error)
-    showToast('保存到本地存储失败: ' + error.message, 'error')
-  }
-}
+//     localStorage.setItem('scenes', JSON.stringify(scenesToSave))
+//     localStorage.setItem('currentSceneId', currentScene.value?.id?.toString())
+//     localStorage.setItem('prompts', JSON.stringify(prompts.value || []))
+//     localStorage.setItem('tags', JSON.stringify(tags.value || []))
+//     localStorage.setItem('aiModels', JSON.stringify(models.value || []))
+//   } catch (error) {
+//     console.error('保存到本地存储失败:', error)
+//     showToast('保存到本地存储失败: ' + error.message, 'error')
+//   }
+// }
 
 // 修改场景切换方法
 const switchScene = (scene) => {
@@ -1089,19 +1091,33 @@ const saveTags = async () => {
 // 修改保存模型的方法
 const saveModels = async () => {
   try {
-    localStorage.setItem('aiModels', JSON.stringify(models.value))
+    // 保存到本地存储
+    dataService.saveToLocalStorage('aiModels', models.value)
+    
+    // 准备要保存的数据
+    const dataToSave = {
+      scenes: scenes.value,
+      prompts: prompts.value,
+      tags: tags.value,
+      config: {
+        models: models.value,
+        notepadContent: notepadInitialContent.value,
+        currentSceneId: currentScene.value?.id,
+        selectedTags: selectedTags.value,
+        currentView: currentView.value
+      }
+    }
+
+    // 同步到后端
+    await dataService.syncToBackend(dataToSave)
+    
     showToast('模型配置已保存', 'success')
-    await syncData() // 改为使用 syncData
   } catch (error) {
     console.error('保存模型失败:', error)
     showToast('保存模型失败: ' + error.message, 'error')
   }
 }
 
-const closeModelEditor = () => {
-  saveModels() // 关闭前自动保存
-  //showModelEditor.value = false
-}
 
 // 在组件挂载时加载数据
 onMounted(async () => {
@@ -1139,6 +1155,7 @@ const canInsertSelected = () => {
   if (!selectedPrompt.value) return false
   return selectedCards.value.length === getInsertCount(selectedPrompt.value.template)
 }
+
 // 提示词相关方法
 const createNewPrompt = () => {
   showPromptModal.value = true
@@ -2920,7 +2937,7 @@ const handleSceneUpdate = async (updatedScene) => {
 }
 
 // 初始化数据
-onMounted(() => {
+onMounted(async () => {
   try {
     // 加载场景
     const savedScenes = localStorage.getItem('scenes')
@@ -2929,7 +2946,7 @@ onMounted(() => {
     }
     
     // 加载其他数据
-    loadData()
+    await loadData()
   } catch (error) {
     console.error('初始化数据失败:', error)
     showToast('初始化数据失败: ' + error.message, 'error')
@@ -2937,39 +2954,92 @@ onMounted(() => {
 })
 
 // 加载数据的辅助函数
-const loadData = () => {
+const loadData = async () => {
   try {
-    // 加载模型配置
-    const savedModels = localStorage.getItem('models')
-    if (savedModels) {
-      // 确保每个模型都有正确的 provider 字段
-      models.value = JSON.parse(savedModels).map(model => ({
-        ...model,
-        provider: model.provider || 'custom', // 如果没有 provider 字段，默认为 custom
-        maxTokens: model.maxTokens || 512,
-        temperature: model.temperature || 0.7
-      }))
+    // 从后端加载所有数据
+    const response = await fetch('http://localhost:3000/api/get-all-data')
+    const result = await response.json()
+    
+    if (result.success && result.data) {
+      const backendData = result.data
+      
+      // 加载模型配置
+      if (backendData.config?.models) {
+        models.value = backendData.config.models.map(model => ({
+          ...model,
+          provider: model.provider || 'custom',
+          maxTokens: model.maxTokens || 512,
+          temperature: model.temperature || 0.7
+        }))
+      }
+      
+      // 加载提示词
+      if (Array.isArray(backendData.prompts)) {
+        prompts.value = backendData.prompts
+      }
+      
+      // 加载其他数据
+      if (Array.isArray(backendData.tags)) {
+        tags.value = backendData.tags
+      }
+      
+      // 加载场景
+      if (Array.isArray(backendData.scenes)) {
+        scenes.value = backendData.scenes
+      }
+      
+      // 加载其他配置
+      if (backendData.config) {
+        notepadInitialContent.value = backendData.config.notepadContent || ''
+        currentView.value = backendData.config.currentView || 'main'
+        selectedTags.value = backendData.config.selectedTags || []
+        
+        // 设置当前场景
+        if (backendData.config.currentSceneId && scenes.value.length > 0) {
+          currentScene.value = scenes.value.find(s => s.id === backendData.config.currentSceneId) || scenes.value[0]
+        } else if (scenes.value.length > 0) {
+          currentScene.value = scenes.value[0]
+        }
+      }
+      
+      // 保存到localStorage作为备份
+      localStorage.setItem('models', JSON.stringify(models.value))
+      localStorage.setItem('prompts', JSON.stringify(prompts.value))
+      
+      dataLoaded.value = true
+      console.log('数据从后端加载完成')
+    } else {
+      throw new Error('后端数据加载失败')
     }
-    
-    // 保存处理后的模型数据
-    localStorage.setItem('models', JSON.stringify(models.value))
-    
-    // 加载提示词
-    const savedPrompts = localStorage.getItem('prompts')
-    if (savedPrompts) {
-      prompts.value = JSON.parse(savedPrompts)
-    }
-    
-    dataLoaded.value = true
-    console.log('数据加载完成，模型:', models.value)
   } catch (error) {
     console.error('加载数据失败:', error)
-    showToast('加载数据失败: ' + error.message, 'error')
+    showToast('从后端加载数据失败，尝试从本地加载: ' + error.message, 'warning')
+    
+    // 如果后端加载失败，尝试从localStorage加载
+    try {
+      const savedModels = localStorage.getItem('models')
+      if (savedModels) {
+        models.value = JSON.parse(savedModels).map(model => ({
+          ...model,
+          provider: model.provider || 'custom',
+          maxTokens: model.maxTokens || 512,
+          temperature: model.temperature || 0.7
+        }))
+      }
+      
+      const savedPrompts = localStorage.getItem('prompts')
+      if (savedPrompts) {
+        prompts.value = JSON.parse(savedPrompts)
+      }
+      
+      dataLoaded.value = true
+      console.log('数据从本地加载完成')
+    } catch (localError) {
+      console.error('从localStorage加载备份数据失败:', localError)
+      showToast('加载数据完全失败: ' + localError.message, 'error')
+    }
   }
 }
-
-
-
 
 // 监听场景变化
 watch(scenes, (newScenes) => {

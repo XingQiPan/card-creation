@@ -2,6 +2,8 @@
 
 一个现代化的、功能丰富的提示词编辑和管理系统，基于 Vue 3 + Vite 构建。该系统允许用户创建、编辑和管理 AI 提示词，支持场景管理、文本卡片和智能工作流。
 
+**版本号：0.9.0**
+
 ![项目截图](./public/yangli.png)
 
 ## ✨ 主要特性
@@ -125,11 +127,11 @@ start-dev.bat
 ## ⚠️ 注意事项
 
 - API 地址配置：
-  - Gemini API: `https://generativelanguage.googleapis.com/v1beta/models/{模型名称}:generateContent`
+  - Gemini API: `https://generativelanguage.googleapis.com/v1beta/models/{模型名称}:generateContent`（最新版本只需要输入模型名字就好了）
   - OpenAI API: 自动附加 `/chat/completions` 符合openai格式都可
   - Ollama API: `http://localhost:11434` 拉取模型，拉取后选择自己想要的模型
   - custom API: 自定义API，请确保API地址正确（完整），填入对应api模型
-  - 阶跃星辰 API: 拉取选择对应模型(感谢IssaCic0贡献)
+  - 阶跃星辰 API: 拉取选择对应模型
   - 请确保 Ollama 服务已正确启动
   - 支持拉取模型列表，请确保模型支持拉取列表服务，若有问题可以用自定义API（需要输入完整地址）
 - 关键词标签：使用关键词标签的卡片内容会在提示词中被检测并自动注入相关上下文
@@ -150,6 +152,7 @@ start-dev.bat
 ### 贡献列表
 
 - [IssaCic0](https://github.com/IssaCic0)
+- [山河](https://github.com/shanhe)
 
 ## 📧 联系方式
 

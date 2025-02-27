@@ -604,6 +604,65 @@ const deleteScene = async () => {
   }
 }
 
+const processWithAPI = async (card, prompt) => {
+  const model = props.models.find(m => m.id === prompt.selectedModel)
+  if (!model) {
+    throw new Error('未选择模型')
+  }
+
+  const processedTemplate = prompt.template.replace(/{{text}}/g, card.content)
+
+  let response
+  let content
+
+  if (model.provider === 'openai') {
+    // ... existing OpenAI code ...
+  } else if (model.provider === 'gemini') {
+    // ... existing Gemini code ...
+  } else if (model.provider === 'stepfun') {
+    // ... existing StepFun code ...
+  } else if (model.provider === 'mistral') {
+    response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${model.apiKey}`
+      },
+      body: JSON.stringify({
+        model: model.modelId,
+        messages: [
+          {
+            role: "user",
+            content: processedTemplate
+          }
+        ],
+        temperature: Number(model.temperature),
+        max_tokens: Number(model.maxTokens)
+      })
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.message || `请求失败: ${response.status}`)
+    }
+
+    const result = await response.json()
+    content = result.choices[0].message.content
+  }
+
+  if (!content) {
+    throw new Error('响应格式错误')
+  }
+
+  return content
+}
+
+// 获取提示词标题
+const getPromptTitle = (promptId) => {
+  const prompt = props.prompts?.find(p => p.id === promptId)
+  return prompt ? prompt.title : '未知提示词'
+}
+
 // 处理插入提示词
 const handleInsertPrompt = (card) => {
   console.log('Scene: 发出插入请求', card)

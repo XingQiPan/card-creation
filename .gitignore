@@ -12,8 +12,13 @@ dist
 dist-ssr
 *.local
 
+backend/data
+
+
+
 # Editor directories and files
 .vscode/*
+.specstory/*
 !.vscode/extensions.json
 .idea
 .DS_Store

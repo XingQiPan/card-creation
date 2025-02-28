@@ -2,39 +2,6 @@
   {
     "id": 1740403919177,
     "name": "测试自动化",
-    "cards": [
-      {
-        "id": "cbc79983-cd21-43df-90f5-830d1996050d",
-        "title": "新建卡片",
-        "content": "123",
-        "height": "120px",
-        "tags": [],
-        "insertedContents": []
-      },
-      {
-        "id": "edb1f69e-3535-4ac5-a151-75c62ed04f99",
-        "title": "新建卡片",
-        "content": "",
-        "height": "120px",
-        "tags": [],
-        "insertedContents": []
-      },
-      {
-        "id": "7f459c9c-5328-4d31-8c1a-9b20b9d8bf54",
-        "title": "新建卡片",
-        "content": "",
-        "height": "120px",
-        "tags": [],
-        "insertedContents": []
-      },
-      {
-        "id": "63fe0d6f-7a97-419c-ae9c-f8b1cc2833d0",
-        "title": "新建卡片",
-        "content": "",
-        "height": "120px",
-        "tags": [],
-        "insertedContents": []
-      }
-    ]
+    "cards": []
   }
 ]

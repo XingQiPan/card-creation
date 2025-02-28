@@ -2163,54 +2163,6 @@ const handleBatchConvertToCards = ({ cards, targetSceneId }) => {
     showToast('转换卡片失败: ' + error.message, 'error')
   }
 }
-
-// 添加立即保存函数
-const saveImmediately = async () => {
-  try {
-    // 保存到本地存储
-    localStorage.setItem('scenes', JSON.stringify(scenes.value))
-    localStorage.setItem('prompts', JSON.stringify(prompts.value))
-    localStorage.setItem('tags', JSON.stringify(tags.value))
-    localStorage.setItem('config', JSON.stringify({
-      models: models.value,
-      notepadContent: notepadInitialContent.value,
-      currentSceneId: currentScene.value?.id,
-      selectedTags: selectedTags.value,
-      currentView: currentView.value
-    }))
-
-    // 尝试同步到后端
-    try {
-      const dataToSync = {
-        scenes: scenes.value,
-        prompts: prompts.value,
-        tags: tags.value,
-        config: {
-          models: models.value,
-          notepadContent: notepadInitialContent.value,
-          currentSceneId: currentScene.value?.id,
-          selectedTags: selectedTags.value,
-          currentView: currentView.value
-        }
-      }
-      await dataService.syncToBackend(dataToSync)
-    } catch (backendError) {
-      console.warn('后端同步失败，但本地存储已完成:', backendError)
-    }
-  } catch (error) {
-    console.error('保存数据失败:', error)
-    showToast('保存数据失败: ' + error.message, 'error')
-    throw error
-  }
-}
-
-// 修改场景相关的保存方法
-const saveScenes = () => {
-  saveImmediately().catch(error => {
-    console.error('保存场景失败:', error)
-    showToast('保存场景失败: ' + error.message, 'error')
-  })
-}
 </script>
 
 <style scoped>

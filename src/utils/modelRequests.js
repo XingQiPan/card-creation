@@ -16,13 +16,6 @@ const formatApiUrl = (model) => {
 
 // 构建请求体
 const buildRequestBody = (model, messages, context = []) => {
-  // 确保 context 中只有一个 system 消息
-  let finalContext = context.filter(msg => msg.role !== 'system')
-  const systemMessage = context.find(msg => msg.role === 'system')
-  if (systemMessage) {
-    finalContext = [systemMessage, ...finalContext]
-  }
-
   switch (model.provider) {
     case 'openai':
     case 'stepfun':
@@ -30,13 +23,13 @@ const buildRequestBody = (model, messages, context = []) => {
     case 'custom':
       return {
         model: model.modelId,
-        messages: [...finalContext, ...messages],
+        messages: [...context, ...messages],
         max_tokens: Number(model.maxTokens) || 2048,
         temperature: Number(model.temperature) || 0.7
       }
     case 'gemini':
       const contents = []
-      for (const msg of [...finalContext, ...messages]) {
+      for (const msg of [...context, ...messages]) {
         contents.push({
           role: msg.role === 'user' ? 'user' : 'model',
           parts: [{ text: msg.content }]
@@ -52,7 +45,7 @@ const buildRequestBody = (model, messages, context = []) => {
     case 'ollama':
       return {
         model: model.modelId,
-        messages: [...finalContext, ...messages],
+        messages: [...context, ...messages],
         options: {
           temperature: Number(model.temperature) || 0.7
         }
@@ -124,13 +117,14 @@ const parseResponse = async (response, model) => {
   }
 }
 
+
 // 修改发送请求到模型的方法，添加提示词支持
 export const sendToModel = async (
   model, 
   message, 
   context = [], 
   abortController = null,
-  promptTemplate = null
+  promptTemplate = null // 新增提示词模板参数
 ) => {
   try {
     let url = formatApiUrl(model)
@@ -140,13 +134,13 @@ export const sendToModel = async (
     }
 
     const headers = buildHeaders(model)
-
-    // 构建上下文，确保只有一个 system 消息
-    let finalContext = context.filter(msg => msg.role !== 'system')
+    
+    // 如果有提示词模板，添加到上下文开头
+    let finalContext = context
     if (promptTemplate) {
       finalContext = [
         { role: 'system', content: promptTemplate },
-        ...finalContext
+        ...context
       ]
     }
 

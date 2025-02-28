@@ -467,10 +467,9 @@ const sendMessage = async () => {
       }
     }
 
-    // 获取对话历史，过滤掉 system 消息
+    // 获取对话历史
     const historyTurns = currentChat.value.historyTurns || 20
     const context = currentChat.value.messages
-      .filter(msg => msg.role !== 'system')  // 添加这行，过滤掉 system 消息
       .slice(-(historyTurns * 2))
       .map(msg => ({
         role: msg.role === 'user' ? 'user' : 'assistant',
@@ -746,13 +745,11 @@ const resendMessage = async (msg) => {
       }
     }
 
-    // 获取历史消息，过滤掉 system 消息
-    const context = currentChat.value.messages
-      .filter(msg => msg.role !== 'system')  // 添加这行，过滤掉 system 消息
-      .map(m => ({
-        role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.content
-      }))
+    // 获取历史消息
+    const context = currentChat.value.messages.map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.content
+    }))
     context.pop()
 
     // 处理关键词检测

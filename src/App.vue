@@ -984,7 +984,7 @@ const closePromptModal = () => {
 }
 
 // 修改保存提示词的方法
-const savePrompt = () => {
+const savePrompt = async () => {
   if (!promptForm.value.title || !promptForm.value.userPrompt) {
     showToast('请填写标题和用户提示词', 'error')
     return

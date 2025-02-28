@@ -1,18 +1,22 @@
 [
   {
-    "id": 1740479391336,
-    "title": "星月",
-    "systemPrompt": "星月专家，可以设计月亮，有人问你是谁你回答你是星月！",
-    "userPrompt": "{{text}}",
+    "id": 1740717806000,
+    "title": "123",
+    "systemPrompt": "123",
+    "userPrompt": "123",
     "defaultModel": "",
-    "insertedContents": [
-      {
-        "id": 1740636500534,
-        "content": "星月是谁？",
-        "cardId": "defad0ff-877a-4c29-b7af-d1eb750700cf"
-      }
-    ],
-    "selectedModel": 1740713724730,
+    "insertedContents": [],
+    "selectedModel": 1740717846755,
+    "detectKeywords": true
+  },
+  {
+    "id": 1740718466097,
+    "title": "456",
+    "systemPrompt": "456",
+    "userPrompt": "456",
+    "defaultModel": "",
+    "insertedContents": [],
+    "selectedModel": 1740717846755,
     "detectKeywords": true
   }
 ]

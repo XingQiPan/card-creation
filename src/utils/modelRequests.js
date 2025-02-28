@@ -1,3 +1,5 @@
+import { showToast } from './common'
+
 // 格式化API URL
 const formatApiUrl = (model) => {
   switch (model.provider) {
@@ -175,9 +177,9 @@ export const sendToModel = async (
       body: JSON.stringify(body),
       signal: abortController?.signal
     })
-    console.log('response', response)
     return await parseResponse(response, model)
   } catch (error) {
+    showToast(error.message, 'error')
     console.error('API 请求错误:', error)
     throw error
   }

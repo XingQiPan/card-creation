@@ -269,6 +269,7 @@ import DOMPurify from 'dompurify'
 import { showToastMessage, detectContentType, splitContent } from '../utils/common'
 import { useCommon } from '../utils/composables/useCommon'
 import { sendToModel } from '../utils/modelRequests'
+import { chatService } from '../utils/services/chatService'
 
 // Props 定义
 const props = defineProps({
@@ -404,29 +405,6 @@ const deleteChat = (id) => {
   }
 }
 
-// 添加终止请求方法
-const abortRequest = () => {
-  try {
-    if (abortController.value) {
-      abortController.value.abort()
-      abortController.value = null
-      isRequesting.value = false
-      
-      // 清除计时器
-      if (elapsedTimer) {
-        clearInterval(elapsedTimer)
-        elapsedTimer = null
-      }
-      
-      elapsedTime.value = 0
-      showToastMessage('已终止回答', 'success')
-    }
-  } catch (error) {
-    console.error('终止请求失败:', error)
-    showToastMessage('终止请求失败: ' + error.message, 'error')
-  }
-}
-
 // 修改发送消息方法
 const sendMessage = async () => {
   if (!inputMessage.value.trim() || !currentChat.value?.modelId) return
@@ -453,8 +431,6 @@ const sendMessage = async () => {
       elapsedTime.value = Date.now() - requestStartTime.value
     }, 100)
     
-    abortController.value = new AbortController()
-    
     const model = props.models.find(m => m.id === currentChat.value.modelId)
     if (!model) throw new Error('未找到选择的模型')
 
@@ -475,49 +451,35 @@ const sendMessage = async () => {
         role: msg.role === 'user' ? 'user' : 'assistant',
         content: msg.content
       }))
-    context.pop() // 移除最后一条消息，因为它会作为主要输入
+    context.pop()
 
-    // 处理关键词检测
-    let processedContent = userMessage.content
-    if (currentChat.value.enableKeywords) {
-      const keywords = allKeywords.value.filter(keyword => 
-        userMessage.content.toLowerCase().includes(keyword.name.toLowerCase())
-      )
+    // 发送消息
+    const result = await chatService.sendMessage(userMessage.content, {
+      model,
+      context,
+      promptTemplate,
+      enableKeywords: currentChat.value.enableKeywords,
+      keywords: detectedKeywords.value,
+      getKeywordContent
+    })
 
-      if (keywords.length > 0) {
-        let keywordsContext = '检测到以下相关内容:\n\n'
-        for (const keyword of keywords) {
-          const content = getKeywordContent(keyword)
-          if (content) {
-            keywordsContext += `【${keyword.name}】:\n${content}\n\n`
-          }
-        }
-        processedContent = keywordsContext + '用户问题:\n' + userMessage.content
-      }
+    if (!result.success) {
+      throw result.error
     }
 
-    // 调用 sendToModel 发送请求
-    const response = await sendToModel(
-      model,
-      processedContent,
-      context,
-      abortController.value,
-      promptTemplate
-    )
-    
     const endTime = Date.now()
     const responseTimeValue = endTime - requestStartTime.value
-    
+
     const assistantMessage = {
       id: Date.now(),
       role: 'assistant',
-      content: response,
+      content: result.data,
       timestamp: new Date(),
       responseTime: responseTimeValue
     }
 
     currentChat.value.messages.push(assistantMessage)
-    saveSessions()
+    chatService.saveChatSessions(chatSessions.value)
 
     await nextTick()
     scrollToBottom()
@@ -534,7 +496,6 @@ const sendMessage = async () => {
     showToastMessage(error.message, 'error')
   } finally {
     isRequesting.value = false
-    abortController.value = null
     elapsedTime.value = 0
     
     if (elapsedTimer) {
@@ -544,6 +505,24 @@ const sendMessage = async () => {
     
     await nextTick()
     scrollToBottom()
+  }
+}
+
+// 修改终止请求方法
+const abortRequest = () => {
+  try {
+    if (chatService.abortRequest()) {
+      isRequesting.value = false
+      if (elapsedTimer) {
+        clearInterval(elapsedTimer)
+        elapsedTimer = null
+      }
+      elapsedTime.value = 0
+      showToastMessage('已终止回答', 'success')
+    }
+  } catch (error) {
+    console.error('终止请求失败:', error)
+    showToastMessage('终止请求失败: ' + error.message, 'error')
   }
 }
 
@@ -583,14 +562,14 @@ watch(() => props.scenes, (newScenes) => {
 
 // 初始化
 onMounted(() => {
-  const saved = localStorage.getItem('chatSessions')
-  if (saved) {
-    chatSessions.value = JSON.parse(saved)
-    if (chatSessions.value.length > 0) {
-      currentChatId.value = chatSessions.value[0].id
-    }
+  const sessions = chatService.loadChatSessions()
+  if (sessions.length > 0) {
+    chatSessions.value = sessions
+    currentChatId.value = sessions[0].id
   } else {
-    createNewChat()
+    const newChat = chatService.createNewChat()
+    chatSessions.value.push(newChat)
+    currentChatId.value = newChat.id
   }
 })
 

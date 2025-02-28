@@ -1317,17 +1317,25 @@ const viewCardDetail = (card) => {
 
 // 场景操作方法
 const createNewScene = async () => {
-  const newScene = {
-    id: Date.now(),
-    name: `场景 ${scenes.value.length + 1}`,
-    cards: []
+  try {
+    const newScene = {
+      id: Date.now(),
+      name: `场景 ${scenes.value.length + 1}`,
+      cards: []
+    }
+    
+    scenes.value.push(newScene)
+    
+    // 直接切换到新场景
+    switchScene(newScene)
+    
+    // 保存更改
+    await saveImmediately()
+    showToast('新场景创建成功', 'success')
+  } catch (error) {
+    console.error('创建场景失败:', error)
+    showToast('创建场景失败: ' + error.message, 'error')
   }
-  scenes.value.push(newScene)
-  currentScene.value = newScene
-  
-  // 使用新的保存方法
-  await saveImmediately()
-  showToast('新场景创建成功', 'success')
 }
 
 const deleteScene = async (sceneId) => {
@@ -1335,28 +1343,45 @@ const deleteScene = async (sceneId) => {
   
   try {
     const index = scenes.value.findIndex(s => s.id === sceneId)
-    if (index !== -1) {
-      scenes.value.splice(index, 1)
-      if (currentScene.value.id === sceneId) {
-        currentScene.value = scenes.value[0]
-      }
-      
-      // 使用新的保存方法
-      await saveImmediately()
-      showToast('场景删除成功', 'success')
+    if (index === -1) {
+      throw new Error('场景不存在')
     }
+    
+    // 如果只剩一个场景，不允许删除
+    if (scenes.value.length <= 1) {
+      throw new Error('至少需要保留一个场景')
+    }
+    
+    // 如果要删除的是当前场景，先切换到其他场景
+    if (currentScene.value?.id === sceneId) {
+      const nextScene = scenes.value[index + 1] || scenes.value[index - 1]
+      switchScene(nextScene)
+    }
+    
+    // 删除场景
+    scenes.value.splice(index, 1)
+    
+    // 保存更改
+    await saveImmediately()
+    showToast('场景删除成功', 'success')
   } catch (error) {
     console.error('删除场景失败:', error)
     showToast('删除场景失败: ' + error.message, 'error')
   }
 }
 
-// 添加场景名称编辑功能
-const editSceneName = (scene) => {
+// 修改场景名称编辑方法
+const editSceneName = async (scene) => {
   const newName = prompt('请输入新的场景名称:', scene.name)
   if (newName && newName.trim()) {
-    scene.name = newName.trim()
-    saveScenes() // 保存更改
+    try {
+      scene.name = newName.trim()
+      await saveImmediately()
+      showToast('场景名称修改成功', 'success')
+    } catch (error) {
+      console.error('修改场景名称失败:', error)
+      showToast('修改场景名称失败: ' + error.message, 'error')
+    }
   }
 }
 
@@ -1520,7 +1545,7 @@ const handleDeleteScene = async (sceneId) => {
     if (currentScene.value.id === sceneId) {
       // 如果有下一个场景就切换到下一个，否则切换到上一个
       const nextScene = scenes.value[index + 1] || scenes.value[index - 1]
-      currentScene.value = nextScene
+      switchScene(nextScene)
     }
 
     // 从数组中移除场景
@@ -2027,37 +2052,38 @@ const loadData = async () => {
 const handleBatchConvertToCards = ({ cards, targetSceneId }) => {
   try {
     // 转换为数字类型进行比较
-    const targetScene = scenes.value.find(s => Number(s.id) === Number(targetSceneId))
+    const targetScene = scenes.value.find(s => Number(s.id) === Number(targetSceneId));
     
     if (!targetScene) {
-      throw new Error(`目标场景不存在 (ID: ${targetSceneId})`)
+      throw new Error(`目标场景不存在 (ID: ${targetSceneId})`);
     }
     
     // 确保场景有 cards 数组
     if (!Array.isArray(targetScene.cards)) {
-      targetScene.cards = []
+      targetScene.cards = [];
     }
     
     // 添加卡片到目标场景
-    targetScene.cards.push(...cards)
+    targetScene.cards.push(...cards);
     
     // 保存更改
-    saveScenes()
+    saveScenes();
     
     // 切换到主视图并选中目标场景
-    currentView.value = 'main'
-    currentScene.value = targetScene
+    currentView.value = 'main';
+    currentScene.value = targetScene;
     
-    showToast(`成功添加 ${cards.length} 个卡片到场景：${targetScene.name}`, 'success')
+    showToast(`成功添加 ${cards.length} 个卡片到场景：${targetScene.name}`, 'success');
   } catch (error) {
-    console.error('转换卡片失败:', error)
-    showToast('转换卡片失败: ' + error.message, 'error')
+    console.error('转换卡片失败:', error);
+    showToast('转换卡片失败: ' + error.message, 'error');
   }
-}
+};
 
 // 添加即时保存函数
 const saveImmediately = async () => {
-  try {
+  try 
+  {
     // 保存场景数据到本地存储
     localStorage.setItem('scenes', JSON.stringify(scenes.value))
     
@@ -2093,10 +2119,32 @@ const saveImmediately = async () => {
       console.warn('后端同步失败，但本地保存成功:', backendError)
     }
 
-  } catch (error) {
+  }
+   catch (error) {
     console.error('保存数据失败:', error)
     showToast('保存失败: ' + error.message, 'error')
     throw error
+  }
+}
+
+// 修改场景切换方法
+const switchScene = (scene) => {
+  try {
+    if (!scene || !scene.id) {
+      throw new Error('无效的场景')
+    }
+    
+    // 更新当前场景
+    currentScene.value = scene
+    
+    // 保存当前场景ID到本地存储
+    localStorage.setItem('currentSceneId', scene.id.toString())
+    
+    return true
+  } catch (error) {
+    console.error('切换场景失败:', error)
+    showToast('切换场景失败: ' + error.message, 'error')
+    return false
   }
 }
 </script>

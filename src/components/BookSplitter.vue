@@ -272,7 +272,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { openDB } from 'idb'
 import { useCommon } from '../utils/composables/useCommon'
 import { showToast } from '../utils/common'
@@ -303,10 +303,10 @@ const PROVIDERS = {
   MISTRAL: 'mistral'
 }
 
-// 添加 IndexedDB 相关常量
+// 修改 IndexedDB 相关常量和初始化
 const DB_NAME = 'bookSplitterDB'
-const DB_VERSION = 1
-const STORE_NAME = 'scenes'
+const DB_VERSION = 2  // 增加版本号，强制更新数据库结构
+const STORE_NAME = 'bookScenes'
 
 // 添加 delay 函数
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
@@ -337,44 +337,157 @@ const {
   createDebounce
 } = useCommon()
 
-// 修改 loadScenes 方法
-const loadScenes = async () => {
-  isLoading.value = true
+// 添加数据序列化工具
+const DataSerializer = {
+  serializeScene(scene) {
+    return {
+      id: scene.id,
+      name: scene.name,
+      originalCards: scene.originalCards.map(card => ({
+        id: card.id,
+        chapterNumber: card.chapterNumber,
+        title: card.title,
+        content: card.content,
+        selected: card.selected,
+        uploadTime: card.uploadTime
+      })),
+      resultCards: scene.resultCards.map(card => ({
+        id: card.id,
+        originalNumber: card.originalNumber,
+        promptSequence: card.promptSequence,
+        content: card.content,
+        promptId: card.promptId,
+        title: card.title,
+        selected: card.selected,
+        updatedAt: card.updatedAt ? card.updatedAt.toISOString() : null
+      })),
+      selectedPromptId: scene.selectedPromptId,
+      processing: false,
+      isPaused: false,
+      shouldStop: false,
+      currentIndex: scene.currentIndex || 0
+    }
+  },
+
+  deserializeScene(data) {
+    return {
+      ...data,
+      resultCards: (data.resultCards || []).map(card => ({
+        ...card,
+        updatedAt: card.updatedAt ? new Date(card.updatedAt) : null,
+        selected: false
+      }))
+    }
+  }
+}
+
+// 重新添加 initializeDB 函数
+const initializeDB = async () => {
   try {
     const db = await openDB(DB_NAME, DB_VERSION, {
       upgrade(db) {
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+          console.log('Created book scenes store')
         }
       }
     })
+    console.log('数据库初始化成功')
+    return db
+  } catch (error) {
+    console.error('数据库初始化失败:', error)
+    throw error
+  }
+}
+
+// 修改 DBUtils，使用 initializeDB
+const DBUtils = {
+  async getDB() {
+    return await initializeDB()
+  },
+
+  async saveData(scenes) {
+    const db = await this.getDB()
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    const store = tx.objectStore(STORE_NAME)
+    await store.clear()
+    
+    // 序列化场景数据
+    const serializedScenes = scenes.map(scene => DataSerializer.serializeScene(scene))
+    
+    for (const scene of serializedScenes) {
+      await store.add(scene)
+    }
+    await tx.done
+  },
+
+  async loadData() {
+    const db = await this.getDB()
     const tx = db.transaction(STORE_NAME, 'readonly')
     const store = tx.objectStore(STORE_NAME)
-    const loadedScenes = await store.getAll()
+    const scenes = await store.getAll()
+    // 反序列化场景数据
+    return scenes.map(scene => DataSerializer.deserializeScene(scene))
+  }
+}
+
+// 修改 loadScenes 方法
+const loadScenes = async () => {
+  isLoading.value = true
+  try {
+    // 先从后端加载
+    const response = await fetch('http://localhost:3000/api/load-book-scenes')
+    if (!response.ok) {
+      throw new Error('从服务器加载场景失败')
+    }
     
-    if (loadedScenes.length > 0) {
-      // 反序列化日期等数据
-      scenes.value = loadedScenes.map(scene => ({
-        ...scene,
-        resultCards: scene.resultCards.map(card => ({
-          ...card,
-          updatedAt: card.updatedAt ? new Date(card.updatedAt) : null
-        }))
-      }))
-      currentSceneId.value = loadedScenes[0].id
-      showToast('已恢复保存的场景数据主人~', 'success')
+    const loadedScenes = await response.json()
+    
+    if (loadedScenes.success && Array.isArray(loadedScenes.data)) {
+      if (loadedScenes.data.length > 0) {
+        scenes.value = loadedScenes.data.map(scene => 
+          DataSerializer.deserializeScene(scene)
+        )
+        // 如果没有当前场景ID，设置为第一个场景
+        if (!currentSceneId.value || !switchScene(currentSceneId.value)) {
+          currentSceneId.value = scenes.value[0].id
+        }
+        
+        // 同步到 IndexedDB
+        try {
+          await DBUtils.saveData(scenes.value)
+        } catch (dbError) {
+          console.error('同步到 IndexedDB 失败:', dbError)
+        }
+        
+        showToast('已恢复保存的场景数据主人~', 'success')
+      } else {
+        // 如果没有场景，创建默认场景
+        createNewScene()
+      }
     } else {
-      const defaultScene = createDefaultScene()
-      scenes.value = [defaultScene]
-      currentSceneId.value = defaultScene.id
-      await saveScenes()
+      throw new Error('加载的场景数据格式不正确')
     }
   } catch (error) {
     console.error('加载场景失败:', error)
-    showToast('加载场景失败主人~，已创建新场景', 'error')
-    const defaultScene = createDefaultScene()
-    scenes.value = [defaultScene]
-    currentSceneId.value = defaultScene.id
+    
+    // 尝试从 IndexedDB 加载
+    try {
+      const localScenes = await DBUtils.loadData()
+      if (localScenes.length > 0) {
+        scenes.value = localScenes
+        if (!currentSceneId.value || !switchScene(currentSceneId.value)) {
+          currentSceneId.value = localScenes[0].id
+        }
+        showToast('已从本地恢复场景数据主人~', 'success')
+        return
+      }
+    } catch (dbError) {
+      console.error('从 IndexedDB 加载失败:', dbError)
+    }
+    
+    // 如果都失败了，创建默认场景
+    createNewScene()
   } finally {
     isLoading.value = false
   }
@@ -394,48 +507,49 @@ const createDefaultScene = () => {
   }
 }
 
-// 修改 onMounted 钩子
+// 确保在组件挂载前初始化数据库
+let dbInitialized = false
+
 onMounted(async () => {
-  await loadScenes()
-  // 确保视图更新
-  await nextTick()
+  if (!dbInitialized) {
+    try {
+      await initializeDB()
+      dbInitialized = true
+      await loadScenes()
+    } catch (error) {
+      console.error('初始化失败:', error)
+      showToast('初始化失败主人~，请刷新页面重试', 'error')
+    }
+  }
 })
 
 // 计算当前场景
 const currentScene = computed(() => {
-  return scenes.value.find(s => s.id === currentSceneId.value)
+  return scenes.value.find(s => s.id === currentSceneId.value) || null
 })
 
-// 修改保存场景方法
+// 修改 saveScenes 方法
 const saveScenes = createDebounce(async () => {
   try {
-    const serializedScenes = scenes.value.map(scene => ({
-      id: scene.id,
-      name: scene.name,
-      originalCards: scene.originalCards.map(card => ({
-        id: card.id,
-        chapterNumber: card.chapterNumber,
-        title: card.title,
-        content: card.content,
-        selected: card.selected,
-        uploadTime: card.uploadTime
-      })),
-      resultCards: scene.resultCards.map(card => ({
-        id: card.id,
-        originalNumber: card.originalNumber,
-        promptSequence: card.promptSequence,
-        content: card.content,
-        promptId: card.promptId,
-        title: card.title,
-        updatedAt: card.updatedAt ? card.updatedAt.toISOString() : null
-      })),
-      selectedPromptId: scene.selectedPromptId,
-      processing: false,
-      isPaused: false,
-      currentIndex: scene.currentIndex || 0
-    }))
+    // 序列化场景数据用于后端保存
+    const serializedScenes = scenes.value.map(scene => DataSerializer.serializeScene(scene))
 
-    saveToStorage('scenes', serializedScenes)
+    // 保存到后端
+    const response = await fetch('http://localhost:3000/api/save-book-scenes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(serializedScenes)
+    })
+
+    if (!response.ok) {
+      throw new Error('保存到服务器失败')
+    }
+
+    // 保存到 IndexedDB
+    await DBUtils.saveData(scenes.value)
+    showToast('保存成功主人~', 'success')
   } catch (error) {
     console.error('保存场景失败:', error)
     showToast('保存场景失败主人~，请重试', 'error')
@@ -944,8 +1058,16 @@ const deleteScene = async (sceneId) => {
 
 // 添加场景切换方法
 const switchScene = (sceneId) => {
-  currentSceneId.value = sceneId
-  saveScenes()
+  const scene = scenes.value.find(s => s.id === sceneId)
+  if (scene) {
+    currentSceneId.value = sceneId
+    // 重置处理状态
+    scene.processing = false
+    scene.isPaused = false
+    scene.shouldStop = false
+    return true
+  }
+  return false
 }
 
 // 修改 canProcess 方法为 canProcessChapter
@@ -1011,6 +1133,51 @@ const cancelPromptSelection = async () => {
     showToast('已终止处理主人~', 'success')
   }
 }
+
+// 修改创建新场景的方法
+const createNewScene = () => {
+  const newScene = {
+    id: Date.now(),
+    name: `拆书场景 ${scenes.value.length + 1}`,
+    originalCards: [],
+    resultCards: [],
+    selectedPromptId: null,
+    processing: false,
+    isPaused: false,
+    shouldStop: false,
+    currentIndex: 0
+  }
+  
+  scenes.value.push(newScene)
+  currentSceneId.value = newScene.id
+  saveScenes() // 保存新场景
+  return newScene
+}
+
+// 添加场景列表的计算属性
+const sceneList = computed(() => {
+  return scenes.value.map(scene => ({
+    id: scene.id,
+    name: scene.name
+  }))
+})
+
+// 导出必要的方法和属性
+defineExpose({
+  createNewScene,
+  switchScene,
+  currentScene,
+  sceneList,
+  scenes,
+  currentSceneId
+})
+
+// 监听场景变化并保存
+watch([scenes, currentSceneId], async () => {
+  if (scenes.value.length > 0) {
+    await saveScenes()
+  }
+}, { deep: true })
 </script>
 
 <style scoped>

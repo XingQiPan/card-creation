@@ -1,24 +1,70 @@
 {
   "models": [
     {
-      "id": 1740663311572,
-      "name": "deepsex",
-      "apiUrl": "http://172.19.0.1:1234/v1/chat/completions",
-      "modelId": "tifa-deepsexv2-7b-cot-0222:2",
-      "apiKey": "1",
-      "maxTokens": 80000,
-      "temperature": 0.7,
-      "provider": "custom",
-      "availableModels": [],
-      "organizationId": ""
+      "id": "default",
+      "name": "OpenAI",
+      "provider": "openai",
+      "apiUrl": "https://api.openai.com/v1",
+      "apiKey": "",
+      "modelId": "gpt-3.5-turbo",
+      "maxTokens": 512,
+      "temperature": 0.7
     },
     {
-      "id": 1740665962809,
+      "id": "gemini",
+      "name": "Gemini",
+      "provider": "gemini",
+      "apiUrl": "",
+      "apiKey": "",
+      "modelId": "",
+      "maxTokens": 2048,
+      "temperature": 0.7
+    },
+    {
+      "id": "stepfun",
+      "name": "阶跃星辰",
+      "provider": "stepfun",
+      "apiUrl": "https://platform.stepfun.com/v1",
+      "apiKey": "",
+      "modelId": "step-1",
+      "maxTokens": 512,
+      "temperature": 0.7
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral AI",
+      "provider": "mistral",
+      "apiUrl": "https://api.mistral.ai",
+      "apiKey": "",
+      "modelId": "mistral-small",
+      "maxTokens": 512,
+      "temperature": 0.7,
+      "availableModels": [
+        {
+          "id": "mistral-tiny",
+          "name": "Mistral Tiny"
+        },
+        {
+          "id": "mistral-small",
+          "name": "Mistral Small"
+        },
+        {
+          "id": "mistral-medium",
+          "name": "Mistral Medium"
+        },
+        {
+          "id": "mistral-large",
+          "name": "Mistral Large"
+        }
+      ]
+    },
+    {
+      "id": 1740751291349,
       "name": "glm-4-flash",
       "apiUrl": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
       "modelId": "glm-4-flash",
-      "apiKey": "2c624a728054467e9624e39160f94c82.UNR1TT6sQu2MA9ng",
-      "maxTokens": 800000,
+      "apiKey": "6229581c875c3b331d5f2be379aaec6c.Tu09nz5ygPgWG4oE",
+      "maxTokens": 8000,
       "temperature": 0.7,
       "provider": "custom",
       "availableModels": [],
@@ -26,7 +72,7 @@
     }
   ],
   "notepadContent": "",
-  "currentSceneId": 1740403919177,
+  "currentSceneId": 1740751799484,
   "selectedTags": [],
-  "currentView": "book"
+  "currentView": "main"
 }

@@ -49,6 +49,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 
 // 数据文件路径
 const SCENES_FILE = path.join(DATA_DIR, 'scenes.json')
+const BOOK_SCENES_FILE = path.join(DATA_DIR, 'book-scenes.json')
 const PROMPTS_FILE = path.join(DATA_DIR, 'prompts.json')
 const TAGS_FILE = path.join(DATA_DIR, 'tags.json')
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json')
@@ -91,6 +92,7 @@ const DataManager = {
   initializeDataFiles() {
     const files = {
       [SCENES_FILE]: [],
+      [BOOK_SCENES_FILE]: [],
       [PROMPTS_FILE]: [],
       [TAGS_FILE]: [],
       [AGENTS_FILE]: [],
@@ -575,6 +577,10 @@ app.get('/api/docs', (req, res) => {
     ResponseHandler.error(res, error)
   }
 })
+
+// 添加拆书场景相关的路由
+app.get('/api/load-book-scenes', RouteHandler.loadData(BOOK_SCENES_FILE))
+app.post('/api/save-book-scenes', RouteHandler.saveData(BOOK_SCENES_FILE))
 
 // 启动服务器
 const PORT = process.env.PORT || 3000

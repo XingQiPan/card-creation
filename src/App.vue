@@ -2163,6 +2163,51 @@ const handleBatchConvertToCards = ({ cards, targetSceneId }) => {
     showToast('转换卡片失败: ' + error.message, 'error')
   }
 }
+
+// 添加即时保存函数
+const saveImmediately = async () => {
+  try {
+    // 保存场景数据到本地存储
+    localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    
+    // 保存当前场景ID
+    if (currentScene.value) {
+      localStorage.setItem('currentSceneId', currentScene.value.id.toString())
+    }
+
+    // 保存其他相关数据
+    localStorage.setItem('prompts', JSON.stringify(prompts.value))
+    localStorage.setItem('tags', JSON.stringify(tags.value))
+    localStorage.setItem('models', JSON.stringify(models.value))
+    
+    // 保存配置数据
+    const config = {
+      models: models.value,
+      notepadContent: notepadInitialContent.value,
+      currentSceneId: currentScene.value?.id,
+      selectedTags: selectedTags.value,
+      currentView: currentView.value
+    }
+    localStorage.setItem('config', JSON.stringify(config))
+
+    // 如果有后端API，也同步到后端
+    try {
+      await dataService.syncToBackend({
+        scenes: scenes.value,
+        prompts: prompts.value,
+        tags: tags.value,
+        config
+      })
+    } catch (backendError) {
+      console.warn('后端同步失败，但本地保存成功:', backendError)
+    }
+
+  } catch (error) {
+    console.error('保存数据失败:', error)
+    showToast('保存失败: ' + error.message, 'error')
+    throw error
+  }
+}
 </script>
 
 <style scoped>

@@ -70,7 +70,6 @@ const buildHeaders = (model) => {
         headers['Authorization'] = `Bearer ${model.apiKey}`
         break
       case 'gemini':
-        // Gemini 使用 URL 参数传递 API key
         break
     }
   }
@@ -134,7 +133,8 @@ export const sendToModel = async (
     }
 
     const headers = buildHeaders(model)
-    
+    console.log('headers', headers)
+
     // 如果有提示词模板，添加到上下文开头
     let finalContext = context
     if (promptTemplate) {
@@ -144,14 +144,14 @@ export const sendToModel = async (
       ]
     }
 
-    const body = buildRequestBody(model, [{ role: 'user', content: finalMessage }], finalContext)
-
+    const body = buildRequestBody(model, [{ role: 'user', content: message }], finalContext)
     const response = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
       signal: abortController?.signal
     })
+    console.log('response', response)
 
     return await parseResponse(response, model)
   } catch (error) {

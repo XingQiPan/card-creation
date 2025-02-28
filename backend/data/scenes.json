@@ -2,68 +2,6 @@
   {
     "id": 1740403919177,
     "name": "测试自动化",
-    "cards": [
-      {
-        "id": "ee2c8816-f5be-42ef-af7c-fb1405601ff9",
-        "title": "新建卡片",
-        "content": "123",
-        "height": "120px",
-        "tags": [],
-        "insertedContents": []
-      },
-      {
-        "id": "6d1bd73b-e2b7-44b6-b15c-8e78c7959c3b",
-        "title": "新建卡片",
-        "content": "1231231",
-        "height": "120px",
-        "tags": [],
-        "insertedContents": []
-      },
-      {
-        "id": "4a453794-865f-4a54-83ab-69ec623ddeee",
-        "title": "新建卡片",
-        "content": "123123",
-        "height": "120px",
-        "tags": [],
-        "insertedContents": []
-      },
-      {
-        "id": "7bb5027e-656b-4ee5-9214-e824d3d878c0",
-        "title": "新建卡片",
-        "content": "",
-        "height": "120px",
-        "tags": [],
-        "insertedContents": []
-      },
-      {
-        "id": "ebd157e8-efce-48d3-ac1c-87988c7946a6",
-        "title": "新建卡片",
-        "content": "",
-        "height": "120px",
-        "tags": [],
-        "insertedContents": []
-      },
-      {
-        "id": 1740717918081.2107,
-        "title": "引言",
-        "content": "Kumusta! Mga 15 minutos na lang ay magtatapos ang ikalawang bahagi ng iyong pangungusap. Narito ito:\n\n**Mabilis na Pag-unlad sa Iyong Pagsasanay:**\n* Magtakda ng bagong layunin, halimbawa, upang makakuha ng 10 puntos sa isang laro.\n* Gumawa ng serye ng mga maliit, target na pagbabago sa iyong diskarte at pormasyon.\n* I-adjust ang iyong estratehiya batay sa mga resulta at feedback.\n* Mag-ehersisyo nang malaya habang tinatamasa mo ang kasiyahan at pag-unlad ng iyong kakayahang umangkop.\n* Magbukas ng pakikipagtulungan at magtakda ng mga layunin sa koponan upang mas mahusay na bumuo ng mga kasanayan at karanasan.\n\nMagsaya at maging inspirasyon! I-update natin ang iyong pangungusap kapag tapos ka. 🚀✨",
-        "height": "200px",
-        "tags": []
-      },
-      {
-        "id": 1740717918081.4734,
-        "title": "【架空世界，大脑寄存处】",
-        "content": "Ako si 123. Enjoy the conversation! 😊",
-        "height": "200px",
-        "tags": []
-      },
-      {
-        "id": 1740717959369.9011,
-        "title": "引言",
-        "content": "Okey, mao ni ang 123:\n**123**\n\nNaghatag kini og kombinadong numero nga makahatag ug simbolo sa pagsulat. Ipahibalo ko kon gusto nimo nga ipasabot o dugang nga usbon ang impormasyon!",
-        "height": "200px",
-        "tags": []
-      }
-    ]
+    "cards": []
   }
 ]

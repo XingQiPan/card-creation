@@ -88,8 +88,11 @@ start-dev.bat
 打开浏览器访问 http://localhost:8888
 
 三、第三种启动方式
+
 下载exe运行程序
-路径：
+
+路径：分支[山河-GO-exe](https://github.com/XingQiPan/card-creation/tree/shanhe-go-exe)
+
 在群文件也可以下载
 
 

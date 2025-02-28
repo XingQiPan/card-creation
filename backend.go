@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"go-card-creation/logger"
+	"golang.org/x/sys/windows/registry"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -27,6 +28,8 @@ type Backend struct {
 	running                   bool
 	settingsHandlerRegistered bool
 	updateHandlerRegistered   bool
+	autoUpdateEnabled         bool
+	updateChecked             bool
 }
 
 type Scene struct {
@@ -124,12 +127,82 @@ func NewBackend() *Backend {
 	os.MkdirAll(dataDir, 0755)
 	os.MkdirAll(uploadsDir, 0755)
 
-	return &Backend{
-		dataDir:    dataDir,
-		uploadsDir: uploadsDir,
-		port:       3000,
-		running:    false,
+	b := &Backend{
+		dataDir:       dataDir,
+		uploadsDir:    uploadsDir,
+		port:          3000,
+		running:       false,
+		updateChecked: false,
 	}
+
+	// 检查自动更新设置
+	b.checkAutoUpdateSetting()
+	return b
+}
+
+// 检查自动更新设置
+func (b *Backend) checkAutoUpdateSetting() {
+	// 从注册表获取安装路径
+	key, err := registry.OpenKey(
+		registry.CURRENT_USER,
+		`SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\星卡写作.exe`,
+		registry.QUERY_VALUE,
+	)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+
+	// 获取安装路径
+	exePath, _, err := key.GetStringValue("")
+	if err != nil {
+		return
+	}
+
+	// 检查自动更新设置文件
+	autoUpdateFile := filepath.Join(filepath.Dir(exePath), "autoupdate.txt")
+	content, err := ioutil.ReadFile(autoUpdateFile)
+	if err == nil && strings.TrimSpace(string(content)) == "true" {
+		b.autoUpdateEnabled = true
+	}
+}
+
+// 执行自动更新
+func (b *Backend) performAutoUpdate(currentVersion, latestVersion string) {
+	if !b.autoUpdateEnabled {
+		return
+	}
+
+	// 检查是否需要更新
+	if currentVersion == latestVersion {
+		return
+	}
+
+	// 构建下载URL
+	downloadURL := fmt.Sprintf("https://bgithub.xyz/XingQiPan/card-creation/releases/download/v%s/v%s.exe", latestVersion, latestVersion)
+
+	// 获取安装路径
+	key, err := registry.OpenKey(
+		registry.CURRENT_USER,
+		`SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\星卡写作.exe`,
+		registry.QUERY_VALUE,
+	)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+
+	exePath, _, err := key.GetStringValue("")
+	if err != nil {
+		return
+	}
+
+	// 获取auto_update.bat的路径
+	updateBatPath := filepath.Join(filepath.Dir(exePath), "auto_update.bat")
+
+	// 启动更新脚本
+	cmd := exec.Command(updateBatPath, downloadURL)
+	cmd.Start()
 }
 
 // 启动服务器
@@ -170,6 +243,17 @@ func (b *Backend) StartServer(ctx context.Context, updater *Updater) string {
 	b.AddSettingsHandler()
 
 	mux.HandleFunc("/api/test", errorMiddleware(b.testHandler))
+
+	// 检查自动更新（仅在程序启动时检查一次）
+	if b.autoUpdateEnabled && !b.updateChecked {
+		b.updateChecked = true // 标记已检查更新
+
+		// 获取最新版本并检查是否需要更新
+		latestVersion, _ := getBackendVersion()
+		if latestVersion != "" && latestVersion != updater.currentVersion {
+			b.performAutoUpdate(updater.currentVersion, latestVersion)
+		}
+	}
 
 	// 启动HTTP服务器
 	b.server = &http.Server{

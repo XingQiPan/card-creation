@@ -404,7 +404,7 @@ func createMenu(ctx context.Context, backend *Backend, updater *Updater, version
 
 		if needUpdate && updater.latestVersion != "" {
 			// 询问用户是否要更新
-			_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+			result, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 				Type:          runtime.QuestionDialog,
 				Title:         "发现新版本",
 				Message:       fmt.Sprintf("当前版本：%s\n最新版本：%s\n\n是否立即更新？", version, updater.latestVersion),
@@ -412,7 +412,45 @@ func createMenu(ctx context.Context, backend *Backend, updater *Updater, version
 				DefaultButton: "是",
 			})
 
-			runtime.BrowserOpenURL(ctx, fmt.Sprintf("https://github.com/XingQiPan/card-creation/releases/download/v%s/v%s.exe", updater.latestVersion, updater.latestVersion))
+			if err == nil && result == "是" {
+				// 获取安装路径
+				key, err := registry.OpenKey(
+					registry.CURRENT_USER,
+					`SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\星卡写作.exe`,
+					registry.QUERY_VALUE,
+				)
+				if err != nil {
+					return
+				}
+				defer key.Close()
+
+				exePath, _, err := key.GetStringValue("")
+				if err != nil {
+					return
+				}
+
+				// 构建下载URL
+				downloadURL := fmt.Sprintf("https://bgithub.xyz/XingQiPan/card-creation/releases/download/v%s/v%s.exe", updater.latestVersion, updater.latestVersion)
+
+				// 获取auto_update.bat的路径
+				updateBatPath := filepath.Join(filepath.Dir(exePath), "auto_update.bat")
+
+				// 启动更新脚本
+				cmd := exec.Command(updateBatPath, downloadURL)
+				err = cmd.Start()
+				if err != nil {
+					runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+						Type:    runtime.ErrorDialog,
+						Title:   "更新失败",
+						Message: "启动更新程序失败：" + err.Error(),
+					})
+					return
+				}
+
+				// 等待一段时间后退出程序
+				time.Sleep(2 * time.Second)
+				os.Exit(0)
+			}
 		} else {
 			runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 				Type:    runtime.InfoDialog,
@@ -487,9 +525,9 @@ func main() {
 
 	// 获取版本信息
 	// 前端
-	currentFrontendVersion := "0.9.2"
+	currentFrontendVersion := "0.9.3"
 	// 后端
-	currentBackendVersion := "1.5.0"
+	currentBackendVersion := "1.6.0"
 	// 获取最新前端版本
 	latestFrontendVersion := getFrontendVersion()
 	// 获取最新后端版本和下载URL

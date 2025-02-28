@@ -202,7 +202,15 @@ func (b *Backend) performAutoUpdate(currentVersion, latestVersion string) {
 
 	// 启动更新脚本
 	cmd := exec.Command(updateBatPath, downloadURL)
-	cmd.Start()
+	err = cmd.Start()
+	if err != nil {
+		log.Printf("启动更新脚本失败: %v", err)
+		return
+	}
+
+	// 等待一段时间后退出程序
+	time.Sleep(2 * time.Second)
+	os.Exit(0)
 }
 
 // 启动服务器
@@ -736,22 +744,22 @@ func (b *Backend) splitIntoChapters(text string) []Chapter {
 	}
 
 	// 章节匹配模式
-	chapterPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`^第[一二三四五六七八九十百千]+[章节]`),
-		regexp.MustCompile(`^第\d+[章节]`),
-		regexp.MustCompile(`^[一二三四五六七八九十][、.．]`),
-		regexp.MustCompile(`^[（(]\d+[)）]`),
-		regexp.MustCompile(`^[【［][^】］]+[】］]`),
-		regexp.MustCompile(`^#+\s+`),
+	chapterPatterns := []string{
+		`^第[一二三四五六七八九十百千]+[章节]`,
+		`^第\d+[章节]`,
+		`^[一二三四五六七八九十][、.．]`,
+		`^[（(]\d+[)）]`,
+		`^#+\s+`,
 	}
 
 	isChapterTitle := func(line string) bool {
-		trimmedLine := strings.TrimSpace(line)
-		if len(trimmedLine) > 100 {
+		line = strings.TrimSpace(line)
+		if len(line) > 100 {
 			return false
 		}
 		for _, pattern := range chapterPatterns {
-			if pattern.MatchString(trimmedLine) {
+			matched, _ := regexp.MatchString(pattern, line)
+			if matched {
 				return true
 			}
 		}
@@ -767,12 +775,15 @@ func (b *Backend) splitIntoChapters(text string) []Chapter {
 		if isChapterTitle(line) {
 			if currentChapter.Title != "" && len(currentChapter.Content) > 0 {
 				chapters = append(chapters, Chapter{
-					Title:   currentChapter.Title,
-					Content: strings.Join(currentChapter.Content, "\n"),
+					Title:         currentChapter.Title,
+					Content:       strings.Join(currentChapter.Content, "\n"),
+					ChapterNumber: len(chapters) + 1,
 				})
 			}
-			currentChapter.Title = line
-			currentChapter.Content = []string{}
+			currentChapter = struct {
+				Title   string
+				Content []string
+			}{Title: line}
 		} else if currentChapter.Title != "" {
 			currentChapter.Content = append(currentChapter.Content, line)
 		} else {
@@ -781,17 +792,12 @@ func (b *Backend) splitIntoChapters(text string) []Chapter {
 		}
 	}
 
-	// 保存最后一章
 	if currentChapter.Title != "" && len(currentChapter.Content) > 0 {
 		chapters = append(chapters, Chapter{
-			Title:   currentChapter.Title,
-			Content: strings.Join(currentChapter.Content, "\n"),
+			Title:         currentChapter.Title,
+			Content:       strings.Join(currentChapter.Content, "\n"),
+			ChapterNumber: len(chapters) + 1,
 		})
-	}
-
-	// 添加章节编号
-	for i := range chapters {
-		chapters[i].ChapterNumber = i + 1
 	}
 
 	return chapters

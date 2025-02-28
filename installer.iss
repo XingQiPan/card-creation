@@ -1,5 +1,5 @@
 #define MyAppName "星卡写作"
-#define MyAppVersion "1.5.0"
+#define MyAppVersion "1.6.0"
 #define MyAppPublisher "山河"
 #define MyAppURL "https://github.com/XingQiPan/card-creation/releases/latest"
 #define MyAppExeName "星卡写作.exe"
@@ -140,7 +140,7 @@ begin
 
   RichEditViewer.Lines.Add('exe 制作者: shanhe（山河）Github: shanheinfo');
   RichEditViewer.Lines.Add('主版本制作者: XingQiPan（星棋盘）Github: XingQiPan');
-  RichEditViewer.Lines.Add('当前应用版本: 1.5.0');
+  RichEditViewer.Lines.Add('当前应用版本: 1.4.0');
   RichEditViewer.Lines.Add('');
   RichEditViewer.Lines.Add('星卡写作软件产品描述:');
   RichEditViewer.Lines.Add('本应用是一款由山河(shanhe)开发基于Go的桌面应用，由原始项目星棋盘(XingQiPan)Vue 3 + Vite 构建的程序重新制作而成，');

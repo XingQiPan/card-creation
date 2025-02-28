@@ -37,7 +37,7 @@
 
 <details>
 
-<details open>
+<details>
 <summary>0.9.3</summary>
 1. 首页js代码进行封装，优化请求等，提升了速度，并且存储逻辑也进行了统一，丢失概率大大下降。
 2. 优化了对话的请求逻辑，同样进行了封装，对话时候不会重复发送system，切换提示词只是切换system。

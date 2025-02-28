@@ -604,7 +604,8 @@ import { showToast } from './utils/common.js'
 import { sendToModel } from './utils/modelRequests'
 import { useCommon } from './utils/composables/useCommon'
 import { showToastMessage, detectContentType, splitContent } from './utils/common'
-import { apiUtils } from './utils/common'
+import { dataService } from './utils/services/dataService'
+import { debugLog, setDebugMode } from './utils/debug'
 
 // 添加版本号
 const version = __APP_VERSION__
@@ -736,19 +737,6 @@ const insertMdSyntax = (prefix, suffix) => {
   })
 }
 
-// 添加后端API基础URL
-const API_BASE_URL = 'http://localhost:3000/api'
-
-// 添加防抖函数
-const debounce = (fn, delay) => {
-  let timer = null
-  return function (...args) {
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(() => {
-      fn.apply(this, args)
-    }, delay)
-  }
-}
 
 // 使用组合式API
 const {
@@ -761,38 +749,6 @@ const {
   truncateText,
   createDebounce
 } = useCommon()
-
-
-// 计算属性
-const hasSelectedResults = computed(() => {
-  return currentScene.value?.resultCards.some(card => card.selected)
-})
-
-// 数据服务层
-const dataService = {
-  async syncToBackend(data) {
-    try {
-      const response = await fetch(`${API_BASE_URL}/sync-data`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      })
-      
-      return await apiUtils.handleResponse(response)
-    } catch (error) {
-      console.error('后端同步失败:', error)
-      throw error
-    }
-  },
-
-  saveToLocalStorage(key, data) {
-    saveToStorage(key, data)
-  },
-
-  loadFromLocalStorage(key, defaultValue = null) {
-    return loadFromStorage(key, defaultValue)
-  }
-}
 
 // 防抖的数据同步
 const syncData = createDebounce(async () => {
@@ -813,15 +769,7 @@ const syncData = createDebounce(async () => {
       }
     }
 
-    // 保存到本地存储
-    Object.entries(dataToSync).forEach(([key, value]) => {
-      if (value !== undefined) {
-        dataService.saveToLocalStorage(key, value)
-      }
-    })
-
-    // 异步同步到后端
-    await dataService.syncToBackend(dataToSync)
+    await dataService.saveAllData(dataToSync)
   } catch (error) {
     showToast(`数据同步失败: ${error.message}`, 'error')
   } finally {
@@ -858,37 +806,36 @@ const initializeData = async (data) => {
 const loadAllData = async () => {
   try {
     isLoading.value = true
+    const data = await dataService.loadAllData()
+    const initializedData = await dataService.initializeData(data)
     
-    // 从本地存储加载数据
-    const localData = {
-      scenes: dataService.loadFromLocalStorage('scenes', []),
-      prompts: dataService.loadFromLocalStorage('prompts', []),
-      tags: dataService.loadFromLocalStorage('tags', []),
-      config: dataService.loadFromLocalStorage('config', {})
+    // 更新状态
+    scenes.value = initializedData.scenes
+    prompts.value = initializedData.prompts
+    tags.value = initializedData.tags
+    
+    if (initializedData.config) {
+      models.value = initializedData.config.models
+      notepadInitialContent.value = initializedData.config.notepadContent
+      currentView.value = initializedData.config.currentView
+      selectedTags.value = initializedData.config.selectedTags
+      
+      if (scenes.value.length > 0) {
+        const savedSceneId = initializedData.config.currentSceneId
+        currentScene.value = scenes.value.find(s => s.id === savedSceneId) || scenes.value[0]
+      }
     }
 
-    await initializeData(localData)
     dataLoaded.value = true
   } catch (error) {
     console.error('数据加载失败:', error)
     showToast('数据加载失败', 'error')
-    await initializeData({ scenes: [], prompts: [], tags: [], config: {} })
+    const defaultData = await dataService.initializeData({})
+    await initializeData(defaultData)
   } finally {
     isLoading.value = false
   }
 }
-
-// 场景创建
-const createScene = (data, filename) => ({
-  id: Date.now(),
-  name: data.name || filename.replace('.json', ''),
-  cards: data.cards.map(card => ({
-    ...card,
-    id: Date.now() + Math.random(),
-    height: card.height || '120px',
-    tags: Array.isArray(card.tags) ? card.tags : []
-  }))
-})
 
 // // 处理关键词匹配和上下文构建
 const processKeywords = (text) => {
@@ -996,7 +943,7 @@ const closePromptModal = () => {
 }
 
 // 修改保存提示词的方法
-const savePrompt = () => {
+const savePrompt = async () => {
   if (!promptForm.value.title || !promptForm.value.userPrompt) {
     showToast('请填写标题和用户提示词', 'error')
     return
@@ -1025,7 +972,7 @@ const savePrompt = () => {
 
     // 保存到本地存储
     dataService.saveToLocalStorage('prompts', prompts.value)
-    
+    await loadAllData()
     closePromptModal() // 使用closePromptModal方法关闭
     showToast('提示词保存成功', 'success')
   } catch (error) {
@@ -1057,6 +1004,8 @@ const sendPromptRequest = async (prompt) => {
 
   try {
     let processedTemplate = prompt.userPrompt
+
+    showToast('发送成功！') 
 
     // 处理插入内容的替换
     if (prompt.insertedContents?.length > 0) {
@@ -1091,7 +1040,7 @@ const sendPromptRequest = async (prompt) => {
       currentScene.value.cards.push(newCard)
     }
 
-    showToast('发送成功')
+    showToast('回复成功！')
 
   } catch (error) {
     console.error('API 请求错误:', error)
@@ -1194,6 +1143,17 @@ const deleteModel = (id) => {
   saveModels()
 }
 
+const saveModels = async () => {
+  showToast('保存成功！')
+  dataService.saveToLocalStorage('models', models.value)
+  await loadAllData()
+}
+
+const saveScenes = async () => {
+  dataService.saveToLocalStorage('scenes', scenes.value)
+  await loadAllData()
+}
+
 // 添加获取模型列表的方法
 const fetchModelList = async (model) => {
   try {
@@ -1225,7 +1185,7 @@ const fetchModelList = async (model) => {
       })
     }
     else if(model.provider === 'openai'){
-      console.log('openai', model.apiUrl)
+      debugLog('openai', model.apiUrl)
       const response = await fetch(`${model.apiUrl}/v1/models`, {
         headers: {
           'Authorization': `Bearer ${model.apiKey}`,
@@ -1347,20 +1307,6 @@ const stopPanelResize = () => {
   isResizing = false
   document.removeEventListener('mousemove', handlePanelResize)
   document.removeEventListener('mouseup', stopPanelResize)
-}
-
-// 显示提示词详情
-const showPromptDetail = (prompt) => {
-  if (!prompt) return
-  
-  selectedPrompt.value = {
-    ...prompt,
-    template: [
-      prompt.systemPrompt && `系统提示词:\n${prompt.systemPrompt}`,
-      `用户提示词:\n${prompt.userPrompt}`
-    ].filter(Boolean).join('\n\n')
-  }
-  showPromptDetailModal.value = true
 }
 
 // 显示卡片详情
@@ -1522,21 +1468,17 @@ const handleAddCardsToScene = ({ sceneId, cards }) => {
 
 // 添加合并卡片的方法
 const handleMergeCards = (cards) => {
-  console.log('Merging cards:', cards)
+  debugLog('Merging cards:', cards)
 }
 
-// Add new method to prevent text selection during scene drag
 const preventTextSelection = (prevent) => {
   document.body.style.userSelect = prevent ? 'none' : ''
-  document.body.style.webkitUserSelect = prevent ? 'none' : ''
 }
 
-// Watch scene drag state
 watch(dragScene, (isDragging) => {
   preventTextSelection(isDragging)
 })
 
-// Clean up when component is unmounted
 onUnmounted(() => {
   preventTextSelection(false)
 })
@@ -1853,9 +1795,10 @@ const addTag = () => {
 }
 
 // 确保有保存标签的方法
-const saveTags = () => {
+const saveTags = async () => {
   try {
-    localStorage.setItem('tags', JSON.stringify(tags.value))
+    dataService.saveToLocalStorage('tags', tags.value)
+    await loadAllData()
   } catch (error) {
     console.error('保存标签失败:', error)
     showToast('保存标签失败', 'error')
@@ -2000,6 +1943,7 @@ defineExpose({
 // 保存当前视图到本地存储
 watch(currentView, (newView) => {
   localStorage.setItem('currentView', newView)
+  dataService.saveToLocalStorage('currentView', newView)
 })
 
 // 处理场景更新
@@ -2049,86 +1993,33 @@ onMounted(async () => {
 // 加载数据的辅助函数
 const loadData = async () => {
   try {
-    // 从后端加载所有数据
-    const response = await fetch('http://localhost:3000/api/get-all-data')
-    const result = await response.json()
+    isLoading.value = true
+    const data = await dataService.loadBackendData()
     
-    if (result.success && result.data) {
-      const backendData = result.data
-      
-      // 加载模型配置
-      if (backendData.config?.models) {
-        models.value = backendData.config.models.map(model => ({
-          ...model,
-          provider: model.provider || 'custom',
-          maxTokens: model.maxTokens || 512,
-          temperature: model.temperature || 0.7
-        }))
-      }
-      
-      // 加载提示词
-      if (Array.isArray(backendData.prompts)) {
-        prompts.value = backendData.prompts
-      }
-      
-      // 加载其他数据
-      if (Array.isArray(backendData.tags)) {
-        tags.value = backendData.tags
-      }
-      
-      // 加载场景
-      if (Array.isArray(backendData.scenes)) {
-        scenes.value = backendData.scenes
-      }
-      
-      // 加载其他配置
-      if (backendData.config) {
-        notepadInitialContent.value = backendData.config.notepadContent || ''
-        currentView.value = backendData.config.currentView || 'main'
-        selectedTags.value = backendData.config.selectedTags || []
-        
-        // 设置当前场景
-        if (backendData.config.currentSceneId && scenes.value.length > 0) {
-          currentScene.value = scenes.value.find(s => s.id === backendData.config.currentSceneId) || scenes.value[0]
-        } else if (scenes.value.length > 0) {
-          currentScene.value = scenes.value[0]
-        }
-      }
-      
-      // 保存到localStorage作为备份
-      localStorage.setItem('models', JSON.stringify(models.value))
-      localStorage.setItem('prompts', JSON.stringify(prompts.value))
-      
-      dataLoaded.value = true
-    } else {
-      throw new Error('后端数据加载失败')
+    // 更新状态
+    models.value = data.models
+    prompts.value = data.prompts
+    tags.value = data.tags
+    scenes.value = data.scenes
+    
+    // 更新配置
+    notepadInitialContent.value = data.config.notepadContent
+    currentView.value = data.config.currentView
+    selectedTags.value = data.config.selectedTags
+    
+    // 设置当前场景
+    if (data.config.currentSceneId && scenes.value.length > 0) {
+      currentScene.value = scenes.value.find(s => s.id === data.config.currentSceneId) || scenes.value[0]
+    } else if (scenes.value.length > 0) {
+      currentScene.value = scenes.value[0]
     }
+    
+    dataLoaded.value = true
   } catch (error) {
     console.error('加载数据失败:', error)
-    showToast('从后端加载数据失败，尝试从本地加载: ' + error.message, 'warning')
-    
-    // 如果后端加载失败，尝试从localStorage加载
-    try {
-      const savedModels = localStorage.getItem('models')
-      if (savedModels) {
-        models.value = JSON.parse(savedModels).map(model => ({
-          ...model,
-          provider: model.provider || 'custom',
-          maxTokens: model.maxTokens || 512,
-          temperature: model.temperature || 0.7
-        }))
-      }
-      
-      const savedPrompts = localStorage.getItem('prompts')
-      if (savedPrompts) {
-        prompts.value = JSON.parse(savedPrompts)
-      }
-      
-      dataLoaded.value = true
-    } catch (localError) {
-      console.error('从localStorage加载备份数据失败:', localError)
-      showToast('加载数据完全失败: ' + localError.message, 'error')
-    }
+    showToast('加载数据失败: ' + error.message, 'error')
+  } finally {
+    isLoading.value = false
   }
 }
 
@@ -2161,6 +2052,51 @@ const handleBatchConvertToCards = ({ cards, targetSceneId }) => {
   } catch (error) {
     console.error('转换卡片失败:', error)
     showToast('转换卡片失败: ' + error.message, 'error')
+  }
+}
+
+// 添加即时保存函数
+const saveImmediately = async () => {
+  try {
+    // 保存场景数据到本地存储
+    localStorage.setItem('scenes', JSON.stringify(scenes.value))
+    
+    // 保存当前场景ID
+    if (currentScene.value) {
+      localStorage.setItem('currentSceneId', currentScene.value.id.toString())
+    }
+
+    // 保存其他相关数据
+    localStorage.setItem('prompts', JSON.stringify(prompts.value))
+    localStorage.setItem('tags', JSON.stringify(tags.value))
+    localStorage.setItem('models', JSON.stringify(models.value))
+    
+    // 保存配置数据
+    const config = {
+      models: models.value,
+      notepadContent: notepadInitialContent.value,
+      currentSceneId: currentScene.value?.id,
+      selectedTags: selectedTags.value,
+      currentView: currentView.value
+    }
+    localStorage.setItem('config', JSON.stringify(config))
+
+    // 如果有后端API，也同步到后端
+    try {
+      await dataService.syncToBackend({
+        scenes: scenes.value,
+        prompts: prompts.value,
+        tags: tags.value,
+        config
+      })
+    } catch (backendError) {
+      console.warn('后端同步失败，但本地保存成功:', backendError)
+    }
+
+  } catch (error) {
+    console.error('保存数据失败:', error)
+    showToast('保存失败: ' + error.message, 'error')
+    throw error
   }
 }
 </script>

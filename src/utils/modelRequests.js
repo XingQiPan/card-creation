@@ -1,8 +1,10 @@
+import { showToast } from './common'
+
 // 格式化API URL
 const formatApiUrl = (model) => {
   switch (model.provider) {
     case 'openai':
-      return `${model.apiUrl.replace(/\/+$/, '')}/chat/completions`
+      return `${model.apiUrl.replace(/\/+$/, '')}/v1/chat/completions`
     case 'gemini':
       return `https://generativelanguage.googleapis.com/v1beta/models/${model.modelId}:generateContent`
     case 'ollama':
@@ -16,16 +18,29 @@ const formatApiUrl = (model) => {
 
 // 构建请求体
 const buildRequestBody = (model, messages, context = []) => {
+  // 限制最大 token 为 16k
+  const MAX_TOKENS = 16000
+
+  // 获取模型设置的 maxTokens，如果超过限制则使用限制值
+  const maxTokens = Math.min(Number(model.maxTokens) || 2048, MAX_TOKENS)
+
   switch (model.provider) {
     case 'openai':
-    case 'stepfun':
     case 'mistral':
     case 'custom':
       return {
         model: model.modelId,
         messages: [...context, ...messages],
-        max_tokens: Number(model.maxTokens) || 2048,
+        max_tokens: maxTokens,
         temperature: Number(model.temperature) || 0.7
+      }
+    case 'stepfun':
+      return {
+        model: model.modelId,
+        messages: [...context, ...messages],
+        max_tokens: maxTokens,
+        temperature: Number(model.temperature) || 0.7,
+        stream: false
       }
     case 'gemini':
       const contents = []
@@ -46,8 +61,10 @@ const buildRequestBody = (model, messages, context = []) => {
       return {
         model: model.modelId,
         messages: [...context, ...messages],
+        stream: false,
         options: {
-          temperature: Number(model.temperature) || 0.7
+          temperature: Number(model.temperature) || 0.7,
+          max_tokens: maxTokens
         }
       }
     default:
@@ -70,7 +87,6 @@ const buildHeaders = (model) => {
         headers['Authorization'] = `Bearer ${model.apiKey}`
         break
       case 'gemini':
-        // Gemini 使用 URL 参数传递 API key
         break
     }
   }
@@ -97,6 +113,16 @@ const parseResponse = async (response, model) => {
     throw new Error(errorMessage)
   }
 
+  // 对于 Ollama，解析标准响应格式
+  if (model.provider === 'ollama') {
+    const result = await response.json()
+    if (result.message?.content) {
+      return result.message.content
+    }
+    throw new Error('无法从 Ollama 响应中提取内容')
+  }
+
+  // 其他提供商使用 JSON 响应
   const result = await response.json()
   
   switch (model.provider) {
@@ -110,25 +136,11 @@ const parseResponse = async (response, model) => {
         return result.candidates[0].content.parts[0].text
       }
       throw new Error('无法解析 Gemini 响应')
-    case 'ollama':
-      return result.message?.content || result.response
     default:
       throw new Error(`不支持的模型提供商: ${model.provider}`)
   }
 }
 
-// 添加构建提示词的辅助函数
-const buildPromptWithTemplate = (prompt, template) => {
-  if (!template) return prompt
-  
-  // 如果模板中包含 {{input}}，则替换它
-  if (template.includes('{{input}}')) {
-    return template.replace('{{input}}', prompt)
-  }
-  
-  // 否则直接拼接模板和提示词
-  return `${template}\n\n${prompt}`
-}
 
 // 修改发送请求到模型的方法，添加提示词支持
 export const sendToModel = async (
@@ -146,13 +158,8 @@ export const sendToModel = async (
     }
 
     const headers = buildHeaders(model)
-    
-    // 处理提示词
-    let finalMessage = message
-    if (promptTemplate) {
-      finalMessage = buildPromptWithTemplate(message, promptTemplate)
-    }
-    
+    console.log('headers', headers)
+
     // 如果有提示词模板，添加到上下文开头
     let finalContext = context
     if (promptTemplate) {
@@ -162,17 +169,17 @@ export const sendToModel = async (
       ]
     }
 
-    const body = buildRequestBody(model, [{ role: 'user', content: finalMessage }], finalContext)
-
+    const body = buildRequestBody(model, [{ role: 'user', content: message }], finalContext)
+    console.log('body', body)
     const response = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
       signal: abortController?.signal
     })
-
     return await parseResponse(response, model)
   } catch (error) {
+    showToast(error.message, 'error')
     console.error('API 请求错误:', error)
     throw error
   }

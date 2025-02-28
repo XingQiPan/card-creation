@@ -37,6 +37,7 @@
 4. 小版本迭代（新功能demo，UI优化调整，小功能修复，新bug（bushi））都在Test分支，会实时不定时更新。
 </details>
 
+<details>
 <summary>0.9.2</summary>
 
 1. 增加了版本号

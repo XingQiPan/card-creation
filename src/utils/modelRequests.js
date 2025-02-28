@@ -2,7 +2,7 @@
 const formatApiUrl = (model) => {
   switch (model.provider) {
     case 'openai':
-      return `${model.apiUrl.replace(/\/+$/, '')}/chat/completions`
+      return `${model.apiUrl.replace(/\/+$/, '')}/v1/chat/completions`
     case 'gemini':
       return `https://generativelanguage.googleapis.com/v1beta/models/${model.modelId}:generateContent`
     case 'ollama':
@@ -16,16 +16,29 @@ const formatApiUrl = (model) => {
 
 // 构建请求体
 const buildRequestBody = (model, messages, context = []) => {
+  // 限制最大 token 为 16k
+  const MAX_TOKENS = 16000
+
+  // 获取模型设置的 maxTokens，如果超过限制则使用限制值
+  const maxTokens = Math.min(Number(model.maxTokens) || 2048, MAX_TOKENS)
+
   switch (model.provider) {
     case 'openai':
-    case 'stepfun':
     case 'mistral':
     case 'custom':
       return {
         model: model.modelId,
         messages: [...context, ...messages],
-        max_tokens: Number(model.maxTokens) || 2048,
+        max_tokens: maxTokens,
         temperature: Number(model.temperature) || 0.7
+      }
+    case 'stepfun':
+      return {
+        model: model.modelId,
+        messages: [...context, ...messages],
+        max_tokens: maxTokens,
+        temperature: Number(model.temperature) || 0.7,
+        stream: false
       }
     case 'gemini':
       const contents = []
@@ -46,8 +59,10 @@ const buildRequestBody = (model, messages, context = []) => {
       return {
         model: model.modelId,
         messages: [...context, ...messages],
+        stream: false,
         options: {
-          temperature: Number(model.temperature) || 0.7
+          temperature: Number(model.temperature) || 0.7,
+          max_tokens: maxTokens
         }
       }
     default:
@@ -96,6 +111,16 @@ const parseResponse = async (response, model) => {
     throw new Error(errorMessage)
   }
 
+  // 对于 Ollama，解析标准响应格式
+  if (model.provider === 'ollama') {
+    const result = await response.json()
+    if (result.message?.content) {
+      return result.message.content
+    }
+    throw new Error('无法从 Ollama 响应中提取内容')
+  }
+
+  // 其他提供商使用 JSON 响应
   const result = await response.json()
   
   switch (model.provider) {
@@ -109,8 +134,6 @@ const parseResponse = async (response, model) => {
         return result.candidates[0].content.parts[0].text
       }
       throw new Error('无法解析 Gemini 响应')
-    case 'ollama':
-      return result.message?.content || result.response
     default:
       throw new Error(`不支持的模型提供商: ${model.provider}`)
   }
@@ -145,6 +168,7 @@ export const sendToModel = async (
     }
 
     const body = buildRequestBody(model, [{ role: 'user', content: message }], finalContext)
+    console.log('body', body)
     const response = await fetch(url, {
       method: 'POST',
       headers,
@@ -152,7 +176,6 @@ export const sendToModel = async (
       signal: abortController?.signal
     })
     console.log('response', response)
-
     return await parseResponse(response, model)
   } catch (error) {
     console.error('API 请求错误:', error)

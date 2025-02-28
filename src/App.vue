@@ -819,7 +819,7 @@ const syncData = createDebounce(async () => {
         dataService.saveToLocalStorage(key, value)
       }
     })
-
+    await loadAllData()
     // 异步同步到后端
     await dataService.syncToBackend(dataToSync)
   } catch (error) {
@@ -877,18 +877,6 @@ const loadAllData = async () => {
     isLoading.value = false
   }
 }
-
-// 场景创建
-const createScene = (data, filename) => ({
-  id: Date.now(),
-  name: data.name || filename.replace('.json', ''),
-  cards: data.cards.map(card => ({
-    ...card,
-    id: Date.now() + Math.random(),
-    height: card.height || '120px',
-    tags: Array.isArray(card.tags) ? card.tags : []
-  }))
-})
 
 // // 处理关键词匹配和上下文构建
 const processKeywords = (text) => {
@@ -1025,7 +1013,7 @@ const savePrompt = () => {
 
     // 保存到本地存储
     dataService.saveToLocalStorage('prompts', prompts.value)
-    
+    await loadAllData()
     closePromptModal() // 使用closePromptModal方法关闭
     showToast('提示词保存成功', 'success')
   } catch (error) {
@@ -1057,6 +1045,8 @@ const sendPromptRequest = async (prompt) => {
 
   try {
     let processedTemplate = prompt.userPrompt
+
+    showToast('发送成功！') 
 
     // 处理插入内容的替换
     if (prompt.insertedContents?.length > 0) {
@@ -1091,7 +1081,7 @@ const sendPromptRequest = async (prompt) => {
       currentScene.value.cards.push(newCard)
     }
 
-    showToast('发送成功')
+    showToast('回复成功！')
 
   } catch (error) {
     console.error('API 请求错误:', error)
@@ -1192,6 +1182,16 @@ const addModel = () => {
 const deleteModel = (id) => {
   models.value = models.value.filter(model => model.id !== id)
   saveModels()
+}
+
+const saveModels = async () => {
+  dataService.saveToLocalStorage('models', models.value)
+  await loadAllData()
+}
+
+const saveScenes = async () => {
+  dataService.saveToLocalStorage('scenes', scenes.value)
+  await loadAllData()
 }
 
 // 添加获取模型列表的方法
@@ -1347,20 +1347,6 @@ const stopPanelResize = () => {
   isResizing = false
   document.removeEventListener('mousemove', handlePanelResize)
   document.removeEventListener('mouseup', stopPanelResize)
-}
-
-// 显示提示词详情
-const showPromptDetail = (prompt) => {
-  if (!prompt) return
-  
-  selectedPrompt.value = {
-    ...prompt,
-    template: [
-      prompt.systemPrompt && `系统提示词:\n${prompt.systemPrompt}`,
-      `用户提示词:\n${prompt.userPrompt}`
-    ].filter(Boolean).join('\n\n')
-  }
-  showPromptDetailModal.value = true
 }
 
 // 显示卡片详情
@@ -1853,9 +1839,10 @@ const addTag = () => {
 }
 
 // 确保有保存标签的方法
-const saveTags = () => {
+const saveTags = async () => {
   try {
-    localStorage.setItem('tags', JSON.stringify(tags.value))
+    dataService.saveToLocalStorage('tags', tags.value)
+    await loadAllData()
   } catch (error) {
     console.error('保存标签失败:', error)
     showToast('保存标签失败', 'error')
@@ -2000,6 +1987,7 @@ defineExpose({
 // 保存当前视图到本地存储
 watch(currentView, (newView) => {
   localStorage.setItem('currentView', newView)
+  dataService.saveToLocalStorage('currentView', newView)
 })
 
 // 处理场景更新

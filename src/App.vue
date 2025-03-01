@@ -223,7 +223,12 @@
         :scenes="scenes"
         @update-scene="handleSceneUpdate"
       />
+      <AIDetector
+        v-else-if="currentView === 'detector'"
+        :models="models"
+      />
     </div>
+
 
     <!-- 视图切换按钮 -->
     <div class="view-switcher">
@@ -256,6 +261,12 @@
         :class="{ active: currentView === 'agents' }"
       >
         <i class="fas fa-robot"></i>
+      </button>
+      <button 
+        @click="currentView = 'detector'" 
+        :class="{ active: currentView === 'detector' }"
+      >
+        <i class="fas fa-search"></i>
       </button>
     </div>
   </div>
@@ -606,6 +617,7 @@ import { useCommon } from './utils/composables/useCommon'
 import { showToastMessage, detectContentType, splitContent } from './utils/common'
 import { dataService } from './utils/services/dataService'
 import { debugLog, setDebugMode } from './utils/debug'
+import AIDetector from './components/AIDetector.vue'
 
 // 添加版本号
 const version = __APP_VERSION__

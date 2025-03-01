@@ -4,6 +4,7 @@ import cors from 'cors'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { AIDetector } from './ai-detector.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -13,11 +14,12 @@ const app = express()
 // 修改 multer 配置，添加错误处理
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, 'uploads')
     // 确保上传目录存在
-    if (!fs.existsSync(UPLOADS_DIR)) {
-      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true })
     }
-    cb(null, UPLOADS_DIR)
+    cb(null, uploadDir)
   },
   filename: function (req, file, cb) {
     cb(null, Date.now() + '-' + file.originalname)
@@ -27,7 +29,7 @@ const storage = multer.diskStorage({
 const upload = multer({ 
   storage: storage,
   limits: {
-    fileSize: 50 * 1024 * 1024 // 限制文件大小为 10MB
+    fileSize: 50 * 1024 * 1024 // 限制文件大小为 50MB
   }
 })
 
@@ -578,17 +580,95 @@ app.get('/api/docs', (req, res) => {
   }
 })
 
+// 处理文本输入的检测请求
+app.post('/api/detect-ai-text', async (req, res) => {
+    try {
+        const { text } = req.body;
+        
+        if (!text || typeof text !== 'string') {
+            return res.status(400).json({
+                success: false,
+                error: '请提供有效的文本内容'
+            });
+        }
+
+        console.log('接收到文本内容，长度:', text.length);
+
+        const detector = new AIDetector();
+        const result = await detector.analyze(text);
+        
+        console.log('AI检测结果:', result);
+
+        res.json({
+            success: true,
+            data: result
+        });
+
+    } catch (error) {
+        console.error('AI检测失败:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || '检测失败'
+        });
+    }
+});
+
+// 处理文件上传的检测请求
+app.post('/api/detect-ai-file', upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                error: '请上传文件'
+            });
+        }
+
+        // 读取文件内容
+        const fileContent = fs.readFileSync(req.file.path, 'utf8');
+        console.log('文件内容读取成功，长度:', fileContent.length);
+
+        // 删除临时文件
+        fs.unlinkSync(req.file.path);
+
+        const detector = new AIDetector();
+        const result = await detector.analyze(fileContent);
+        
+        console.log('AI检测结果:', result);
+
+        res.json({
+            success: true,
+            data: result
+        });
+
+    } catch (error) {
+        console.error('AI检测失败:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || '检测失败'
+        });
+    }
+});
+
 // 添加拆书场景相关的路由
 app.get('/api/load-book-scenes', RouteHandler.loadData(BOOK_SCENES_FILE))
 app.post('/api/save-book-scenes', RouteHandler.saveData(BOOK_SCENES_FILE))
 
 // 启动服务器
 const PORT = process.env.PORT || 3000
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`)
-  console.log(`Data directory: ${DATA_DIR}`)
-  console.log('\nAvailable API Routes:')
+app.listen(PORT, async () => {
+  console.log(`Server is running on port ${PORT}`);
+  
+  // 测试 AI 检测器
+  try {
+    const testResult = await new AIDetector().analyze("这是一个测试文本");
+    console.log('AI检测器测试成功:', testResult);
+  } catch (error) {
+    console.error('AI检测器测试失败:', error);
+  }
+  
+  console.log(`Data directory: ${DATA_DIR}`);
+  console.log('\nAvailable API Routes:');
   APIDocService.getAllRoutes().forEach(route => {
     console.log(`${route.method.padEnd(6)} ${route.path.padEnd(30)} ${route.description}`)
-  })
-}) 
+  });
+});

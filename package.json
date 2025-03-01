@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@fortawesome/fontawesome-free": "^6.7.2",
+    "@google/generative-ai": "^0.22.0",
     "@vue-flow/background": "^1.2.0",
     "@vue-flow/controls": "^1.0.5",
     "@vue-flow/core": "^1.20.1",

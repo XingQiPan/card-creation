@@ -5,8 +5,6 @@ const formatApiUrl = (model) => {
   switch (model.provider) {
     case 'openai':
       return `${model.apiUrl.replace(/\/+$/, '')}/v1/chat/completions`
-    case 'gemini':
-      return `https://generativelanguage.googleapis.com/v1beta/models/${model.modelId}:generateContent`
     case 'ollama':
       return 'http://localhost:11434/api/chat'
     case 'custom':
@@ -43,20 +41,7 @@ const buildRequestBody = (model, messages, context = []) => {
         stream: false
       }
     case 'gemini':
-      const contents = []
-      for (const msg of [...context, ...messages]) {
-        contents.push({
-          role: msg.role === 'user' ? 'user' : 'model',
-          parts: [{ text: msg.content }]
-        })
-      }
-      return {
-        contents,
-        generationConfig: {
-          maxOutputTokens: Number(model.maxTokens) || 2048,
-          temperature: Number(model.temperature) || 0.7
-        }
-      }
+      return null
     case 'ollama':
       return {
         model: model.modelId,
@@ -148,19 +133,36 @@ export const sendToModel = async (
   message, 
   context = [], 
   abortController = null,
-  promptTemplate = null // 新增提示词模板参数
+  promptTemplate = null
 ) => {
   try {
-    let url = formatApiUrl(model)
-    
     if (model.provider === 'gemini') {
-      url += `?key=${model.apiKey}`
+      const { GoogleGenerativeAI } = await import("@google/generative-ai");
+      const genAI = new GoogleGenerativeAI(model.apiKey);
+      const genModel = genAI.getGenerativeModel({ model: model.modelId });
+            
+      // Convert context and messages to Gemini format
+      const history = [...context, ...messages].map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.content }]
+      }));
+
+      const chat = genModel.startChat({
+        history: history,
+        generationConfig: {
+          maxOutputTokens: Number(model.maxTokens) || 2048,
+          temperature: Number(model.temperature) || 0.7
+        }
+      });
+
+      const result = await chat.sendMessage(message);
+      return result.response.text();
     }
 
+    // Handle other providers as before
+    let url = formatApiUrl(model)
     const headers = buildHeaders(model)
-    console.log('headers', headers)
-
-    // 如果有提示词模板，添加到上下文开头
+    
     let finalContext = context
     if (promptTemplate) {
       finalContext = [
@@ -170,7 +172,6 @@ export const sendToModel = async (
     }
 
     const body = buildRequestBody(model, [{ role: 'user', content: message }], finalContext)
-    console.log('body', body)
     const response = await fetch(url, {
       method: 'POST',
       headers,

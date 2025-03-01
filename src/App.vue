@@ -619,7 +619,7 @@ import { dataService } from './utils/services/dataService'
 import { debugLog, setDebugMode } from './utils/debug'
 import AIDetector from './components/AIDetector.vue'
 
-setDebugMode(true)
+setDebugMode(false)
 
 // 添加版本号
 const version = __APP_VERSION__

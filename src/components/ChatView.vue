@@ -142,6 +142,7 @@
           </div>
           <div 
             class="message-content" 
+            :class="{ 'streaming': msg.isStreaming }"
             v-html="formatMessage(msg.content)"
             v-if="!msg.isEditing"
           ></div>
@@ -270,6 +271,7 @@ import { showToastMessage, detectContentType, splitContent } from '../utils/comm
 import { useCommon } from '../utils/composables/useCommon'
 import { sendToModel } from '../utils/modelRequests'
 import { chatService } from '../utils/services/chatService'
+import { debugLog } from '../utils/debug'
 
 // Props 定义
 const props = defineProps({
@@ -451,6 +453,25 @@ const deleteChat = (id) => {
   }
 }
 
+// 添加获取消息上下文的方法
+const getMessageContext = () => {
+  if (!currentChat.value) return []
+  
+  // 获取历史消息数量限制
+  const historyTurns = currentChat.value.historyTurns || 20
+  debugLog('historyTurns', historyTurns)
+  // 获取最近的消息
+  const recentMessages = currentChat.value.messages
+    .slice(-historyTurns * 2) // 乘以2是因为每轮对话包含用户和助手的消息
+    .map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }))
+    debugLog('recentMessages', recentMessages)
+
+  return recentMessages
+}
+
 // 修改发送消息方法
 const sendMessage = async () => {
   if (!inputMessage.value.trim() || !currentChat.value?.modelId) return
@@ -461,24 +482,50 @@ const sendMessage = async () => {
     content: inputMessage.value,
     timestamp: new Date()
   }
-  
-  currentChat.value.messages.push(userMessage)
-  inputMessage.value = ''
-  
-  await nextTick()
-  scrollToBottom()
-  
+
+  let assistantMessage = null
+
   try {
-    isRequesting.value = true
-    requestStartTime.value = Date.now()
-    elapsedTime.value = 0
-    
-    elapsedTimer = setInterval(() => {
-      elapsedTime.value = Date.now() - requestStartTime.value
-    }, 100)
-    
+    // 获取完整的模型配置
     const model = props.models.find(m => m.id === currentChat.value.modelId)
-    if (!model) throw new Error('未找到选择的模型')
+    if (!model) {
+      throw new Error('未找到选择的模型')
+    }
+
+    // 检查模型配置
+    console.log('Current model:', model)
+    
+    // 使用 apiUrl 作为 endpoint
+    const endpoint = model.apiUrl
+    console.log('endpoint', endpoint)
+    if (!endpoint?.trim() && model.provider != 'gemini') {
+      throw new Error('请先在设置中配置模型的 API 地址')
+    }
+
+    // 构建模型配置
+    const modelConfig = {
+      ...model, // 保留原始模型的所有属性
+      provider: model.provider,
+      endpoint: endpoint.trim(), // 确保设置正确的 endpoint
+      apiKey: model.apiKey,
+      modelId: model.modelId,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${model.apiKey}`,
+        ...(model.headers || {})
+      },
+      parameters: {
+        model: model.modelId,
+        temperature: Number(model.temperature) || 0.7,
+        max_tokens: Number(model.maxTokens) || 2000,
+        top_p: Number(model.topP) || 1,
+        frequency_penalty: Number(model.frequencyPenalty) || 0,
+        presence_penalty: Number(model.presencePenalty) || 0,
+        ...(model.parameters || {})
+      }
+    }
+
+    //console.log('Sending request with config:', modelConfig)
 
     // 获取提示词模板
     let promptTemplate = null
@@ -489,57 +536,76 @@ const sendMessage = async () => {
       }
     }
 
-    // 获取对话历史
-    const historyTurns = currentChat.value.historyTurns || 20
-    const context = currentChat.value.messages
-      .slice(-(historyTurns * 2))
-      .map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.content
-      }))
-    context.pop()
+    // 添加用户消息到聊天记录
+    currentChat.value.messages.push(userMessage)
+    inputMessage.value = ''
+    await nextTick()
+    scrollToBottom()
 
-    // 发送消息
-    const result = await chatService.sendMessage(userMessage.content, {
-      model,
-      context,
+    // 开始计时
+    isRequesting.value = true
+    requestStartTime.value = Date.now()
+    elapsedTimer = setInterval(() => {
+      elapsedTime.value = Date.now() - requestStartTime.value
+    }, 100)
+
+    // 创建助手消息
+    assistantMessage = {
+      id: Date.now() + 1,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isStreaming: true
+    }
+    currentChat.value.messages.push(assistantMessage)
+
+    // 发送请求
+    const response = await chatService.sendStreamMessage(userMessage.content, {
+      model: modelConfig,
+      context: getMessageContext(),
       promptTemplate,
       enableKeywords: currentChat.value.enableKeywords,
       keywords: detectedKeywords.value,
-      getKeywordContent
+      getKeywordContent,
+      onChunk: (chunk) => {
+        assistantMessage.content += chunk
+        scrollToBottom()
+      }
     })
 
-    if (!result.success) {
-      throw result.error
+    if (!response.success) {
+      throw response.error
     }
 
-    const endTime = Date.now()
-    const responseTimeValue = endTime - requestStartTime.value
-
-    const assistantMessage = {
-      id: Date.now(),
-      role: 'assistant',
-      content: result.data,
-      timestamp: new Date(),
-      responseTime: responseTimeValue
+    // 更新消息状态
+    if (assistantMessage) {
+      assistantMessage.responseTime = Date.now() - requestStartTime.value
+      assistantMessage.isStreaming = false
     }
 
-    currentChat.value.messages.push(assistantMessage)
     chatService.saveChatSessions(chatSessions.value)
-
-    await nextTick()
-    scrollToBottom()
 
   } catch (error) {
     console.error('发送失败:', error)
     
-    if (error.name === 'AbortError') {
-      currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== userMessage.id)
-      return
+    // 如果是用户主动取消的请求，保留已生成的内容
+    if (error.name === 'AbortError' || error.message === '请求已取消') {
+      if (assistantMessage) {
+        assistantMessage.isStreaming = false
+        assistantMessage.responseTime = Date.now() - requestStartTime.value
+      }
+    } else {
+      // 其他错误则移除失败的消息
+      currentChat.value.messages = currentChat.value.messages.filter(msg => 
+        msg.id !== userMessage.id && 
+        (!assistantMessage || msg.id !== assistantMessage.id)
+      )
     }
     
-    currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== userMessage.id)
-    showToastMessage(error.message, 'error')
+    showToastMessage(
+      error.message || '发送失败，请检查模型配置和网络连接',
+      'error'
+    )
   } finally {
     isRequesting.value = false
     elapsedTime.value = 0
@@ -564,7 +630,19 @@ const abortRequest = () => {
         elapsedTimer = null
       }
       elapsedTime.value = 0
+
+      // 找到当前正在流式输出的消息
+      const streamingMessage = currentChat.value.messages.find(msg => msg.isStreaming)
+      if (streamingMessage) {
+        // 保留已输出的内容，只是标记为非流式状态
+        streamingMessage.isStreaming = false
+        streamingMessage.responseTime = Date.now() - requestStartTime.value
+      }
+
       showToastMessage('已终止回答', 'success')
+      
+      // 保存会话状态
+      chatService.saveChatSessions(chatSessions.value)
     }
   } catch (error) {
     console.error('终止请求失败:', error)
@@ -621,7 +699,7 @@ watch(
 
 // 添加 watch 来监听 scenes 的变化
 watch(() => props.scenes, (newScenes) => {
-  console.log("scenes changed:", newScenes)
+  //console.log("scenes changed:", newScenes)
 }, { deep: true })
 
 // 初始化

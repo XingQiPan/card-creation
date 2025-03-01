@@ -215,6 +215,8 @@
 <script setup>
 import { ref, computed, watch, onUnmounted, reactive } from 'vue'
 import draggable from 'vuedraggable'
+import { debugLog } from '../utils/debug'
+import { showToast } from '../utils/common'
 
 const props = defineProps({
   scene: {

@@ -364,15 +364,61 @@ const detectedKeywords = computed(() => {
   )
 })
 
-// 获取关键词关联的卡片内容
-const getKeywordContent = (keyword) => {
-  for (const scene of props.scenes) {
-    const card = scene.cards?.find(card => 
-      card.title?.trim().toLowerCase() === keyword.name.toLowerCase()
-    )
-    if (card) {
-      return card.content
+// 添加获取所有卡片的辅助方法
+const getAllCards = () => {
+  const allCards = []
+  props.scenes.forEach(scene => {
+    if (scene.cards && Array.isArray(scene.cards)) {
+      allCards.push(...scene.cards)
     }
+  })
+  return allCards
+}
+
+// 添加根据ID查找卡片的辅助方法
+const findCardById = (cardId) => {
+  return getAllCards().find(card => card.id === cardId)
+}
+
+// 修改获取关键词内容的方法
+const getKeywordContent = (keyword) => {
+  const processedCards = new Set() // 避免循环引用
+
+  const getCardContent = (card) => {
+    if (!card || processedCards.has(card.id)) return null
+    processedCards.add(card.id)
+
+    let content = card.content || ''
+
+    // 处理关联卡片
+    if (card.links?.length > 0) {
+      const linkedContents = []
+      card.links.forEach(linkedCardId => {
+        const linkedCard = findCardById(linkedCardId)
+        if (linkedCard) {
+          const linkedContent = getCardContent(linkedCard)
+          if (linkedContent) {
+            linkedContents.push(`关联内容「${linkedCard.title}」：\n${linkedContent}`)
+          }
+        }
+      })
+
+      if (linkedContents.length > 0) {
+        content += '\n\n--- 关联内容 ---\n\n' + linkedContents.join('\n\n')
+      }
+    }
+
+    return content
+  }
+
+  // 在所有卡片中查找匹配的卡片
+  const allCards = getAllCards()
+  const card = allCards.find(card => 
+    card.title?.toLowerCase() === keyword.name.toLowerCase()
+  )
+  
+  if (card) {
+    return getCardContent(card)
   }
   return null
 }
@@ -526,12 +572,30 @@ const abortRequest = () => {
   }
 }
 
-// 格式化消息内容（支持 Markdown）
+// 修改格式化消息内容的方法
 const formatMessage = (content) => {
-  const html = marked(content)
-  return DOMPurify.sanitize(html)
-}
+  // 先处理换行和空格
+  const preservedContent = content
+    .replace(/\n/g, '<br>')  // 保留换行
+    .replace(/ {2,}/g, match => '&nbsp;'.repeat(match.length)) // 保留多个空格
 
+  // 然后用 marked 处理 Markdown
+  const html = marked(preservedContent, {
+    breaks: true,  // 启用换行支持
+    gfm: true      // 启用 GitHub 风格的 Markdown
+  })
+
+  // 使用 DOMPurify 清理 HTML
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      'br', 'p', 'a', 'b', 'i', 'strong', 'em', 'code', 'pre',
+      'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4',
+      'h5', 'h6', 'hr', 'table', 'thead', 'tbody', 'tr', 'th',
+      'td', 'span'
+    ],
+    ALLOWED_ATTR: ['href', 'target', 'class', 'id']
+  })
+}
 
 // 滚动到底部
 const scrollToBottom = () => {

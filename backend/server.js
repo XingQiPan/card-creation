@@ -475,21 +475,37 @@ app.post('/api/sync-data', async (req, res) => {
   try {
     const { scenes, prompts, tags, config, agents } = req.body
     
+    // 验证数据并提供默认值
+    const dataToSave = {
+      scenes: scenes || [],
+      prompts: prompts || [],
+      tags: tags || [],
+      config: {
+        models: config?.models || [],
+        notepadContent: config?.notepadContent || '',
+        currentSceneId: config?.currentSceneId || null,
+        selectedTags: config?.selectedTags || [],
+        currentView: config?.currentView || 'main'
+      },
+      agents: agents || []
+    }
+    
     // 保存所有数据
     const results = await Promise.all([
-      FileUtils.saveData(SCENES_FILE, scenes),
-      FileUtils.saveData(PROMPTS_FILE, prompts), 
-      FileUtils.saveData(TAGS_FILE, tags),
-      FileUtils.saveData(CONFIG_FILE, config),
-      agents ? FileUtils.saveData(AGENTS_FILE, agents) : true
+      FileUtils.saveData(SCENES_FILE, dataToSave.scenes),
+      FileUtils.saveData(PROMPTS_FILE, dataToSave.prompts), 
+      FileUtils.saveData(TAGS_FILE, dataToSave.tags),
+      FileUtils.saveData(CONFIG_FILE, dataToSave.config),
+      FileUtils.saveData(AGENTS_FILE, dataToSave.agents)
     ])
 
     if(results.every(r => r)) {
       res.json({ success: true })
     } else {
-      throw new Error('Failed to save some data')
+      throw new Error('部分数据保存失败')
     }
   } catch (error) {
+    console.error('数据同步错误:', error);
     res.status(500).json({
       success: false,
       error: error.message 

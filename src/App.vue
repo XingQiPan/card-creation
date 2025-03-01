@@ -619,6 +619,8 @@ import { dataService } from './utils/services/dataService'
 import { debugLog, setDebugMode } from './utils/debug'
 import AIDetector from './components/AIDetector.vue'
 
+setDebugMode(true)
+
 // 添加版本号
 const version = __APP_VERSION__
 
@@ -849,42 +851,91 @@ const loadAllData = async () => {
   }
 }
 
-// // 处理关键词匹配和上下文构建
+// 处理关键词匹配和上下文构建
 const processKeywords = (text) => {
+  const processedCards = new Set() // 用于追踪已处理的卡片，避免循环引用
   const keywordMatches = []
   const keywordTags = tags.value.filter(tag => tag.isKeyword)
   
-  // 遍历所有场景和卡片，查找带有关键词标签的卡片
-  scenes.value.forEach(scene => {
-    scene.cards.forEach(card => {
-      // 检查卡片是否有关键词标签
-      const hasKeywordTag = card.tags?.some(tagId => 
-        keywordTags.some(tag => tag.id === tagId)
-      )
-
-      // 检查文本中是否包含卡片标题
-      const titleIncluded = card.title && 
-        text.toLowerCase().includes(card.title.toLowerCase())
-      
-      if (hasKeywordTag && titleIncluded) {
-        // 避免重复添加相同的卡片
-        const isDuplicate = keywordMatches.some(
-          match => match.title === card.title
-        )
-        
-        if (!isDuplicate) {
-          keywordMatches.push({
-            keyword: card.title,
-            title: card.title,
-            content: card.content || '无内容'
-          })
-        }
+  // 获取所有场景中的所有卡片
+  const getAllCards = () => {
+    const allCards = []
+    scenes.value.forEach(scene => {
+      if (scene.cards && Array.isArray(scene.cards)) {
+        allCards.push(...scene.cards)
       }
     })
+    return allCards
+  }
+
+  // 根据ID查找卡片
+  const findCardById = (cardId) => {
+    return getAllCards().find(card => card.id === cardId)
+  }
+  
+  // 递归处理卡片及其关联卡片
+  const processCard = (card) => {
+    if (!card || processedCards.has(card.id)) return // 避免循环引用和空卡片
+    processedCards.add(card.id)
+    
+    debugLog('Processing card:', card.title)
+    
+    // 检查卡片是否有关键词标签
+    const hasKeywordTag = card.tags?.some(tagId => 
+      keywordTags.some(tag => tag.id === tagId)
+    )
+
+    // 检查文本中是否包含卡片标题
+    const titleIncluded = card.title && 
+      text.toLowerCase().includes(card.title.toLowerCase())
+    
+    if (hasKeywordTag && titleIncluded) {
+      // 收集关联卡片的内容
+      const linkedContents = []
+      
+      // 处理关联卡片
+      if (card.links?.length > 0) {
+        debugLog('Found linked cards:', card.links)
+        card.links.forEach(linkedCardId => {
+          const linkedCard = findCardById(linkedCardId)
+          if (linkedCard) {
+            debugLog('Processing linked card:', linkedCard.title)
+            linkedContents.push(`关联内容「${linkedCard.title}」：\n${linkedCard.content || '无内容'}`)
+            processCard(linkedCard) // 继续处理关联卡片的关联
+          }
+        })
+      }
+
+      // 避免重复添加相同的卡片
+      const isDuplicate = keywordMatches.some(
+        match => match.title === card.title
+      )
+      
+      if (!isDuplicate) {
+        let content = card.content || '无内容'
+        
+        // 如果有关联内容，添加到主内容后面
+        if (linkedContents.length > 0) {
+          content += '\n\n--- 关联内容 ---\n\n' + linkedContents.join('\n\n')
+        }
+
+        keywordMatches.push({
+          keyword: card.title,
+          title: card.title,
+          content: content
+        })
+      }
+    }
+  }
+
+  // 遍历所有场景和卡片
+  getAllCards().forEach(card => {
+    processCard(card)
   })
 
   // 如果找到关键词匹配，构建上下文信息
   if (keywordMatches.length > 0) {
+    debugLog('Found keyword matches:', keywordMatches)
     const contextInfo = keywordMatches
       .map(match => `关键词「${match.title}」相关内容：\n${match.content}`)
       .join('\n\n')
@@ -1025,8 +1076,8 @@ const sendPromptRequest = async (prompt) => {
       processedTemplate = processedTemplate.replace(/{{text}}/g, insertedTexts)
     }
 
-    // 只在启用关键词检测时执行关键词处理
-    if (prompt.detectKeywords) {
+    // 2. 再进行关键词检测和处理
+    if (prompt.detectKeywords !== false) {  // 默认为 true，除非明确设置为 false
       processedTemplate = processKeywords(processedTemplate)
     }
 
@@ -1039,15 +1090,19 @@ const sendPromptRequest = async (prompt) => {
       prompt.systemPrompt // 系统提示词作为模板
     )
 
+    debugLog('content', content)
+
     // 创建新卡片
     const newCard = {
       id: Date.now(),
       content,
-      title: '生成的内容',
+      title: prompt.title ? `来自提示词「${prompt.title}」的回复` : '生成的内容',
       height: '200px',
       tags: []
     }
     
+    debugLog('newCard', newCard)
+
     if (currentScene.value) {
       currentScene.value.cards.push(newCard)
     }
@@ -1632,10 +1687,10 @@ watch(
   { deep: true }
 )
 
-// 减少自动同步间隔到30秒
+// 减少自动同步间隔到10秒
 onMounted(async () => {
   await loadAllData()
-  setInterval(syncData, 30000) // 30秒自动同步一次
+  setInterval(syncData, 10000) // 10秒自动同步一次
   const savedInsertedContents = localStorage.getItem('promptInsertedContents')
   if (savedInsertedContents) {
     promptInsertedContents.value = JSON.parse(savedInsertedContents)
@@ -1783,10 +1838,39 @@ const selectPromptAndInsert = (prompt) => {
       return
     }
 
+    // 收集卡片及其关联卡片的内容
+    const allContent = []
+    const processedCards = new Set() // 避免循环引用
+
+    const collectCardContent = (card) => {
+      if (processedCards.has(card.id)) return
+      processedCards.add(card.id)
+
+      // 添加当前卡片内容
+      allContent.push(card.content)
+
+      // 处理关联卡片
+      if (card.links?.length > 0) {
+        scenes.value.forEach(scene => {
+          scene.cards.forEach(linkedCard => {
+            if (card.links.includes(linkedCard.id)) {
+              collectCardContent(linkedCard)
+            }
+          })
+        })
+      }
+    }
+
+    // 处理主卡片及其关联卡片
+    collectCardContent(cardToInsert.value)
+
+    // 合并所有内容
+    const combinedContent = allContent.join('\n\n--- 关联内容 ---\n\n')
+
     // 添加新的插入内容
     prompt.insertedContents.push({
       id: Date.now(),
-      content: cardToInsert.value.content,
+      content: combinedContent,
       cardId: cardToInsert.value.id
     })
 
@@ -1803,7 +1887,7 @@ const selectPromptAndInsert = (prompt) => {
     showPromptSelectModal.value = false
     cardToInsert.value = null
     
-    showToast('内容已插入到提示词')
+    showToast('内容已插入到提示词（包含关联内容）')
   } catch (error) {
     console.error('插入内容错误:', error)
     showToast('插入失败: ' + error.message, 'error')

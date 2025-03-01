@@ -597,7 +597,8 @@ app.post('/api/detect-ai-text', async (req, res) => {
         const detector = new AIDetector();
         const result = await detector.analyze(text);
         
-        console.log('AI检测结果:', result);
+        console.log('AI检测结果:', result.isAIGenerated ? 'AI生成' : '人工创作', 
+                   '置信度:', Math.round(result.confidence * 100) + '%');
 
         res.json({
             success: true,
@@ -633,7 +634,8 @@ app.post('/api/detect-ai-file', upload.single('file'), async (req, res) => {
         const detector = new AIDetector();
         const result = await detector.analyze(fileContent);
         
-        console.log('AI检测结果:', result);
+        console.log('AI检测结果:', result.isAIGenerated ? 'AI生成' : '人工创作', 
+                   '置信度:', Math.round(result.confidence * 100) + '%');
 
         res.json({
             success: true,

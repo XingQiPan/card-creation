@@ -1,5 +1,6 @@
 import { sendToModel } from '../modelRequests'
 import { showToastMessage } from '../common'
+import { debugLog } from '../debug'
 
 export class ChatService {
   constructor() {
@@ -132,12 +133,9 @@ export class ChatService {
       // 创建新的终止控制器
       this.abortController = new AbortController()
 
-      //console.log('Processing model config:', model)
-
       // 检查是否为 Gemini 模型
       const isGemini = model.provider === 'gemini' || 
                       (model.parameters?.model || '').includes('gemini')
-      //console.log('isGemini', isGemini)
 
       if (isGemini) {
         // 获取纯 API key，移除可能存在的 Bearer 前缀
@@ -179,11 +177,6 @@ export class ChatService {
             parts: [{ text: promptTemplate }]
           })
         }
-
-        console.log('Sending message to Gemini:', {
-          content: processedContent,
-          history: history
-        })
 
         try {
           // 直接发送消息，不使用聊天历史
@@ -299,8 +292,9 @@ export class ChatService {
       body: JSON.stringify(requestBody),
       signal: this.abortController?.signal
     }
-
-    const response = await fetch(endpoint, requestConfig)
+    debugLog('model', model)
+    debugLog('url', formatApiUrl(model))
+    const response = await fetch(formatApiUrl(model), requestConfig)
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '未知错误')

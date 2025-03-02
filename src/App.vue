@@ -888,6 +888,9 @@ const processKeywords = (text) => {
     // 检查文本中是否包含卡片标题
     const titleIncluded = card.title && 
       text.toLowerCase().includes(card.title.toLowerCase())
+      debugLog('titleIncluded', titleIncluded)
+      debugLog('text', text)
+      debugLog('card.title', card.title)
     
     if (hasKeywordTag && titleIncluded) {
       // 收集关联卡片的内容
@@ -1130,12 +1133,11 @@ const importPrompts = async (event) => {
           const newPrompts = Array.isArray(jsonData) ? jsonData : [jsonData]
           
           newPrompts.forEach(prompt => {
-            // 确保导入的提示词符合新结构
             prompts.value.push({
               id: Date.now() + Math.random(),
               title: prompt.title || file.name,
               systemPrompt: prompt.systemPrompt || '',
-              userPrompt: prompt.userPrompt || prompt.template || '{{text}}', // 默认添加占位符
+              userPrompt: prompt.userPrompt || prompt.template || '{{text}}',
               defaultModel: prompt.defaultModel || models.value[0]?.id || '',
               insertedContents: [],
               detectKeywords: prompt.detectKeywords ?? true
@@ -1146,20 +1148,19 @@ const importPrompts = async (event) => {
           prompts.value.push({
             id: Date.now() + Math.random(),
             title: file.name,
-            systemPrompt: content.trim(), // 非JSON文件内容作为系统提示词
-            userPrompt: '{{text}}', // 默认添加占位符
+            systemPrompt: content.trim(),
+            userPrompt: '{{text}}',
             defaultModel: models.value[0]?.id || '',
             insertedContents: [],
             detectKeywords: true
           })
         }
       } else {
-        // 处理普通文本文件，内容作为系统提示词
         prompts.value.push({
           id: Date.now() + Math.random(),
           title: file.name,
-          systemPrompt: content.trim(), // 文本内容作为系统提示词
-          userPrompt: '{{text}}', // 默认添加占位符
+          systemPrompt: content.trim(),
+          userPrompt: '{{text}}',
           defaultModel: models.value[0]?.id || '',
           insertedContents: [],
           detectKeywords: true
@@ -1168,7 +1169,7 @@ const importPrompts = async (event) => {
     }
 
     event.target.value = ''
-    savePrompts()
+    await savePrompts() // 使用 await 等待保存完成
     showToast('提示词导入成功')
 
   } catch (error) {
@@ -2241,6 +2242,19 @@ const switchScene = (scene) => {
     console.error('切换场景失败:', error)
     showToast('切换场景失败: ' + error.message, 'error')
     return false
+  }
+}
+
+// 添加 savePrompts 函数
+const savePrompts = async () => {
+  try {
+    // 保存到本地存储
+    dataService.saveToLocalStorage('prompts', prompts.value)
+    await loadAllData()
+    showToast('提示词保存成功', 'success')
+  } catch (error) {
+    console.error('保存提示词失败:', error)
+    showToast('保存提示词失败: ' + error.message, 'error')
   }
 }
 </script>

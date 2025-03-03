@@ -11,6 +11,16 @@
     --text-secondary: #666;
   }
   
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-secondary: #2d2d2d;
+      --bg-hover: #3d3d3d;
+      --text-primary: #ffffff;
+      --text-secondary: #cccccc;
+      --border-color: #404040;
+    }
+  }
+  
   /* 基础布局 */
   .container {
     position: relative;

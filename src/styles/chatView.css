@@ -123,6 +123,7 @@
   }
   
   .chat-main {
+    width: 1000px;
     flex: 1;
     display: flex;
     flex-direction: column;

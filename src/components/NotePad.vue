@@ -195,6 +195,7 @@ import { ref, computed, onMounted, watch, inject, onUnmounted, nextTick } from '
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { useCommon } from '../utils/composables/useCommon'
+import { chatService } from '../utils/services/chatService'
 
 // 修改 props
 const props = defineProps({
@@ -310,197 +311,38 @@ const generateCompletion = async (context) => {
     generationTimer.value = setInterval(() => {
       generationTime.value = Date.now() - startTime
     }, 100)
-    
-    if (currentController.value) {
-      currentController.value.abort()
-      currentController.value = null
-    }
-    
-    currentController.value = new AbortController()
 
-    console.log('Sending request with model:', model.provider)
-    
-    let response
-    let result
-    let completion
-
-    // 构建请求体
-    const messages = [
-      {
-        role: 'system',
-        content: selectedPrompt.value.template
-      },
-      {
-        role: 'user',
-        content: context
-      }
-    ]
-
-    console.log('Sending request...')
-
-    if (model.provider === 'openai') {
-      response = await fetch(model.apiUrl + '/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${model.apiKey}`
-        },
-        body: JSON.stringify({
-          model: model.modelId,
-          messages,
-          max_tokens: Number(model.maxTokens),
-          temperature: Number(model.temperature)
-        }),
-        signal: currentController.value.signal
-      })
-      
-      result = await response.json()
-      completion = result.choices[0].message.content
-
-    } else if (model.provider === 'gemini') {
-      const contents = messages.map(msg => ({
-        parts: [{ text: msg.content }],
-        role: msg.role === 'user' ? 'user' : 'model'
-      }))
-
-      response = await fetch(model.apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': model.apiKey
-        },
-        body: JSON.stringify({
-          contents,
-          generationConfig: {
-            temperature: Number(model.temperature),
-            maxOutputTokens: Number(model.maxTokens),
-          }
-        }),
-        signal: currentController.value.signal
-      })
-      
-      result = await response.json()
-      completion = result.candidates[0].content.parts[0].text
-
-    } else if (model.provider === 'stepfun') {
-      response = await fetch(`${model.apiUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${model.apiKey}`
-        },
-        body: JSON.stringify({
-          model: model.modelId,
-          messages: [
-            {
-              role: "user",
-              content: context
+    // 使用 chatService 进行流式生成
+    const result = await chatService.sendStreamMessage(context, {
+      model,
+      promptTemplate: selectedPrompt.value.template,
+      onChunk: (chunk) => {
+        if (currentNote.value) {
+          currentNote.value.content += chunk
+          
+          // 更新光标位置到末尾
+          nextTick(() => {
+            if (textarea.value) {
+              const newPosition = currentNote.value.content.length
+              textarea.value.selectionStart = newPosition
+              textarea.value.selectionEnd = newPosition
+              cursorPosition.value = newPosition
             }
-          ],
-          temperature: Number(model.temperature),
-          max_tokens: Number(model.maxTokens),
-          stream: false
-        }),
-        signal: currentController.value.signal
-      })
-      
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || `请求失败: ${response.status}`)
-      }
-      
-      result = await response.json()
-      completion = result.choices[0].message.content
-
-    } else if (model.provider === 'mistral') {
-      response = await fetch(`${model.apiUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${model.apiKey}`
-        },
-        body: JSON.stringify({
-          model: model.modelId,
-          messages: [
-            {
-              role: "user",
-              content: context
-            }
-          ],
-          temperature: Number(model.temperature),
-          max_tokens: Number(model.maxTokens),
-          stream: false
-        }),
-        signal: currentController.value.signal
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || `请求失败: ${response.status}`)
-      }
-
-      result = await response.json()
-      completion = result.choices[0].message.content
-    } else if (model.provider === 'ollama') {
-      response = await fetch(model.apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: model.modelId,
-          messages,
-          stream: false,
-          options: {
-            temperature: Number(model.temperature),
-            num_predict: Number(model.maxTokens)
-          }
-        }),
-        signal: currentController.value.signal
-      })
-      
-      result = await response.json()
-      completion = result.message?.content
-    }
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    if (!result) {
-      throw new Error('响应格式错误')
-    }
-
-    completion = completion.trim()
-
-    // 如果返回的内容包含原文，尝试提取新内容
-    if (completion.includes(context)) {
-      completion = completion.slice(context.length).trim()
-    }
-
-    console.log('Got new completion with length:', completion.length)
-
-    if (completion && completion.length > 0) {
-      // 直接将生成的内容添加到文本框中
-      currentNote.value.content = currentNote.value.content + completion
-      
-      // 更新光标位置到末尾
-      nextTick(() => {
-        if (textarea.value) {
-          const newPosition = currentNote.value.content.length
-          textarea.value.selectionStart = newPosition
-          textarea.value.selectionEnd = newPosition
-          cursorPosition.value = newPosition
+          })
         }
-      })
+      }
+    })
+
+    if (!result.success) {
+      throw result.error || new Error('生成失败')
     }
 
-    return completion
+    return true
   } catch (error) {
     if (error.name === 'AbortError') {
       console.log('Request aborted')
     } else {
-      console.error('\n 生成续写内容失败:', error)
+      console.error('生成续写内容失败:', error)
       showToast('续写失败，请重试', 'error')
       // 出错时停止续写
       stopAutoWriting()
@@ -528,25 +370,17 @@ const startAutoWriting = () => {
   // 立即生成一次
   generateCompletion(currentNote.value.content)
   
-  // 设置新的定时器
+  // 设置新的定时器，每10秒生成一次
   autoWriteTimer.value = setInterval(async () => {
     if (!currentNote.value || !isEditing.value || !isAutoWriting.value) {
       console.log('Conditions not met for auto writing')
       return
     }
     if (!isGenerating.value) {
-      const model = props.models.find(m => m.id === selectedPrompt.value.selectedModel)
-      if (model && (model.provider === 'stepfun' || model.provider === 'mistral')) {
-        // 对于阶跃星辰和Mistral模型，每次续写前等待一段时间
-        await delay(2000) // 等待2秒
-      }
       generateCompletion(currentNote.value.content)
     }
   }, 10000)
 }
-
-// 添加延迟函数
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 // 修改内容变化处理
 const handleContentChange = () => {
@@ -926,12 +760,15 @@ const selectPrompt = (prompt) => {
     showToast('请先选择模型', 'error')
     return
   }
+  
   // 先停止之前的续写
   stopAutoWriting()
+  
   // 重置状态并开始新的续写
   selectedPrompt.value = prompt
   showPromptModal.value = false
   isAutoWriting.value = true
+  
   // 立即开始续写
   startAutoWriting()
 }

@@ -227,6 +227,10 @@
         v-else-if="currentView === 'detector'"
         :models="models"
       />
+      <KnowledgeBase 
+        v-if="currentView === 'knowledge'"
+        :models="models"
+      />
     </div>
 
 
@@ -268,6 +272,12 @@
       >
         <i class="fas fa-search"></i>
       </button>
+      <button 
+      @click="currentView = 'knowledge'" 
+      :class="{ active: currentView === 'knowledge' }"
+    >
+      <i class="fas fa-database"></i>
+    </button>
     </div>
   </div>
 
@@ -398,6 +408,7 @@
                     <option value="stepfun">阶跃星辰</option>
                     <option value="mistral">Mistral AI</option>
                     <option value="ollama">Ollama</option>
+                    <option value="embedding">嵌入式</option>
                     <option value="custom">自定义</option>
                   </select>
                 </div>
@@ -418,7 +429,7 @@
                   <label>模型选择</label>
                   <div class="model-actions">
                     <!-- 自定义类型、Gemini 时显示输入框 -->
-                    <template v-if="model.provider === 'custom' || model.provider === 'gemini'">
+                    <template v-if="model.provider === 'custom' || model.provider === 'gemini' || model.provider === 'embedding'">
                       <input 
                         v-model="model.modelId"
                         :placeholder="model.provider === 'gemini' ? 'gemini-pro' : '输入模型ID'"
@@ -618,8 +629,9 @@ import { showToastMessage, detectContentType, splitContent } from './utils/commo
 import { dataService } from './utils/services/dataService'
 import { debugLog, setDebugMode } from './utils/debug'
 import AIDetector from './components/AIDetector.vue'
+import KnowledgeBase from './components/KnowledgeBase.vue'
 
-setDebugMode(false)
+setDebugMode(true)
 
 // 添加版本号
 const version = __APP_VERSION__
@@ -1052,7 +1064,8 @@ const PROVIDERS = {
   OPENAI: 'openai',
   GEMINI: 'gemini',
   OLLAMA: 'ollama',
-  CUSTOM: 'custom'  // 添加自定义类型
+  CUSTOM: 'custom',
+  EMBEDDING: 'embedding'
 }
 
 // 修改发送提示词请求的方法
@@ -1212,9 +1225,22 @@ const deleteModel = (id) => {
 }
 
 const saveModels = async () => {
-  showToast('保存成功！')
-  dataService.saveToLocalStorage('models', models.value)
-  await loadAllData()
+  try {
+    // 1. 首先保存到本地存储
+    dataService.saveToLocalStorage('models', models.value)
+    
+    // 2. 同步到后端
+    await dataService.saveAllData({
+      config: {
+        models: models.value
+      }
+    })
+    
+    showToast('模型配置保存成功')
+  } catch (error) {
+    console.error('保存模型失败:', error)
+    showToast('保存模型失败: ' + error.message, 'error')
+  }
 }
 
 const saveScenes = async () => {
@@ -1292,14 +1318,14 @@ const fetchModelList = async (model) => {
 
 // 修改创建默认模型的方法，添加自定义类型
 const createDefaultModel = () => ({
-  id: Date.now(),
-  name: '',
+  id: Date.now().toString(), // 确保 ID 是字符串类型
+  name: '新模型',
+  provider: 'custom',
   apiUrl: '',
-  modelId: '',  // 自定义类型时手动填写
   apiKey: '',
+  modelId: '',
   maxTokens: 512,
   temperature: 0.7,
-  provider: 'custom', // 默认使用自定义类型
   availableModels: [],
   organizationId: ''
 })

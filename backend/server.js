@@ -355,9 +355,15 @@ const ModelService = {
 const APIDocService = {
   routes: [],
 
-  // 注册路由
-  registerRoute(method, path, description) {
-    this.routes.push({ method, path, description })
+  // 注册路由，增加参数和响应的文档
+  registerRoute(method, path, description, params = [], responses = {}) {
+    this.routes.push({
+      method,
+      path,
+      description,
+      params,
+      responses
+    })
   },
 
   // 获取所有路由信息
@@ -368,36 +374,226 @@ const APIDocService = {
   // 初始化所有路由文档
   initializeDocs() {
     // 健康检查
-    this.registerRoute('GET', '/health', '服务器健康检查')
-    this.registerRoute('GET', '/api/test', '测试API服务器是否正常工作')
-    
-    // 调试路由
-    this.registerRoute('GET', '/api/debug/config', '查看当前配置')
-    
+    this.registerRoute('GET', '/health', '服务器健康检查',
+      [],
+      { 
+        200: { status: 'ok' }
+      }
+    )
+
     // 数据加载路由
-    this.registerRoute('GET', '/api/load-scenes', '加载场景数据')
-    this.registerRoute('GET', '/api/load-prompts', '加载提示词数据')
-    this.registerRoute('GET', '/api/load-tags', '加载标签数据')
-    this.registerRoute('GET', '/api/load-config', '加载配置数据')
-    this.registerRoute('GET', '/api/get-all-data', '获取所有数据')
-    
-    // 数据保存路由
-    this.registerRoute('POST', '/api/save-scenes', '保存场景数据')
-    this.registerRoute('POST', '/api/save-prompts', '保存提示词数据')
-    this.registerRoute('POST', '/api/save-tags', '保存标签数据')
-    this.registerRoute('POST', '/api/save-config', '保存配置数据')
-    this.registerRoute('POST', '/api/sync-data', '同步所有数据')
-    
+    this.registerRoute('GET', '/api/get-all-data', '获取所有数据',
+      [],
+      {
+        200: {
+          success: true,
+          data: {
+            scenes: 'Scene[]',
+            prompts: 'Prompt[]',
+            tags: 'Tag[]',
+            agents: 'Agent[]',
+            config: {
+              models: 'Model[]',
+              notepadContent: 'string',
+              currentSceneId: 'string|null',
+              selectedTags: 'string[]',
+              currentView: 'string'
+            }
+          }
+        }
+      }
+    )
+
+    // 数据同步路由
+    this.registerRoute('POST', '/api/sync-data', '同步所有数据',
+      [{
+        name: 'body',
+        type: 'object',
+        required: true,
+        schema: {
+          scenes: 'Scene[]',
+          prompts: 'Prompt[]',
+          tags: 'Tag[]',
+          config: 'Config',
+          agents: 'Agent[]'
+        }
+      }],
+      {
+        200: { success: true },
+        500: { success: false, error: 'string' }
+      }
+    )
+
+    // AI 检测路由
+    this.registerRoute('POST', '/api/detect-ai-text', 'AI文本检测',
+      [{
+        name: 'body',
+        type: 'object',
+        required: true,
+        schema: {
+          text: 'string'
+        }
+      }],
+      {
+        200: {
+          success: true,
+          data: {
+            isAIGenerated: 'boolean',
+            confidence: 'number'
+          }
+        }
+      }
+    )
+
+    this.registerRoute('POST', '/api/detect-ai-file', 'AI文件检测',
+      [{
+        name: 'file',
+        type: 'file',
+        required: true,
+        maxSize: '50MB'
+      }],
+      {
+        200: {
+          success: true,
+          data: {
+            isAIGenerated: 'boolean',
+            confidence: 'number'
+          }
+        }
+      }
+    )
+
+    // 书籍处理路由
+    this.registerRoute('POST', '/api/split-book', '上传并分割书籍文件',
+      [{
+        name: 'file',
+        type: 'file',
+        required: true,
+        maxSize: '50MB'
+      }],
+      {
+        200: {
+          success: true,
+          data: {
+            chapters: [{
+              title: 'string',
+              content: 'string',
+              chapterNumber: 'number'
+            }]
+          }
+        }
+      }
+    )
+
     // 代理相关路由
-    this.registerRoute('GET', '/api/agents', '获取所有代理')
-    this.registerRoute('GET', '/api/agents/:id', '获取特定代理')
-    this.registerRoute('POST', '/api/agents', '创建或更新代理')
-    
+    this.registerRoute('GET', '/api/agents', '获取所有代理',
+      [],
+      {
+        200: {
+          success: true,
+          data: 'Agent[]'
+        }
+      }
+    )
+
+    this.registerRoute('GET', '/api/agents/:id', '获取特定代理',
+      [{
+        name: 'id',
+        type: 'string',
+        required: true,
+        in: 'path'
+      }],
+      {
+        200: {
+          success: true,
+          data: 'Agent'
+        },
+        404: {
+          success: false,
+          error: 'Agent not found'
+        }
+      }
+    )
+
+    this.registerRoute('POST', '/api/agents', '创建或更新代理',
+      [{
+        name: 'body',
+        type: 'object',
+        required: true,
+        schema: {
+          id: 'string?',
+          name: 'string',
+          description: 'string',
+          // 其他代理属性...
+        }
+      }],
+      {
+        200: {
+          success: true,
+          data: 'Agent'
+        }
+      }
+    )
+
+    // 数据加载路由
+    const dataRoutes = [
+      { path: '/api/load-scenes', desc: '加载场景数据', type: 'Scene[]' },
+      { path: '/api/load-prompts', desc: '加载提示词数据', type: 'Prompt[]' },
+      { path: '/api/load-tags', desc: '加载标签数据', type: 'Tag[]' },
+      { path: '/api/load-config', desc: '加载配置数据', type: 'Config' },
+      { path: '/api/load-book-scenes', desc: '加载书籍场景数据', type: 'BookScene[]' }
+    ]
+
+    dataRoutes.forEach(route => {
+      this.registerRoute('GET', route.path, route.desc,
+        [],
+        {
+          200: {
+            success: true,
+            data: route.type
+          }
+        }
+      )
+    })
+
+    // 数据保存路由
+    const saveRoutes = [
+      { path: '/api/save-scenes', desc: '保存场景数据', type: 'Scene[]' },
+      { path: '/api/save-prompts', desc: '保存提示词数据', type: 'Prompt[]' },
+      { path: '/api/save-tags', desc: '保存标签数据', type: 'Tag[]' },
+      { path: '/api/save-config', desc: '保存配置数据', type: 'Config' },
+      { path: '/api/save-book-scenes', desc: '保存书籍场景数据', type: 'BookScene[]' }
+    ]
+
+    saveRoutes.forEach(route => {
+      this.registerRoute('POST', route.path, route.desc,
+        [{
+          name: 'body',
+          type: route.type,
+          required: true
+        }],
+        {
+          200: { success: true },
+          500: { success: false, error: 'string' }
+        }
+      )
+    })
+
     // 模型相关路由
-    this.registerRoute('GET', '/api/models', '获取所有可用模型')
-    
-    // 文件处理路由
-    this.registerRoute('POST', '/api/split-book', '上传并分割书籍文件')
+    this.registerRoute('GET', '/api/models', '获取所有可用模型',
+      [],
+      {
+        200: {
+          success: true,
+          data: [{
+            id: 'string',
+            name: 'string',
+            provider: 'string',
+            modelId: 'string'
+          }]
+        }
+      }
+    )
   }
 }
 

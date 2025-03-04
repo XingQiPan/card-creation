@@ -54,8 +54,20 @@ export class DataService {
         }
       })
 
+      // 准备同步到后端的数据
+      const syncData = {
+        ...data,
+        // 确保加载现有的数据
+        models: data.models || this.loadFromLocalStorage('models', []),
+        knowledgeBases: data.knowledgeBases || this.loadFromLocalStorage('knowledgeBases', []),
+        config: {
+          ...this.loadFromLocalStorage('config', {}),
+          ...(data.config || {})
+        }
+      }
+
       // 同步到后端
-      await this.syncToBackend(data)
+      await this.syncToBackend(syncData)
     } catch (error) {
       console.error('保存数据失败:', error)
       throw error
@@ -70,6 +82,8 @@ export class DataService {
         scenes: this.loadFromLocalStorage('scenes', []),
         prompts: this.loadFromLocalStorage('prompts', []),
         tags: this.loadFromLocalStorage('tags', []),
+        models: this.loadFromLocalStorage('models', []),
+        knowledgeBases: this.loadFromLocalStorage('knowledgeBases', []),
         config: this.loadFromLocalStorage('config', {})
       }
 
@@ -126,6 +140,7 @@ export class DataService {
       prompts: [],
       tags: [],
       scenes: [],
+      knowledgeBases: [],
       config: {}
     }
 
@@ -137,6 +152,11 @@ export class DataService {
         maxTokens: model.maxTokens || 512,
         temperature: model.temperature || 0.7
       }))
+    }
+
+    // 处理知识库数据
+    if (Array.isArray(backendData.knowledgeBases)) {
+      processedData.knowledgeBases = backendData.knowledgeBases
     }
 
     // 处理其他数据
@@ -164,6 +184,7 @@ export class DataService {
 
     // 保存到本地存储作为备份
     this.saveToLocalStorage('models', processedData.models)
+    this.saveToLocalStorage('knowledgeBases', processedData.knowledgeBases)
     this.saveToLocalStorage('prompts', processedData.prompts)
 
     return processedData
@@ -179,6 +200,7 @@ export class DataService {
         temperature: model.temperature || 0.7
       }))
 
+      const knowledgeBases = this.loadFromLocalStorage('knowledgeBases', [])
       const prompts = this.loadFromLocalStorage('prompts', [])
       const tags = this.loadFromLocalStorage('tags', [])
       const scenes = this.loadFromLocalStorage('scenes', [])
@@ -188,7 +210,7 @@ export class DataService {
         notepadContent: ''
       })
 
-      return { models, prompts, tags, scenes, config }
+      return { models, knowledgeBases, prompts, tags, scenes, config }
     } catch (error) {
       console.error('从本地备份加载失败:', error)
       throw error

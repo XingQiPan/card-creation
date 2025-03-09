@@ -19,6 +19,7 @@ const buildRequestBody = (model, messages, context = []) => {
   // 限制最大 token 为 16k
   const MAX_TOKENS = 16000
 
+  
   // 获取模型设置的 maxTokens，如果超过限制则使用限制值
   const maxTokens = Math.min(Number(model.maxTokens) || 2048, MAX_TOKENS)
 

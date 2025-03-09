@@ -837,7 +837,12 @@ const processWithAPI = async (card, prompt, scene) => {
 
 // 导出结果
 const exportResults = (scene) => {
-  const exportData = {
+  if (!scene || !scene.resultCards.length) {
+    showToast('没有可导出的结果主人~', 'warning')
+    return
+  }
+
+  const exportContent = {
     original: scene.originalCards.map(card => ({
       chapterNumber: card.chapterNumber,
       title: card.title,
@@ -851,7 +856,11 @@ const exportResults = (scene) => {
     }))
   }
   
-  exportData(exportData, 'book-processing-results')
+  // 使用从 useCommon 解构出来的 exportData 函数
+  exportData(
+    exportContent, 
+    `book-processing-results-${formatTime(new Date())}.json`
+  )
 }
 
 // 导入结果

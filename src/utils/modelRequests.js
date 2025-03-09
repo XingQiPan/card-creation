@@ -142,10 +142,16 @@ export const sendToModel = async (
       const genModel = genAI.getGenerativeModel({ model: model.modelId });
             
       // Convert context and messages to Gemini format
-      const history = [...context, ...messages].map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }]
-      }));
+      const history = [
+        {
+          role: 'user',
+          parts: [{ text: promptTemplate }]
+        },
+        {
+          role: 'model',
+          parts: [{ text: '好的，我已理解系统提示。' }]
+        }
+      ];
 
       const chat = genModel.startChat({
         history: history,

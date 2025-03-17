@@ -22,8 +22,8 @@
 - 🔍 AI检测：支持AI检测，（检测文本是否由AI生成，目前支持roberta-large-openai-detector模型，效果和朱雀相差较大，但勉强能用，若有好模型可以推荐下）【目前是test分支支持模型判断，main分支支持简单算法判断，还未优化】
 
 # 版本更新内容:
-<details>
-<summary open>0.9.3.3</summary>
+<details open>
+<summary>0.9.3.3</summary>
 
 - 修复了流式输出（Gemini，自定义(智谱api)，openai(硅基流动)，ollama）
 - 修复了导入提示词会报错的bug

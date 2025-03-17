@@ -267,11 +267,12 @@
 import { ref, computed, onMounted, nextTick, watch, onUnmounted } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { showToastMessage, detectContentType, splitContent } from '../utils/common'
+import { showToastMessage, detectContentType, splitContent, showToast } from '../utils/common'
 import { useCommon } from '../utils/composables/useCommon'
 import { sendToModel } from '../utils/modelRequests'
 import { chatService } from '../utils/services/chatService'
 import { debugLog } from '../utils/debug'
+import { dataService } from '../utils/services/dataService'
 
 // Props 定义
 const props = defineProps({
@@ -426,7 +427,7 @@ const getKeywordContent = (keyword) => {
 }
 
 // 修改创建新对话的函数
-const createNewChat = () => {
+const createNewChat = async () => {
   const newChat = {
     id: Date.now(),
     title: '新对话',
@@ -439,17 +440,17 @@ const createNewChat = () => {
   
   chatSessions.value.push(newChat)
   currentChatId.value = newChat.id
-  saveSessions()
+  await saveSessions()
 }
 
 // 删除对话
-const deleteChat = (id) => {
+const deleteChat = async (id) => {
   if (confirm('确定要删除这个对话吗？')) {
     chatSessions.value = chatSessions.value.filter(c => c.id !== id)
     if (currentChatId.value === id) {
       currentChatId.value = chatSessions.value[0]?.id || null
     }
-    saveSessions()
+    await saveSessions()
   }
 }
 
@@ -642,7 +643,7 @@ const abortRequest = () => {
       showToastMessage('已终止回答', 'success')
       
       // 保存会话状态
-      chatService.saveChatSessions(chatSessions.value)
+      saveSessions()
     }
   } catch (error) {
     console.error('终止请求失败:', error)
@@ -685,9 +686,18 @@ const scrollToBottom = () => {
   }
 }
 
-// 保存会话到本地存储
-const saveSessions = () => {
-  localStorage.setItem('chatSessions', JSON.stringify(chatSessions.value))
+// 修改保存会话的方法，使用 dataService
+const saveSessions = async () => {
+  try {
+    // 使用 dataService 保存聊天会话
+    await dataService.saveItem('chatSessions', chatSessions.value);
+    // 成功保存后不需要再保存到本地存储
+  } catch (error) {
+    console.error('保存聊天会话失败:', error);
+    showToast('保存聊天会话失败: ' + error.message, 'error');
+    // 如果 API 保存失败，至少保存到本地存储作为备份
+    localStorage.setItem('chatSessions', JSON.stringify(chatSessions.value));
+  }
 }
 
 // 监听消息变化，自动滚动
@@ -702,18 +712,87 @@ watch(() => props.scenes, (newScenes) => {
   //console.log("scenes changed:", newScenes)
 }, { deep: true })
 
-// 初始化
-onMounted(() => {
-  const sessions = chatService.loadChatSessions()
-  if (sessions.length > 0) {
-    chatSessions.value = sessions
-    currentChatId.value = sessions[0].id
-  } else {
-    const newChat = chatService.createNewChat()
-    chatSessions.value.push(newChat)
-    currentChatId.value = newChat.id
+// 修改 onMounted 钩子，使用 dataService 加载数据
+onMounted(async () => {
+  try {
+    // 使用 dataService 加载聊天会话
+    const data = await dataService.loadAllData();
+    
+    if (data.chatSessions && Array.isArray(data.chatSessions)) {
+      chatSessions.value = data.chatSessions;
+      currentChatId.value = data.chatSessions[0]?.id || null;
+      // 将本地数据同步到后端
+      await dataService.saveItem('chatSessions', data.chatSessions);
+    } else {
+      // 如果后端没有数据，尝试从本地存储加载
+      const savedSessions = localStorage.getItem('chatSessions');
+      if (savedSessions) {
+        try {
+          const sessions = JSON.parse(savedSessions);
+          if (Array.isArray(sessions) && sessions.length > 0) {
+            chatSessions.value = sessions;
+            currentChatId.value = sessions[0].id;
+            // 将本地数据同步到后端
+            await dataService.saveItem('chatSessions', sessions);
+          } else {
+            createDefaultChat();
+          }
+        } catch (e) {
+          console.error('解析本地聊天会话失败:', e);
+          createDefaultChat();
+        }
+      } else {
+        createDefaultChat();
+      }
+    }
+  } catch (error) {
+    console.error('加载聊天会话失败:', error);
+    
+    // 从本地存储加载作为备份
+    const savedSessions = localStorage.getItem('chatSessions');
+    if (savedSessions) {
+      try {
+        const sessions = JSON.parse(savedSessions);
+        if (Array.isArray(sessions) && sessions.length > 0) {
+          chatSessions.value = sessions;
+          currentChatId.value = sessions[0].id;
+        } else {
+          createDefaultChat();
+        }
+      } catch (e) {
+        console.error('解析本地聊天会话失败:', e);
+        createDefaultChat();
+      }
+    } else {
+      createDefaultChat();
+    }
   }
-})
+});
+
+// 修改创建默认聊天的辅助函数
+const createDefaultChat = async () => {
+  const newChat = {
+    id: Date.now(),
+    title: '新对话',
+    messages: [],
+    modelId: '',
+    promptId: '',
+    enableKeywords: false,
+    historyTurns: 20
+  };
+  
+  chatSessions.value = [newChat];
+  currentChatId.value = newChat.id;
+  
+  // 保存到后端
+  try {
+    await dataService.saveItem('chatSessions', chatSessions.value);
+  } catch (error) {
+    console.error('保存默认聊天会话失败:', error);
+    // 保存到本地存储作为备份
+    localStorage.setItem('chatSessions', JSON.stringify(chatSessions.value));
+  }
+}
 
 // 添加消息编辑相关方法
 const editMessage = (msg) => {
@@ -721,11 +800,11 @@ const editMessage = (msg) => {
   msg.editContent = msg.content
 }
 
-const saveMessageEdit = (msg) => {
+const saveMessageEdit = async (msg) => {
   msg.content = msg.editContent
   msg.isEditing = false
   delete msg.editContent
-  saveSessions()
+  await saveSessions()
 }
 
 const cancelMessageEdit = (msg) => {
@@ -733,12 +812,12 @@ const cancelMessageEdit = (msg) => {
   delete msg.editContent
 }
 
-// 添加删除消息方法
-const deleteMessage = (msgId) => {
+// 修改删除消息方法
+const deleteMessage = async (msgId) => {
   if (!confirm('确定要删除这条消息吗？')) return
   
   currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== msgId)
-  saveSessions()
+  await saveSessions()
 }
 
 // 切换关键词内容显示
@@ -912,7 +991,7 @@ const resendMessage = async (msg) => {
     }
 
     currentChat.value.messages.push(assistantMessage)
-    saveSessions()
+    await saveSessions()
 
     await nextTick()
     scrollToBottom()
@@ -923,7 +1002,7 @@ const resendMessage = async (msg) => {
     showToastMessage(error.message, 'error')
     // 发送失败时移除刚才添加的用户消息
     currentChat.value.messages.pop()
-    saveSessions()
+    await saveSessions()
   } finally {
     isRequesting.value = false
     abortController.value = null
@@ -958,23 +1037,36 @@ const splitSection = (index) => {
   showToastMessage('段落已拆分主人~')
 }
 
-// 添加导出和导入方法
+// 修改导出和导入方法
 const exportChatSessions = () => {
   exportData(chatSessions.value, 'chat-sessions')
 }
 
-const importChatSessions = (event) => {
-  const file = event.target.files[0]
-  if (!file) return
+// 修改导入方法，使用 dataService
+const importChatSessions = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
   
-  importData(file, (importedData) => {
-    chatSessions.value = importedData
-    saveToStorage('chatSessions', importedData)
-    if (importedData.length > 0) {
-      currentChatId.value = importedData[0].id
+  importData(file, async (importedData) => {
+    try {
+      // 先保存到后端
+      await dataService.saveItem('chatSessions', importedData);
+      // 成功后更新本地状态
+      chatSessions.value = importedData;
+      showToastMessage('聊天记录导入成功', 'success');
+    } catch (error) {
+      console.error('保存导入的聊天会话失败:', error);
+      // 保存到本地存储作为备份
+      localStorage.setItem('chatSessions', JSON.stringify(importedData));
+      chatSessions.value = importedData;
+      showToastMessage('聊天记录已导入到本地（后端保存失败）', 'warning');
     }
-  })
-  event.target.value = ''
+    
+    if (importedData.length > 0) {
+      currentChatId.value = importedData[0].id;
+    }
+  });
+  event.target.value = '';
 }
 
 // 添加格式化实时计时的方法
@@ -987,15 +1079,15 @@ const formatElapsedTime = (ms) => {
   }
 }
 
-// 添加处理对话轮数变化的函数
-const handleHistoryTurnsChange = () => {
+// 修改处理对话轮数变化的函数
+const handleHistoryTurnsChange = async () => {
   if (currentChat.value) {
     // 确保值在合理范围内
     let turns = parseInt(currentChat.value.historyTurns)
     if (isNaN(turns) || turns < 1) turns = 1
     if (turns > 1000) turns = 1000
     currentChat.value.historyTurns = turns
-    saveSessions()
+    await saveSessions()
   }
 }
 

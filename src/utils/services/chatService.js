@@ -147,13 +147,11 @@ export class ChatService {
           throw new Error('Gemini API key not found')
         }
 
-       // console.log('Using API key:', apiKey)
         const { GoogleGenerativeAI } = await import("@google/generative-ai")
         const genAI = new GoogleGenerativeAI(apiKey)
         
         // 获取正确的模型 ID
         const modelId = model.parameters?.model || model.modelId || "gemini-1.5-pro"
-        //console.log('Using Gemini model:', modelId)
         
         const genModel = genAI.getGenerativeModel({ 
           model: modelId,
@@ -164,43 +162,64 @@ export class ChatService {
           }
         })
 
-        // 转换上下文格式
-        const history = [...(context || [])].map(msg => ({
-          role: msg.role === 'user' ? 'user' : 'model',
-          parts: [{ text: msg.content }]
-        }))
-
-        // 添加系统提示词
-        if (promptTemplate) {
-          history.unshift({
-            role: 'model',
-            parts: [{ text: promptTemplate }]
-          })
-        }
-
         try {
-          // 直接发送消息，不使用聊天历史
-          const result = await genModel.generateContentStream([
-            { text: processedContent }
-          ])
-
+          // 确保处理后的内容不为空
+          if (!processedContent || processedContent.trim() === '') {
+            processedContent = "请回答我的问题";
+          }
+          
+          // 参考 modelRequests.js 中的方法
+          // 创建初始历史，包含系统提示
+          let history = [];
+          
+          if (promptTemplate) {
+            console.log('为 Gemini 添加系统提示词:', promptTemplate.substring(0, 50) + '...');
+            history = [
+              {
+                role: 'user',
+                parts: [{ text: promptTemplate }]
+              },
+              {
+                role: 'model',
+                parts: [{ text: '好的，我已理解系统提示。' }]
+              }
+            ];
+          }
+          
+          // 创建聊天会话
+          const chat = genModel.startChat({
+            history: history,
+            generationConfig: {
+              maxOutputTokens: Number(model.parameters?.max_tokens) || 2048,
+              temperature: Number(model.parameters?.temperature) || 0.7
+            }
+          });
+          
+          console.log('发送到 Gemini 的用户内容:', processedContent.substring(0, 100) + '...');
+          
+          // 发送消息并获取流式响应
+          const result = await chat.sendMessageStream(processedContent);
+          
           for await (const chunk of result.stream) {
-            const chunkText = chunk.text()
+            const chunkText = chunk.text();
             if (chunkText) {
-              onChunk(chunkText)
+              onChunk(chunkText);
             }
           }
 
-          return { success: true }
+          return { success: true };
         } catch (error) {
-          console.error('Gemini API error:', error)
-          throw error
+          console.error('Gemini API error:', error);
+          throw error;
         }
       } else {
         // 确保使用正确的 endpoint
         if (!model.endpoint) {
           throw new Error('模型配置错误：未设置 endpoint')
         }
+        
+        // 确保提示词被正确传递
+        console.log('发送请求到模型，提示词:', promptTemplate ? promptTemplate.substring(0, 50) + '...' : '无');
         
         return await this.handleRegularStream(processedContent, {
           model,
@@ -225,7 +244,7 @@ export class ChatService {
   // 处理常规流式请求
   async handleRegularStream(content, { model, context, promptTemplate, onChunk }) {
     const endpoint = model.endpoint
-    //console.log('Using endpoint:', endpoint)
+    console.log('提示词模板:', promptTemplate ? '已设置' : '未设置')
 
     if (!endpoint) {
       throw new Error('模型配置错误：未设置 endpoint')
@@ -238,12 +257,27 @@ export class ChatService {
     }
 
     // 处理上下文和提示词
-    let finalContext = context
+    let finalContext = [...context]  // 创建上下文的副本
     if (promptTemplate) {
+      // 将系统提示词添加到上下文的开头
       finalContext = [
         { role: 'system', content: promptTemplate },
-        ...context
+        ...finalContext
       ]
+      console.log('已添加系统提示词到请求:', promptTemplate.substring(0, 50) + '...');
+    }
+
+    // 检查 API URL 是否包含 siliconflow
+    const isSiliconFlow = (model.apiUrl && model.apiUrl.includes('siliconflow')) || 
+                          (endpoint && endpoint.includes('siliconflow'));
+    
+    // 设置安全的 max_tokens 值
+    let maxTokens = Number(model.parameters?.max_tokens) || 2048;
+    
+    // 针对 siliconflow API 特殊处理
+    if (isSiliconFlow) {
+      // 对于 siliconflow API，强制限制为 4000 (略小于4096以确保安全)
+      maxTokens = Math.min(maxTokens, 4000);
     }
 
     // 根据不同的提供商构建请求体
@@ -263,7 +297,7 @@ export class ChatService {
         requestBody = {
           ...requestBody,
           model: model.modelId,
-          max_tokens: Number(model.parameters?.max_tokens) || 2048,
+          max_tokens: maxTokens,
           temperature: Number(model.parameters?.temperature) || 0.7
         }
         break
@@ -274,15 +308,16 @@ export class ChatService {
           stream: true,
           options: {
             temperature: Number(model.parameters?.temperature) || 0.7,
-            max_tokens: Number(model.parameters?.max_tokens) || 2048
+            max_tokens: maxTokens
           }
         }
         break
       default:
-        // 对于其他提供商，使用通用参数
+        // 对于其他提供商，使用通用参数但确保 max_tokens 在安全范围内
         requestBody = {
           ...requestBody,
-          ...model.parameters
+          ...model.parameters,
+          max_tokens: maxTokens
         }
     }
 
@@ -292,52 +327,111 @@ export class ChatService {
       body: JSON.stringify(requestBody),
       signal: this.abortController?.signal
     }
-    debugLog('model', model)
-    debugLog('url', formatApiUrl(model))
+    
+    // 添加更详细的日志
+    debugLog('model', model);
+    debugLog('url', formatApiUrl(model));
+    debugLog('请求体:', {
+      modelId: requestBody.model,
+      max_tokens: requestBody.max_tokens,
+      isSiliconFlow: isSiliconFlow,
+      messageCount: requestBody.messages.length,
+      hasSystemPrompt: finalContext.length > context.length
+    });
+    
     const response = await fetch(formatApiUrl(model), requestConfig)
-
+    debugLog('response', response);
     if (!response.ok) {
       const errorText = await response.text().catch(() => '未知错误')
       throw new Error(`请求失败 (${response.status}): ${errorText}`)
     }
 
     const reader = response.body.getReader()
+    debugLog('reader', reader);
     const decoder = new TextDecoder()
     let buffer = ''
 
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
+    // 特殊处理 Ollama 的响应
+    if (model.provider === 'ollama') {
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
 
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop()
-
-      for (const line of lines) {
-        if (line.trim() === '') continue
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6)
-          if (data === '[DONE]') continue
-          try {
-            const chunk = JSON.parse(data)
-            // 根据不同的提供商解析响应
-            let content = ''
-            if (model.provider === 'ollama') {
-              content = chunk.message?.content || ''
-            } else {
-              content = chunk.choices?.[0]?.delta?.content || ''
+          const chunk = decoder.decode(value, { stream: true })
+          buffer += chunk
+          
+          // 按行分割
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''  // 保留最后一个不完整的行
+          
+          for (const line of lines) {
+            if (line.trim() === '') continue
+            
+            try {
+              const data = JSON.parse(line)
+              if (data.message?.content) {
+                onChunk(data.message.content)
+              }
+            } catch (e) {
+              console.warn('解析 Ollama 数据块失败:', e, line)
             }
-            if (content) {
-              onChunk(content)
+          }
+        }
+        
+        // 处理缓冲区中剩余的数据
+        if (buffer.trim()) {
+          try {
+            const data = JSON.parse(buffer)
+            if (data.message?.content) {
+              onChunk(data.message.content)
             }
           } catch (e) {
-            console.warn('解析数据块失败:', e)
+            console.warn('解析 Ollama 最后数据块失败:', e)
+          }
+        }
+        
+        return { success: true }
+      } catch (error) {
+        console.error('Ollama 流式处理失败:', error)
+        throw error
+      }
+    } else {
+      // 原有的处理逻辑
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
+
+        for (const line of lines) {
+          if (line.trim() === '') continue
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') continue
+            try {
+              const chunk = JSON.parse(data)
+              // 根据不同的提供商解析响应
+              let content = ''
+              if (model.provider === 'ollama') {
+                content = chunk.message?.content || ''
+              } else {
+                content = chunk.choices?.[0]?.delta?.content || ''
+              }
+              if (content) {
+                onChunk(content)
+              }
+            } catch (e) {
+              console.warn('解析数据块失败:', e)
+            }
           }
         }
       }
-    }
 
-    return { success: true }
+      return { success: true }
+    }
   }
 }
 

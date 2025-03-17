@@ -277,6 +277,7 @@ import { openDB } from 'idb'
 import { useCommon } from '../utils/composables/useCommon'
 import { showToast } from '../utils/common'
 import { sendToModel } from '../utils/modelRequests'
+import { dataService } from '../utils/services/dataService'
 
 // 定义 props
 const props = defineProps({
@@ -531,30 +532,40 @@ const currentScene = computed(() => {
 // 修改 saveScenes 方法
 const saveScenes = createDebounce(async () => {
   try {
-    // 序列化场景数据用于后端保存
-    const serializedScenes = scenes.value.map(scene => DataSerializer.serializeScene(scene))
+    // 序列化场景数据用于保存
+    const serializedScenes = scenes.value.map(scene => DataSerializer.serializeScene(scene));
 
-    // 保存到后端
-    const response = await fetch('http://localhost:3000/api/save-book-scenes', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(serializedScenes)
-    })
-
-    if (!response.ok) {
-      throw new Error('保存到服务器失败')
-    }
-
-    // 保存到 IndexedDB
-    await DBUtils.saveData(scenes.value)
-    showToast('保存成功主人~', 'success')
+    // 使用 dataService 保存到后端
+    await dataService.saveItem('bookScenes', serializedScenes);
+    
+    // 保存到 IndexedDB 作为备份
+    await DBUtils.saveData(scenes.value);
+    
+    showToast('保存成功主人~', 'success');
   } catch (error) {
-    console.error('保存场景失败:', error)
-    showToast('保存场景失败主人~，请重试', 'error')
+    console.error('保存场景失败:', error);
+    
+    // 如果 dataService 保存失败，尝试直接调用 API
+    try {
+      const response = await fetch('http://localhost:3000/api/save-book-scenes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(serializedScenes)
+      });
+
+      if (!response.ok) {
+        throw new Error('保存到服务器失败');
+      }
+      
+      showToast('保存成功主人~', 'success');
+    } catch (backupError) {
+      console.error('备份保存也失败:', backupError);
+      showToast('保存场景失败主人~，请重试', 'error');
+    }
   }
-}, 500)
+}, 500);
 
 // 修改清空所有场景的方法
 const clearAllScenes = async () => {

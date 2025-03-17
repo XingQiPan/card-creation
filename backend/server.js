@@ -222,64 +222,63 @@ const RouteHandler = {
   }
 }
 
-// 添加章节分割函数
-const splitIntoChapters = (text) => {
-  const chapters = []
-  const lines = text.split('\n')
-  let currentChapter = {
-    title: '',
-    content: []
-  }
-  
-  // 章节匹配模式
-  const chapterPatterns = [
-    /^第[一二三四五六七八九十百千]+[章节]/,
-    /^第\d+[章节]/,
-    /^[一二三四五六七八九十][、.．]/,
-    /^[（(]\d+[)）]/,
-    /^#+\s+/
-  ]
-  
-  const isChapterTitle = (line) => {
-    const trimmedLine = line.trim()
-    if (trimmedLine.length > 100) return false
-    return chapterPatterns.some(pattern => pattern.test(trimmedLine))
-  }
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line) continue
 
-    if (isChapterTitle(line)) {
-      if (currentChapter.title && currentChapter.content.length > 0) {
-        chapters.push({
-          ...currentChapter,
-          content: currentChapter.content.join('\n')
-        })
-      }
-      currentChapter = {
-        title: line,
-        content: []
-      }
-    } else if (currentChapter.title) {
-      currentChapter.content.push(line)
-    } else {
-      currentChapter.title = '引言'
-      currentChapter.content.push(line)
-    }
-  }
+function splitIntoChapters(book) {
+  const chapters = [];
+  const bookData = [];
   
-  // 保存最后一章
-  if (currentChapter.title && currentChapter.content.length > 0) {
-    chapters.push({
-      ...currentChapter,
-      content: currentChapter.content.join('\n')
-    })
-  }
+  // 辅助函数：转义正则特殊字符
+  const regexEscape = str => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // 匹配中文数字章节 (第X章)
+  let b = book.match(/^第[零一两二三四五六七八九十百千万亿\d]+章.*/gm) || [];
+
+
   
-  return chapters
+  // 去重并排序（保持原始顺序）
+  b = [...new Set(b)].sort((a, b) => 
+      book.indexOf(a) - book.indexOf(b)
+  );
+
+  // 处理章节内容
+  for (let i = 0; i < b.length; i++) {
+      let content;
+      if (i < b.length - 1) {
+          // 构建两个标题之间的正则表达式
+          const start = regexEscape(b[i]);
+          const end = regexEscape(b[i + 1]);
+          const pattern = new RegExp(`${start}([\\s\\S]*?)${end}`, 'm');
+          
+          // 提取中间内容
+          const match = book.match(pattern);
+          content = match ? match[1].trim() : '';
+      } else {
+          // 处理最后一章：从标题开始到文本结束
+          const pattern = new RegExp(`${regexEscape(b[i])}([\\s\\S]*)`, 'm');
+          const match = book.match(pattern);
+          content = match ? match[1].trim() : '';
+      }
+
+      // 修复原Python代码中的错误：原代码写死用 b[1] 作为标题
+      const currentChapter = {
+          title: b[i],      // 修正为当前标题
+          content: content
+      };
+      
+      chapters.push(currentChapter);
+      bookData.push(content);
+  }
+
+  // 如果没有找到章节，添加整个内容作为引言
+  if (chapters.length === 0) {
+      chapters.push({
+          title: "引言",
+          content: book.trim()
+      });
+  }
+
+  return chapters;
 }
-
 // 修改文件处理服务
 const FileProcessingService = {
   async processBookFile(file) {
@@ -669,58 +668,48 @@ app.get('/health', (req, res) => {
 // 添加新的数据同步路由
 app.post('/api/sync-data', async (req, res) => {
   try {
-    const { scenes, prompts, tags, config, agents } = req.body
-    
-    // 验证数据并提供默认值
-    const dataToSave = {
-      scenes: scenes || [],
-      prompts: prompts || [],
-      tags: tags || [],
-      config: {
-        models: config?.models || [],
-        notepadContent: config?.notepadContent || '',
-        currentSceneId: config?.currentSceneId || null,
-        selectedTags: config?.selectedTags || [],
-        currentView: config?.currentView || 'main'
-      },
-      agents: agents || []
-    }
-    
-    // 保存所有数据
-    const results = await Promise.all([
-      FileUtils.saveData(SCENES_FILE, dataToSave.scenes),
-      FileUtils.saveData(PROMPTS_FILE, dataToSave.prompts), 
-      FileUtils.saveData(TAGS_FILE, dataToSave.tags),
-      FileUtils.saveData(CONFIG_FILE, dataToSave.config),
-      FileUtils.saveData(AGENTS_FILE, dataToSave.agents)
-    ])
-
-    if(results.every(r => r)) {
-      res.json({ success: true })
-    } else {
-      throw new Error('部分数据保存失败')
-    }
+    // 保存数据到文件
+    const data = req.body;
+    await fs.promises.writeFile(
+      path.join(DATA_DIR, 'all-data.json'),
+      JSON.stringify(data, null, 2)
+    );
+    res.json({ success: true });
   } catch (error) {
-    console.error('数据同步错误:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message 
-    })
+    console.error('保存数据失败:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
-})
+});
 
-// 更新路由处理，使用封装的函数
 app.get('/api/get-all-data', async (req, res) => {
   try {
-    const data = DataManager.getAllData()
-    res.json({ success: true, data })
+    // 从文件加载数据
+    const filePath = path.join(DATA_DIR, 'all-data.json');
+    
+    // 检查文件是否存在
+    if (!fs.existsSync(filePath)) {
+      // 如果文件不存在，返回空数据结构
+      return res.json({
+        scenes: [],
+        prompts: [],
+        tags: [],
+        config: {
+          models: [],
+          notepadContent: '',
+          currentSceneId: null,
+          selectedTags: [],
+          currentView: 'main'
+        }
+      });
+    }
+    
+    const data = await fs.promises.readFile(filePath, 'utf8');
+    res.json(JSON.parse(data));
   } catch (error) {
-    res.status(500).json({
-      success: false, 
-      error: error.message
-    })
+    console.error('加载数据失败:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
-})
+});
 
 app.get('/api/agents/:id', (req, res) => {
   try {

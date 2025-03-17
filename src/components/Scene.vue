@@ -217,6 +217,7 @@ import { ref, computed, watch, onUnmounted, reactive } from 'vue'
 import draggable from 'vuedraggable'
 import { debugLog } from '../utils/debug'
 import { showToast } from '../utils/common'
+import { dataService } from '../utils/services/dataService'
 
 const props = defineProps({
   scene: {
@@ -288,8 +289,8 @@ const generateUUID = () => {
   })
 }
 
-// 修改卡片创建方法
-const createNewCard = () => {
+// 修改卡片创建方法，添加数据保存
+const createNewCard = async () => {
   if (!props.scene.cards) {
     props.scene.cards = []
   }
@@ -303,10 +304,31 @@ const createNewCard = () => {
     insertedContents: []
   }
   
-  emit('update:scene', {
+  // 更新场景
+  const updatedScene = {
     ...props.scene,
     cards: [...props.scene.cards, newCard]
-  })
+  }
+  
+  // 发出更新事件
+  emit('update:scene', updatedScene)
+  
+  // 保存数据
+  try {
+    // 获取所有场景
+    const allScenes = [...props.scenes]
+    // 找到当前场景的索引
+    const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
+    // 更新场景
+    if (sceneIndex !== -1) {
+      allScenes[sceneIndex] = updatedScene
+      // 保存到后端
+      await dataService.saveItem('scenes', allScenes)
+    }
+  } catch (error) {
+    console.error('保存卡片失败:', error)
+    showToast('保存卡片失败，但已在本地更新', 'warning')
+  }
 }
 
 // 优化卡片过滤方法
@@ -352,10 +374,29 @@ const handleDrop = async (event) => {
         props.scene.cards.push(newCard)
       }
       
-      emit('update:scene', {...props.scene})
+      // 更新场景
+      const updatedScene = {...props.scene}
+      emit('update:scene', updatedScene)
+      
+      // 保存数据
+      try {
+        // 获取所有场景
+        const allScenes = [...props.scenes]
+        // 找到当前场景的索引
+        const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
+        // 更新场景
+        if (sceneIndex !== -1) {
+          allScenes[sceneIndex] = updatedScene
+          // 保存到后端
+          await dataService.saveItem('scenes', allScenes)
+        }
+      } catch (error) {
+        console.error('保存导入的卡片失败:', error)
+        showToast('保存导入的卡片失败，但已在本地更新', 'warning')
+      }
     } catch (error) {
       console.error('文件导入错误:', error)
-      alert('文件导入失败: ' + error.message)
+      showToast('文件导入失败: ' + error.message, 'error')
     }
   }
 }
@@ -384,7 +425,7 @@ const startCardResize = (e, card) => {
 }
 
 // 标签相关方法
-const toggleCardTag = (card, tagId) => {
+const toggleCardTag = async (card, tagId) => {
   if (!card.tags) {
     card.tags = []
   }
@@ -394,7 +435,29 @@ const toggleCardTag = (card, tagId) => {
   } else {
     card.tags.splice(index, 1)
   }
+  
+  // 更新卡片
   emit('update-card', card)
+  
+  // 保存数据
+  try {
+    // 获取所有场景
+    const allScenes = [...props.scenes]
+    // 找到当前场景的索引
+    const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
+    // 更新场景中的卡片
+    if (sceneIndex !== -1) {
+      const cardIndex = allScenes[sceneIndex].cards.findIndex(c => c.id === card.id)
+      if (cardIndex !== -1) {
+        allScenes[sceneIndex].cards[cardIndex] = card
+        // 保存到后端
+        await dataService.saveItem('scenes', allScenes)
+      }
+    }
+  } catch (error) {
+    console.error('保存卡片标签失败:', error)
+    showToast('保存卡片标签失败，但已在本地更新', 'warning')
+  }
 }
 
 const showTagSelector = (card) => {
@@ -425,12 +488,41 @@ const closeMoveModal = () => {
 }
 
 // 移动卡片到选定场景
-const moveCardToScene = (card, targetScene) => {
+const moveCardToScene = async (card, targetScene) => {
   emit('move-card', {
     card,
     sourceSceneId: props.scene.id,
     targetSceneId: targetScene.id
   })
+  
+  // 保存数据
+  try {
+    // 获取所有场景
+    const allScenes = [...props.scenes]
+    // 找到源场景和目标场景
+    const sourceSceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
+    const targetSceneIndex = allScenes.findIndex(s => s.id === targetScene.id)
+    
+    if (sourceSceneIndex !== -1 && targetSceneIndex !== -1) {
+      // 从源场景中移除卡片
+      const cardIndex = allScenes[sourceSceneIndex].cards.findIndex(c => c.id === card.id)
+      if (cardIndex !== -1) {
+        const movedCard = allScenes[sourceSceneIndex].cards.splice(cardIndex, 1)[0]
+        // 添加到目标场景
+        if (!allScenes[targetSceneIndex].cards) {
+          allScenes[targetSceneIndex].cards = []
+        }
+        allScenes[targetSceneIndex].cards.push(movedCard)
+        
+        // 保存到后端
+        await dataService.saveItem('scenes', allScenes)
+      }
+    }
+  } catch (error) {
+    console.error('保存卡片移动失败:', error)
+    showToast('保存卡片移动失败，但已在本地更新', 'warning')
+  }
+  
   closeMoveModal()
 }
 
@@ -465,7 +557,7 @@ const toggleCardSelection = (card) => {
 }
 
 // 创建卡片关联
-const createCardLink = () => {
+const createCardLink = async () => {
   const [cardId1, cardId2] = selectedForLink.value
   const card1 = props.scene.cards.find(c => c.id === cardId1)
   const card2 = props.scene.cards.find(c => c.id === cardId2)
@@ -487,6 +579,30 @@ const createCardLink = () => {
     emit('update-card', card1)
     emit('update-card', card2)
 
+    // 保存数据
+    try {
+      // 获取所有场景
+      const allScenes = [...props.scenes]
+      // 找到当前场景的索引
+      const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
+      // 更新场景中的卡片
+      if (sceneIndex !== -1) {
+        const card1Index = allScenes[sceneIndex].cards.findIndex(c => c.id === card1.id)
+        const card2Index = allScenes[sceneIndex].cards.findIndex(c => c.id === card2.id)
+        
+        if (card1Index !== -1 && card2Index !== -1) {
+          allScenes[sceneIndex].cards[card1Index] = card1
+          allScenes[sceneIndex].cards[card2Index] = card2
+          
+          // 保存到后端
+          await dataService.saveItem('scenes', allScenes)
+        }
+      }
+    } catch (error) {
+      console.error('保存卡片关联失败:', error)
+      showToast('保存卡片关联失败，但已在本地更新', 'warning')
+    }
+
     // 退出关联模式
     isLinkMode.value = false
     selectedForLink.value = []
@@ -507,7 +623,7 @@ const getLinkedCards = (card) => {
 }
 
 // 取消单个卡片关联
-const unlinkCards = (card1, card2) => {
+const unlinkCards = async (card1, card2) => {
   // 移除相互关联
   if (card1.links) {
     card1.links = card1.links.filter(id => id !== card2.id)
@@ -519,6 +635,30 @@ const unlinkCards = (card1, card2) => {
   // 更新卡片
   emit('update-card', card1)
   emit('update-card', card2)
+  
+  // 保存数据
+  try {
+    // 获取所有场景
+    const allScenes = [...props.scenes]
+    // 找到当前场景的索引
+    const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
+    // 更新场景中的卡片
+    if (sceneIndex !== -1) {
+      const card1Index = allScenes[sceneIndex].cards.findIndex(c => c.id === card1.id)
+      const card2Index = allScenes[sceneIndex].cards.findIndex(c => c.id === card2.id)
+      
+      if (card1Index !== -1 && card2Index !== -1) {
+        allScenes[sceneIndex].cards[card1Index] = card1
+        allScenes[sceneIndex].cards[card2Index] = card2
+        
+        // 保存到后端
+        await dataService.saveItem('scenes', allScenes)
+      }
+    }
+  } catch (error) {
+    console.error('保存取消卡片关联失败:', error)
+    showToast('保存取消卡片关联失败，但已在本地更新', 'warning')
+  }
   
   showToast('已取消卡片关联')
 }
@@ -597,7 +737,21 @@ const deleteScene = async () => {
       }
     }
     
+    // 发出删除事件
     emit('delete-scene', props.scene.id)
+    
+    // 保存数据
+    try {
+      // 获取所有场景
+      const allScenes = [...props.scenes]
+      // 移除当前场景
+      const updatedScenes = allScenes.filter(s => s.id !== props.scene.id)
+      // 保存到后端
+      await dataService.saveItem('scenes', updatedScenes)
+    } catch (error) {
+      console.error('保存场景删除失败:', error)
+      showToast('保存场景删除失败，但已在本地更新', 'warning')
+    }
   } catch (error) {
     console.error('删除场景失败:', error)
     showToast(error.message, 'error')

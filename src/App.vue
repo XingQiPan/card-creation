@@ -916,14 +916,19 @@ const processKeywords = (text) => {
       keywordTags.some(tag => tag.id === tagId)
     )
 
-    // 检查文本中是否包含卡片标题
-    const titleIncluded = card.title && 
-      text.toLowerCase().includes(card.title.toLowerCase())
-      debugLog('titleIncluded', titleIncluded)
-      debugLog('text', text)
-      debugLog('card.title', card.title)
+    // 检查文本中是否包含卡片标题（改进匹配逻辑）
+    const titleIncluded = card.title && text.toLowerCase().includes(card.title.toLowerCase())
     
-    if (hasKeywordTag && titleIncluded) {
+    // 添加更多匹配条件：检查文本是否包含卡片内容中的关键句子
+    const contentKeywords = card.content ? extractKeyPhrases(card.content) : []
+    const contentMatched = contentKeywords.some(phrase => 
+      text.toLowerCase().includes(phrase.toLowerCase())
+    )
+    
+    debugLog('titleIncluded', titleIncluded)
+    debugLog('contentMatched', contentMatched)
+    
+    if ((hasKeywordTag && (titleIncluded || contentMatched)) || (titleIncluded && card.title.length > 3)) {
       // 收集关联卡片的内容
       const linkedContents = []
       
@@ -960,6 +965,19 @@ const processKeywords = (text) => {
         })
       }
     }
+  }
+
+  // 提取内容中的关键短语
+  const extractKeyPhrases = (content) => {
+    if (!content) return []
+    
+    // 分割成句子
+    const sentences = content.split(/[.!?。！？]/g)
+      .map(s => s.trim())
+      .filter(s => s.length > 5 && s.length < 100) // 过滤太短或太长的句子
+    
+    // 选择最有代表性的句子（这里简单实现，可以根据需要改进）
+    return sentences.slice(0, 5) // 取前5个句子作为关键短语
   }
 
   // 遍历所有场景和卡片
@@ -1154,63 +1172,97 @@ const sendPromptRequest = async (prompt) => {
   }
 }
 
-// 简化的文件导入处理
+// 改进导入提示词功能
 const importPrompts = async (event) => {
   const files = event.target.files
   if (!files.length) return
 
   try {
+    let importedCount = 0
+    
     for (const file of files) {
       let content = await file.text()
       
       if (file.name.endsWith('.json')) {
         try {
           const jsonData = JSON.parse(content)
-          const newPrompts = Array.isArray(jsonData) ? jsonData : [jsonData]
           
-          newPrompts.forEach(prompt => {
+          // 处理数组格式
+          if (Array.isArray(jsonData)) {
+            for (const item of jsonData) {
+              if (typeof item === 'object') {
+                prompts.value.push({
+                  id: Date.now() + Math.random(),
+                  title: item.title || file.name,
+                  systemPrompt: item.systemPrompt || '',
+                  userPrompt: item.userPrompt || item.template || item.content || '{{text}}',
+                  defaultModel: item.defaultModel || models.value[0]?.id || '',
+                  selectedModel: item.defaultModel || models.value[0]?.id || '',
+                  insertedContents: [],
+                  detectKeywords: item.detectKeywords !== false
+                })
+                importedCount++
+              }
+            }
+          } 
+          // 处理单个对象格式
+          else if (typeof jsonData === 'object') {
             prompts.value.push({
               id: Date.now() + Math.random(),
-              title: prompt.title || file.name,
-              systemPrompt: prompt.systemPrompt || '',
-              userPrompt: prompt.userPrompt || prompt.template || '{{text}}',
-              defaultModel: prompt.defaultModel || models.value[0]?.id || '',
+              title: jsonData.title || file.name,
+              systemPrompt: jsonData.systemPrompt || '',
+              userPrompt: jsonData.userPrompt || jsonData.template || jsonData.content || '{{text}}',
+              defaultModel: jsonData.defaultModel || models.value[0]?.id || '',
+              selectedModel: jsonData.defaultModel || models.value[0]?.id || '',
               insertedContents: [],
-              detectKeywords: prompt.detectKeywords ?? true
+              detectKeywords: jsonData.detectKeywords !== false
             })
-          })
+            importedCount++
+          }
         } catch (e) {
-          console.warn('JSON 解析失败，作为普通文本处理')
+          console.warn('JSON 解析失败，作为普通文本处理', e)
+          // 作为普通文本处理
           prompts.value.push({
             id: Date.now() + Math.random(),
             title: file.name,
-            systemPrompt: content.trim(),
-            userPrompt: '{{text}}',
+            systemPrompt: '',
+            userPrompt: content.trim(),
             defaultModel: models.value[0]?.id || '',
+            selectedModel: models.value[0]?.id || '',
             insertedContents: [],
             detectKeywords: true
           })
+          importedCount++
         }
       } else {
+        // 处理纯文本文件
         prompts.value.push({
           id: Date.now() + Math.random(),
           title: file.name,
-          systemPrompt: content.trim(),
-          userPrompt: '{{text}}',
+          systemPrompt: '',
+          userPrompt: content.trim(),
           defaultModel: models.value[0]?.id || '',
+          selectedModel: models.value[0]?.id || '',
           insertedContents: [],
           detectKeywords: true
         })
+        importedCount++
       }
     }
 
+    // 清空文件输入
     event.target.value = ''
-    await syncData() // 使用 syncData 同步到后端
-    showToast('提示词导入成功')
+    
+    // 同步到后端
+    await syncData()
+    
+    showToast(`成功导入 ${importedCount} 个提示词模板`)
 
   } catch (error) {
     console.error('提示词导入错误:', error)
     showToast('提示词导入失败: ' + error.message, 'error')
+    // 清空文件输入
+    event.target.value = ''
   }
 }
 
@@ -1962,15 +2014,45 @@ const addTag = async () => {
   }
 }
 
-// 确保有保存标签的方法
-const saveTags = async () => {
+// 修复导出提示词功能
+const exportPrompts = () => {
   try {
-    await syncData()
+    if (prompts.value.length === 0) {
+      showToast('没有可导出的提示词', 'error')
+      return
+    }
+
+    // 准备导出数据
+    const exportData = prompts.value.map(prompt => ({
+      title: prompt.title || '',
+      systemPrompt: prompt.systemPrompt || '',
+      userPrompt: prompt.userPrompt || '',
+      defaultModel: prompt.defaultModel || '',
+      detectKeywords: prompt.detectKeywords !== false
+    }))
+
+    // 转换为JSON字符串
+    const jsonStr = JSON.stringify(exportData, null, 2)
+    
+    // 创建下载链接
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `prompts_export_${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    showToast('提示词导出成功')
   } catch (error) {
-    console.error('保存标签失败:', error)
-    showToast('保存标签失败: ' + error.message, 'error')
+    console.error('导出提示词失败:', error)
+    showToast('导出提示词失败: ' + error.message, 'error')
   }
 }
+
+
 
 // 在组件挂载时加载标签
 onMounted(async () => {

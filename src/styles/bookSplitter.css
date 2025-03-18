@@ -364,19 +364,6 @@
     gap: 8px;
   }
   
-  .delete-btn {
-    padding: 8px;
-    background: #dc3545;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  
-  .delete-btn:hover {
-    background: #c82333;
-  }
-  
   .add-scene-btn {
     background: #28a745;
     color: white;
@@ -384,15 +371,6 @@
   
   .add-scene-btn:hover {
     background: #218838;
-  }
-  
-  .clear-btn {
-    background: #dc3545;
-    color: white;
-  }
-  
-  .clear-btn:hover {
-    background: #c82333;
   }
   
   .import-btn {
@@ -638,13 +616,13 @@
     margin-right: 8px;
   }
   
-  .action-btn.delete-btn {
+  .action-btn .delete-btn {
     background: #dc3545;
     color: white;
     border-color: #dc3545;
   }
   
-  .action-btn.delete-btn:hover {
+  .action-btn .delete-btn:hover {
     background: #c82333;
     border-color: #c82333;
   }

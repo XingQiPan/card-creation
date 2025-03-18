@@ -8,7 +8,13 @@ export default defineConfig({
   server: {
     port: 8888,
     open: true,
-    host: true
+    host: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      }
+    }
   },
   define: {
     '__APP_VERSION__': JSON.stringify(version)

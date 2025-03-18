@@ -19,6 +19,9 @@
               <button @click="showSettings = true">
                 <i class="fas fa-cog"></i>
               </button>
+              <button @click="showBuiltInPrompts = true">
+                <i class="fas fa-cloud-download-alt"></i>
+              </button>
             </div>
           </div>
           <div class="prompt-panel-header">
@@ -603,6 +606,48 @@
                 @click="deleteTag(tag.id)"
               >
                 <i class="fas fa-times"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加内置提示词模态框 -->
+    <div v-if="showBuiltInPrompts" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>内置提示词</h3>
+          <button @click="showBuiltInPrompts = false" class="close-btn">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="built-in-prompts-list">
+            <div 
+              v-for="prompt in builtInPrompts" 
+              :key="prompt.id"
+              class="built-in-prompt-item"
+            >
+              <div class="prompt-info">
+                <h4>{{ prompt.title }}</h4>
+                <div class="prompt-tags">
+                  <span 
+                    v-for="tag in prompt.tags" 
+                    :key="tag" 
+                    class="tag"
+                  >
+                    {{ tag }}
+                  </span>
+                </div>
+                <div class="prompt-category">{{ prompt.category }}</div>
+              </div>
+              <button 
+                @click="importBuiltInPrompt(prompt)"
+                :disabled="isPromptImported(prompt.id)"
+              >
+                <i class="fas fa-download"></i>
+                {{ isPromptImported(prompt.id) ? '已导入' : '导入' }}
               </button>
             </div>
           </div>
@@ -2365,9 +2410,119 @@ const switchScene = (scene) => {
     return false
   }
 }
+
+// 添加新的响应式变量
+const showBuiltInPrompts = ref(false)
+const builtInPrompts = ref([])
+
+// 检查提示词是否已导入
+const isPromptImported = (builtInId) => {
+  return prompts.value.some(p => p.builtInId === builtInId)
+}
+
+// 导入内置提示词
+const importBuiltInPrompt = (builtInPrompt) => {
+  if (isPromptImported(builtInPrompt.id)) return
+  
+  const newPrompt = {
+    ...builtInPrompt,
+    id: Date.now(),
+    builtInId: builtInPrompt.id,
+    selectedModel: '',
+    insertedContents: []
+  }
+  
+  prompts.value.push(newPrompt)
+  showToast(`已导入提示词：${builtInPrompt.title}`, 'success')
+}
+
+// 获取内置提示词列表
+const fetchBuiltInPrompts = async () => {
+  try {
+    // 使用完整的 API URL
+    const response = await fetch('http://localhost:3000/api/built-in-prompts')
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    const data = await response.json()
+    if (data.success) {
+      builtInPrompts.value = data.data
+    } else {
+      throw new Error(data.error || '获取数据失败')
+    }
+  } catch (error) {
+    console.error('获取内置提示词失败:', error)
+    showToast('获取内置提示词失败: ' + error.message, 'error')
+  }
+}
+
+// 在组件挂载时获取内置提示词
+onMounted(async () => {
+  await fetchBuiltInPrompts()
+})
 </script>
 
 <style scoped>
 @import url("./styles/app.css");
 @import url("./styles/common.css");
+
+/* 添加新的样式 */
+.built-in-prompts-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.built-in-prompt-item {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+}
+
+.prompt-info {
+  flex: 1;
+}
+
+.prompt-info h4 {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+}
+
+.prompt-tags {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.tag {
+  background: #e9ecef;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.prompt-category {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.built-in-prompt-item button {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  border: none;
+  background: #007bff;
+  color: white;
+  cursor: pointer;
+}
+
+.built-in-prompt-item button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
 </style> 

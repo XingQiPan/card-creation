@@ -58,6 +58,9 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json')
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json')
 const TASKS_FILE = path.join(DATA_DIR, 'tasks.json')
 
+// 添加内置提示词文件路径
+const BUILT_IN_PROMPTS_FILE = path.join(DATA_DIR, 'built-in-prompts.json')
+
 // 封装文件操作相关的工具函数
 const FileUtils = {
   ensureDirectory(dir) {
@@ -105,7 +108,18 @@ const DataManager = {
         currentSceneId: null,
         selectedTags: [],
         currentView: 'main'
-      }
+      },
+      [BUILT_IN_PROMPTS_FILE]: [
+        {
+          id: 'built-in-1',
+          title: '文章改写助手',
+          systemPrompt: '你是一个专业的文章改写助手，善于保持原文含义的同时改写文章结构和用词。',
+          userPrompt: '请改写以下文章，保持原意的同时使其更加通顺易读：\n\n{{text}}',
+          category: '写作辅助',
+          tags: ['写作', '改写']
+        },
+        // 可以添加更多内置提示词...
+      ]
     }
 
     Object.entries(files).forEach(([file, defaultData]) => {
@@ -937,6 +951,57 @@ app.delete('/api/agents/:id', (req, res) => {
       error: '删除 AI 成员失败: ' + error.message
     })
   }
+})
+
+// 修改内置提示词路由
+app.get('/api/built-in-prompts', (req, res) => {
+  try {
+    // 确保返回正确的 JSON 格式
+    const prompts = FileUtils.loadData(BUILT_IN_PROMPTS_FILE, [])
+    if (!prompts) {
+      // 如果文件不存在或为空，返回空数组
+      return res.json({
+        success: true,
+        data: []
+      })
+    }
+    
+    res.json({
+      success: true,
+      data: prompts
+    })
+  } catch (error) {
+    console.error('获取内置提示词失败:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message || '获取内置提示词失败'
+    })
+  }
+})
+
+// 确保内置提示词文件存在并包含初始数据
+const initializeBuiltInPrompts = () => {
+  if (!fs.existsSync(BUILT_IN_PROMPTS_FILE)) {
+    FileUtils.saveData(BUILT_IN_PROMPTS_FILE, defaultPrompts)
+  }
+}
+
+// 在服务器启动时初始化内置提示词
+initializeBuiltInPrompts()
+
+// 添加调试中间件
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`)
+  next()
+})
+
+// 添加错误处理中间件
+app.use((err, req, res, next) => {
+  console.error('Server error:', err)
+  res.status(500).json({
+    success: false,
+    error: process.env.NODE_ENV === 'development' ? err.message : '服务器错误'
+  })
 })
 
 // 启动服务器

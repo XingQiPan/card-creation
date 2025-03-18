@@ -19,45 +19,7 @@
     overflow: hidden;
   }
   
-  .view-switcher {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    display: flex;
-    height: 100%;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    z-index: 100;
-    background: transparent; /* 设置背景透明 */
-    pointer-events: auto; /* 确保可以点击 */
-  }
-  
-  .view-switcher button {
-    width: 40px;
-    height: 40px;
-    border: none;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.8); /* 半透明背景 */
-    color: #666;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    transition: all 0.2s ease;
-  }
-  
-  .view-switcher button:hover {
-    background: rgba(255, 255, 255, 1); /* 鼠标悬停时变为不透明 */
-    color: #333;
-  }
-  
-  .view-switcher button.active {
-    background: #646cff;
-    color: white;
-  }
+ 
   
   .prompt-panel {
     position: relative;
@@ -340,20 +302,7 @@
     height: 70vh;
   }
   
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-bottom: 12px;
-    margin-bottom: 12px;
-    border-bottom: 1px solid #eee;
-  }
-  
-  .modal-header h3 {
-    margin: 0;
-    font-size: 1.1rem;
-    color: #333;
-  }
+
   
   .modal-body {
     height: calc(100% - 60px);
@@ -434,31 +383,7 @@
     margin: -20px -20px 20px -20px;
     border-bottom: 1px solid #eee;
   }
-  
-  .modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-  
-  .modal-content {
-    position: relative;
-    background: white;
-    padding: 20px;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    min-width: 600px;
-    max-width: 800px;
-    width: 80vw;
-  }
-  
+
   button {
     padding: 8px 16px;
     border-radius: 4px;
@@ -523,59 +448,6 @@
     font-size: 12px;
   }
   
-  .model-select {
-    width: 100%;
-    padding: 8px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 14px;
-    color: #333;
-  }
-  
-  .delete-model-btn {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    background: transparent;
-    border: none;
-    color: #dc3545;
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  
-  .delete-model-btn:hover {
-    background: #fee2e2;
-  }
-  
-  .settings-actions {
-    display: flex;
-    gap: 12px;
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid #eee;
-  }
-  
-  .add-btn {
-    padding: 8px 16px;
-    background: #f8f9fa;
-    border: 1px dashed #ccc;
-    color: #666;
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  
-  .add-btn:hover {
-    background: #e9ecef;
-    border-color: #ccc;
-  }
-  
   .save-btn {
     padding: 8px 16px;
     background: #10b981;
@@ -591,22 +463,7 @@
   .save-btn:hover {
     background: #059669;
   }
-  
-  /* 修改模态框基础样式 */
-  .modal-content {
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  }
-  
-  .modal-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid #eee;
-    position: sticky;
-    top: 0;
-    background: white;
-    z-index: 1;
-  }
+
   
   .modal-header h3 {
     margin: 0;
@@ -773,16 +630,7 @@
       opacity: 0;
     }
   }
-  
-  /* 提示词编辑模态框样式优化 */
-  .modal-content {
-    min-width: 600px;
-    max-width: 800px;
-    width: 80vw;
-    max-height: 85vh; /* 限制最大高度 */
-    display: flex;
-    flex-direction: column;
-  }
+
   
   .template-input {
     min-height: 200px !important;
@@ -842,40 +690,22 @@
     border-radius: 4px;
     display: inline-block;
   }
-  
-  /* 模态框整体样式优化 */
-  .modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-  
+    
   .modal-content {
+    display: flex;
+    flex-direction: column;
     background: white;
     border-radius: 12px;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
     padding: 24px;
     position: relative;
     overflow: visible; /* 允许内容溢出 */
-  }
-  
-  .modal-header {
-    margin-bottom: 20px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid #eee;
-  }
-  
-  .modal-header h3 {
-    margin: 0;
-    font-size: 1.25rem;
-    color: #333;
+    padding: 20px;
+    overflow-y: auto;
+    min-width: 1000px;
+    max-width: 1300px;
+    max-height: 85vh; /* 限制最大高度 */
+
   }
   
   .form-group {
@@ -1119,45 +949,11 @@
     background: #f8f9fa;
   }
   
-  .header-actions {
-    display: flex;
-    gap: 8px;
-  }
-  
-  .import-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    background: #f8f9fa;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    cursor: pointer;
-    color: #666;
-    transition: all 0.2s ease;
-  }
-  
-  .import-btn:hover {
-    background: #e9ecef;
-    border-color: #ccc;
-  }
-  
-  .import-btn input {
-    display: none;
-  }
   
   /* 编辑器样式 */
   .detail-modal {
     width: 80vw;
     height: 80vh;
-  }
-  
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px;
-    border-bottom: 1px solid #eee;
   }
   
   .card-title-input {
@@ -1243,40 +1039,46 @@
     background-color: transparent;
   }
   
-  * {
-    font-family: "Microsoft YaHei", "微软雅黑", sans-serif !important;
-  }
-  
-  /* 添加视图切换器样式 */
+ 
+
   .view-switcher {
     position: fixed;
     top: 20px;
     right: 20px;
     display: flex;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     gap: 8px;
     z-index: 100;
+    background: transparent; /* 设置背景透明 */
+    pointer-events: auto; /* 确保可以点击 */
   }
   
   .view-switcher button {
-    padding: 8px 16px;
-    background: #ffffff;
-    border: 1px solid #ddd;
+    width: 40px;
+    height: 40px;
+    border: none;
     border-radius: 4px;
+    background: rgba(255, 255, 255, 0.8); /* 半透明背景 */
+    color: #666;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: center;
+    font-size: 16px;
     transition: all 0.2s ease;
   }
   
   .view-switcher button:hover {
-    background: #f0f0f0;
+    background: rgba(255, 255, 255, 1); /* 鼠标悬停时变为不透明 */
+    color: #333;
   }
   
   .view-switcher button.active {
     background: #646cff;
     color: white;
-    border-color: #646cff;
   }
   
   /* 确保主界面内容在切换时保持布局 */
@@ -1398,41 +1200,8 @@
     }
   }
   
-  /* 添加样式以更好地显示模型信息 */
-  .model-select {
-    font-family: monospace;
-    padding: 8px;
-    min-width: 200px;
-  }
-  
-  .model-select option {
-    padding: 4px;
-    font-family: monospace;
-  }
-  
-  /* 添加模态框样式 */
-  .modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-  }
-  
-  .modal-content {
-    background: white;
-    padding: 20px;
-    border-radius: 8px;
-    max-width: 600px;
-    width: 90%;
-    max-height: 80vh;
-    overflow-y: auto;
-  }
+
+
   
   .prompt-list {
     margin: 16px 0;
@@ -1448,11 +1217,6 @@
   
   .prompt-item:hover {
     background: #f5f5f5;
-  }
-  
-  .modal-actions {
-    margin-top: 16px;
-    text-align: right;
   }
   
   .cancel-btn {
@@ -1517,12 +1281,6 @@
   gap: 20px;
 }
 
-/* 表单组件样式优化 */
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 
 .form-group label {
   font-size: 14px;
@@ -1572,39 +1330,7 @@
   font-size: 14px;
 }
 
-.model-select {
-  flex: 1;
-  padding: 10px 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 14px;
-  background: #f9fafb;
-  cursor: pointer;
-}
 
-.refresh-btn {
-  padding: 8px 16px;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
-  color: #4b5563;
-  border-radius: 8px;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.refresh-btn:hover:not(:disabled) {
-  background: #e5e7eb;
-  color: #1f2937;
-}
-
-.refresh-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
 /* 删除模型按钮样式 */
 .delete-model-btn {
@@ -1891,25 +1617,7 @@
   z-index: 1000;
 }
 
-.modal-content {
-  background: white;
-  padding: 20px;
-  border-radius: 8px;
-  width: 90%;
-  max-width: 600px;
-  max-height: 90vh;
-  overflow-y: auto;
-}
 
-.close-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-}
 
 .modal-footer {
   display: flex;
@@ -1933,6 +1641,10 @@
   padding: 8px 16px;
   border-radius: 4px;
   cursor: pointer;
+}
+
+* {
+  font-family: "Microsoft YaHei", "微软雅黑", sans-serif !important;
 }
 
 :root {

@@ -48,8 +48,12 @@
               class="prompt-item"
               :class="{ 
                 'can-insert': canInsertText(prompt),
-                'has-content': hasInsertedContent(prompt)
+                'has-content': hasInsertedContent(prompt),
+                'drag-over': dragOverPromptId === prompt.id 
               }"
+              @dragover="handlePromptDragOver(prompt, $event)"
+              @dragleave="handlePromptDragLeave()"
+              @drop="handlePromptDrop(prompt, $event)"
             >
               <div class="prompt-content">
                 <h3>{{ prompt.title }}</h3>
@@ -2465,64 +2469,4 @@ onMounted(async () => {
 <style scoped>
 @import url("./styles/app.css");
 @import url("./styles/common.css");
-
-/* 添加新的样式 */
-.built-in-prompts-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1rem;
-  padding: 1rem;
-}
-
-.built-in-prompt-item {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 1rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: #fff;
-}
-
-.prompt-info {
-  flex: 1;
-}
-
-.prompt-info h4 {
-  margin: 0 0 0.5rem 0;
-  color: #333;
-}
-
-.prompt-tags {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.tag {
-  background: #e9ecef;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  color: #666;
-}
-
-.prompt-category {
-  font-size: 0.9rem;
-  color: #666;
-}
-
-.built-in-prompt-item button {
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  border: none;
-  background: #007bff;
-  color: white;
-  cursor: pointer;
-}
-
-.built-in-prompt-item button:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
 </style> 

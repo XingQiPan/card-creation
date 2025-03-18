@@ -1,9 +1,5 @@
 <template>
   <div class="book-splitter">
-    <div v-if="isLoading" class="loading-overlay">
-      <div class="loading-spinner"></div>
-      <p>加载中，请稍候主人~</p>
-    </div>
     <div class="header">
       <div class="left-actions">
         <button @click="addScene" class="add-tab-btn">
@@ -21,6 +17,9 @@
           >
           <i class="fas fa-file-import"></i> 导入结果
         </label>
+        <button @click="manualSave" class="save-btn" :disabled="isLoading">
+          <i class="fas fa-save"></i> 保存数据
+        </button>
       </div>
       <div class="scene-tabs">
         <div 
@@ -272,7 +271,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch, onUnmounted } from 'vue'
 import { openDB } from 'idb'
 import { useCommon } from '../utils/composables/useCommon'
 import { showToast } from '../utils/common'
@@ -343,42 +342,55 @@ const DataSerializer = {
   serializeScene(scene) {
     return {
       id: scene.id,
-      name: scene.name,
-      originalCards: scene.originalCards.map(card => ({
+      name: scene.name || '未命名场景',
+      originalCards: (scene.originalCards || []).map(card => ({
         id: card.id,
         chapterNumber: card.chapterNumber,
-        title: card.title,
+        title: card.title || `第${card.chapterNumber}章`,
         content: card.content,
-        selected: card.selected,
-        uploadTime: card.uploadTime
+        selected: card.selected || false,
+        uploadTime: card.uploadTime || new Date().toISOString()
       })),
-      resultCards: scene.resultCards.map(card => ({
+      resultCards: (scene.resultCards || []).map(card => ({
         id: card.id,
         originalNumber: card.originalNumber,
         promptSequence: card.promptSequence,
         content: card.content,
         promptId: card.promptId,
-        title: card.title,
-        selected: card.selected,
-        updatedAt: card.updatedAt ? card.updatedAt.toISOString() : null
+        title: card.title || `第${card.originalNumber}章`,
+        selected: card.selected || false,
+        updatedAt: card.updatedAt ? card.updatedAt.toISOString() : new Date().toISOString()
       })),
-      selectedPromptId: scene.selectedPromptId,
-      processing: false,
+      selectedPromptId: scene.selectedPromptId || null,
+      processing: false, // 始终保存为非处理状态
       isPaused: false,
       shouldStop: false,
       currentIndex: scene.currentIndex || 0
-    }
+    };
   },
 
   deserializeScene(data) {
+    if (!data) return null;
+    
     return {
       ...data,
+      name: data.name || '未命名场景',
+      originalCards: (data.originalCards || []).map(card => ({
+        ...card,
+        title: card.title || `第${card.chapterNumber}章`,
+        selected: card.selected || false
+      })),
       resultCards: (data.resultCards || []).map(card => ({
         ...card,
-        updatedAt: card.updatedAt ? new Date(card.updatedAt) : null,
-        selected: false
-      }))
-    }
+        title: card.title || `第${card.originalNumber}章`,
+        updatedAt: card.updatedAt ? new Date(card.updatedAt) : new Date(),
+        selected: card.selected || false
+      })),
+      processing: false, // 始终加载为非处理状态
+      isPaused: false,
+      shouldStop: false,
+      currentIndex: data.currentIndex || 0
+    };
   }
 }
 
@@ -434,95 +446,82 @@ const DBUtils = {
 
 // 修改 loadScenes 方法
 const loadScenes = async () => {
-  isLoading.value = true
   try {
-    // 先从后端加载
-    const response = await fetch('http://localhost:3000/api/load-book-scenes')
+    // 从专门的 book-scenes 端点加载
+    const response = await fetch('http://localhost:3000/api/load-book-scenes');
+    
     if (!response.ok) {
-      throw new Error('从服务器加载场景失败')
+      throw new Error(`从服务器加载场景失败: ${response.status}`);
     }
     
-    const loadedScenes = await response.json()
+    const result = await response.json();
     
-    if (loadedScenes.success && Array.isArray(loadedScenes.data)) {
-      if (loadedScenes.data.length > 0) {
-        scenes.value = loadedScenes.data.map(scene => 
+    if (Array.isArray(result)) {
+      if (result.length > 0) {
+        scenes.value = result.map(scene => 
           DataSerializer.deserializeScene(scene)
-        )
+        );
+        
         // 如果没有当前场景ID，设置为第一个场景
-        if (!currentSceneId.value || !switchScene(currentSceneId.value)) {
-          currentSceneId.value = scenes.value[0].id
+        if (!currentSceneId.value || !scenes.value.find(s => s.id === currentSceneId.value)) {
+          currentSceneId.value = scenes.value[0].id;
         }
         
         // 同步到 IndexedDB
         try {
-          await DBUtils.saveData(scenes.value)
+          await DBUtils.saveData(scenes.value);
         } catch (dbError) {
-          console.error('同步到 IndexedDB 失败:', dbError)
+          console.error('同步到 IndexedDB 失败:', dbError);
         }
         
-        showToast('已恢复保存的场景数据主人~', 'success')
+        showToast('已恢复保存的场景数据主人~', 'success');
       } else {
         // 如果没有场景，创建默认场景
-        createNewScene()
+        createNewScene();
       }
     } else {
-      throw new Error('加载的场景数据格式不正确')
+      throw new Error('加载的场景数据格式不正确');
     }
   } catch (error) {
-    console.error('加载场景失败:', error)
+    console.error('加载场景失败:', error);
     
     // 尝试从 IndexedDB 加载
     try {
-      const localScenes = await DBUtils.loadData()
-      if (localScenes.length > 0) {
-        scenes.value = localScenes
-        if (!currentSceneId.value || !switchScene(currentSceneId.value)) {
-          currentSceneId.value = localScenes[0].id
+      const localScenes = await DBUtils.loadData();
+      if (localScenes && localScenes.length > 0) {
+        scenes.value = localScenes;
+        if (!currentSceneId.value || !scenes.value.find(s => s.id === currentSceneId.value)) {
+          currentSceneId.value = localScenes[0].id;
         }
-        showToast('已从本地恢复场景数据主人~', 'success')
-        return
+        showToast('已从本地恢复场景数据主人~', 'success');
+        return;
       }
     } catch (dbError) {
-      console.error('从 IndexedDB 加载失败:', dbError)
+      console.error('从 IndexedDB 加载失败:', dbError);
     }
     
     // 如果都失败了，创建默认场景
-    createNewScene()
+    createNewScene();
   } finally {
-    isLoading.value = false
   }
-}
-
-// 修改创建默认场景的方法，确保新卡片包含 selected 属性
-const createDefaultScene = () => {
-  return {
-    id: Date.now(),
-    name: '默认场景',
-    originalCards: [],
-    resultCards: [],
-    selectedPromptId: null,
-    processing: false,
-    isPaused: false,
-    shouldStop: false
-  }
-}
+};
 
 // 确保在组件挂载前初始化数据库
 let dbInitialized = false
 
-onMounted(async () => {
+onMounted(() => {
   if (!dbInitialized) {
     try {
-      await initializeDB()
-      dbInitialized = true
-      await loadScenes()
+      initializeDB().then(() => {
+        dbInitialized = true;
+        loadScenes();
+      });
     } catch (error) {
-      console.error('初始化失败:', error)
-      showToast('初始化失败主人~，请刷新页面重试', 'error')
+      console.error('初始化失败:', error);
+      showToast('初始化失败主人~，请刷新页面重试', 'error');
     }
   }
-})
+});
 
 // 计算当前场景
 const currentScene = computed(() => {
@@ -532,40 +531,50 @@ const currentScene = computed(() => {
 // 修改 saveScenes 方法
 const saveScenes = createDebounce(async () => {
   try {
+    
     // 序列化场景数据用于保存
     const serializedScenes = scenes.value.map(scene => DataSerializer.serializeScene(scene));
 
-    // 使用 dataService 保存到后端
-    await dataService.saveItem('bookScenes', serializedScenes);
+    // 使用 dataService 保存到后端 - 使用专门的 book-scenes 端点
+    const response = await fetch('http://localhost:3000/api/save-book-scenes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(serializedScenes)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`保存到服务器失败: ${response.status} - ${errorText}`);
+    }
     
     // 保存到 IndexedDB 作为备份
     await DBUtils.saveData(scenes.value);
     
-    showToast('保存成功主人~', 'success');
   } catch (error) {
     console.error('保存场景失败:', error);
     
-    // 如果 dataService 保存失败，尝试直接调用 API
+    // 尝试使用 dataService 作为备份方法
     try {
-      const response = await fetch('http://localhost:3000/api/save-book-scenes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(serializedScenes)
-      });
-
-      if (!response.ok) {
-        throw new Error('保存到服务器失败');
-      }
-      
-      showToast('保存成功主人~', 'success');
+      await dataService.saveItem('bookScenes', scenes.value.map(scene => 
+        DataSerializer.serializeScene(scene)
+      ));
+      showToast('已保存到本地主人~', 'success');
     } catch (backupError) {
       console.error('备份保存也失败:', backupError);
-      showToast('保存场景失败主人~，请重试', 'error');
+      
+      // 最后尝试保存到 IndexedDB
+      try {
+        await DBUtils.saveData(scenes.value);
+      } catch (dbError) {
+        console.error('所有保存方法都失败:', dbError);
+        showToast('保存场景失败主人~，请手动导出备份', 'error');
+      }
     }
+  } finally {
   }
-}, 500);
+}, 800); // 增加防抖时间，减少保存频率
 
 // 修改清空所有场景的方法
 const clearAllScenes = async () => {
@@ -583,7 +592,7 @@ const clearAllScenes = async () => {
       await tx.done
       
       scenes.value = []
-      addScene() // 添加一个新的空场景
+      addScene()
       showToast('已清空所有场景主人~', 'success')
     } catch (error) {
       console.error('清空场景失败:', error)
@@ -612,7 +621,6 @@ const handleBookUpload = async (event, scene) => {
   if (!file) return;
 
   try {
-    isLoading.value = true;
     
     const formData = new FormData();
     formData.append('file', file);
@@ -653,7 +661,6 @@ const handleBookUpload = async (event, scene) => {
     console.error('文件处理错误:', error);
     showToast(error.message || '文件处理失败', 'error');
   } finally {
-    isLoading.value = false;
   }
 };
 
@@ -849,69 +856,118 @@ const processWithAPI = async (card, prompt, scene) => {
 // 导出结果
 const exportResults = (scene) => {
   if (!scene || !scene.resultCards.length) {
-    showToast('没有可导出的结果主人~', 'warning')
-    return
+    showToast('没有可导出的结果主人~', 'warning');
+    return;
   }
 
-  const exportContent = {
-    original: scene.originalCards.map(card => ({
-      chapterNumber: card.chapterNumber,
-      title: card.title,
-      content: card.content
-    })),
-    results: scene.resultCards.map(card => ({
-      originalNumber: card.originalNumber,
-      promptSequence: card.promptSequence,
-      content: card.content,
-      promptId: card.promptId
-    }))
-  }
-  
-  // 使用从 useCommon 解构出来的 exportData 函数
-  exportData(
-    exportContent, 
-    `book-processing-results-${formatTime(new Date())}.json`
-  )
-}
-
-// 导入结果
-const importResults = async (event) => {
-  const file = event.target.files[0]
-  if (!file) return
-
-  importData(file, (importData) => {
-    // 创建新场景
-    const newScene = {
-      id: Date.now(),
-      name: '导入场景',
-      originalCards: importData.original.map(card => ({
-        id: Date.now() + Math.random(),
+  try {
+    const exportContent = {
+      sceneName: scene.name || '未命名场景',
+      exportTime: new Date().toISOString(),
+      original: scene.originalCards.map(card => ({
+        id: card.id,
         chapterNumber: card.chapterNumber,
         title: card.title,
-        content: card.content
+        content: card.content,
+        uploadTime: card.uploadTime
       })),
-      resultCards: importData.results.map(card => ({
-        id: Date.now() + Math.random(),
+      results: scene.resultCards.map(card => ({
+        id: card.id,
         originalNumber: card.originalNumber,
         promptSequence: card.promptSequence,
         content: card.content,
-        promptId: card.promptId
-      })),
+        promptId: card.promptId,
+        title: card.title,
+        updatedAt: card.updatedAt ? card.updatedAt.toISOString() : null
+      }))
+    };
+    
+    // 使用从 useCommon 解构出来的 exportData 函数
+    exportData(
+      exportContent, 
+      `book-processing-results-${scene.name || 'scene'}-${formatTime(new Date())}.json`
+    );
+    
+    showToast('导出成功主人~', 'success');
+  } catch (error) {
+    console.error('导出失败:', error);
+    showToast('导出失败主人~: ' + error.message, 'error');
+  }
+};
+
+// 导入结果
+const importResults = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  try {
+    const fileContent = await file.text();
+    let importData;
+    
+    try {
+      importData = JSON.parse(fileContent);
+    } catch (jsonError) {
+      showToast('导入失败主人~: 文件格式不正确', 'error');
+      event.target.value = '';
+      return;
+    }
+    
+    // 创建新场景
+    const newScene = {
+      id: Date.now(),
+      name: importData.sceneName || '导入场景',
+      originalCards: [],
+      resultCards: [],
       selectedPromptId: '',
       processing: false,
       isPaused: false,
-      currentIndex: importData.results.length
+      shouldStop: false,
+      currentIndex: 0
+    };
+    
+    // 处理原始卡片
+    if (Array.isArray(importData.original)) {
+      newScene.originalCards = importData.original.map(card => ({
+        id: card.id || Date.now() + Math.random(),
+        chapterNumber: card.chapterNumber,
+        title: card.title || `第${card.chapterNumber}章`,
+        content: card.content,
+        selected: false,
+        uploadTime: card.uploadTime || new Date().toISOString()
+      }));
+    }
+    
+    // 处理结果卡片
+    if (Array.isArray(importData.results)) {
+      newScene.resultCards = importData.results.map(card => ({
+        id: card.id || Date.now() + Math.random(),
+        originalNumber: card.originalNumber,
+        promptSequence: card.promptSequence,
+        content: card.content,
+        promptId: card.promptId,
+        title: card.title || `第${card.originalNumber}章`,
+        selected: false,
+        updatedAt: card.updatedAt ? new Date(card.updatedAt) : new Date()
+      }));
+      
+      newScene.currentIndex = newScene.resultCards.length;
     }
 
     // 添加到场景列表
-    scenes.value.push(newScene)
-    currentSceneId.value = newScene.id
-    saveScenes()
+    scenes.value.push(newScene);
+    currentSceneId.value = newScene.id;
+    await saveScenes();
 
     // 清空文件输入
-    event.target.value = ''
-  })
-}
+    event.target.value = '';
+    
+    showToast(`成功导入场景: ${newScene.name}`, 'success');
+  } catch (error) {
+    console.error('导入失败:', error);
+    showToast('导入失败主人~: ' + error.message, 'error');
+    event.target.value = '';
+  }
+};
 
 // 添加重新处理单章的方法
 const reprocessChapter = async (card, scene) => {
@@ -1198,6 +1254,65 @@ watch([scenes, currentSceneId], async () => {
     await saveScenes()
   }
 }, { deep: true })
+
+// 添加自动保存功能
+let autoSaveInterval = null;
+
+// 设置自动保存
+const setupAutoSave = () => {
+  // 清除之前的自动保存
+  if (autoSaveInterval) {
+    clearInterval(autoSaveInterval);
+  }
+  
+  // 每5分钟自动保存一次
+  autoSaveInterval = setInterval(async () => {
+    if (scenes.value.length > 0) {
+      try {
+        await saveScenes();
+      } catch (error) {
+        console.error('自动保存失败:', error);
+      }
+    }
+  }, 5 * 60 * 1000); // 5分钟
+};
+
+// 在组件挂载时设置自动保存
+onMounted(() => {
+  if (!dbInitialized) {
+    try {
+      initializeDB().then(() => {
+        dbInitialized = true;
+        loadScenes();
+        setupAutoSave(); // 设置自动保存
+      });
+    } catch (error) {
+      console.error('初始化失败:', error);
+      showToast('初始化失败主人~，请刷新页面重试', 'error');
+    }
+  }
+});
+
+// 在组件卸载时清除自动保存
+onUnmounted(() => {
+  if (autoSaveInterval) {
+    clearInterval(autoSaveInterval);
+    autoSaveInterval = null;
+  }
+});
+
+// 添加手动保存按钮
+const manualSave = async () => {
+  try {
+    isLoading.value = true;
+    await saveScenes();
+    showToast('手动保存成功主人~', 'success');
+  } catch (error) {
+    console.error('手动保存失败:', error);
+    showToast('手动保存失败主人~: ' + error.message, 'error');
+  } finally {
+  }
+};
 </script>
 
 <style scoped>
@@ -1228,5 +1343,58 @@ watch([scenes, currentSceneId], async () => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.save-btn {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+}
+
+.save-btn:hover {
+  background-color: #45a049;
+}
+
+.save-btn:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+/* 改进加载状态样式 */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  color: white;
+}
+
+.loading-spinner {
+  border: 5px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top: 5px solid white;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+  margin-bottom: 15px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style> 

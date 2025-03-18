@@ -20,7 +20,7 @@
       <div class="agents-header">
         <h2>AI团队管理</h2>
         <div class="header-actions">
-          <button @click="createNewAgent" class="create-btn">
+          <button @click="addAgent" class="create-btn">
             <i class="fas fa-plus"></i> 新建AI成员
           </button>
         </div>
@@ -164,8 +164,30 @@ const allTasks = computed(() => {
   return tasks
 })
 
-// 创建新的AI成员
-const createNewAgent = () => {
+// 修改 AI 成员相关的方法
+const loadAgents = async () => {
+  try {
+    const response = await fetch('http://localhost:3000/api/agents')
+    if (!response.ok) {
+      throw new Error(`加载AI成员失败: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    if (result.success && Array.isArray(result.data)) {
+      agents.value = result.data
+      console.log('已从后端加载AI成员:', agents.value.length)
+    } else {
+      throw new Error('加载AI成员返回格式不正确')
+    }
+  } catch (error) {
+    console.error('加载AI成员失败:', error)
+    showToast('加载AI成员失败: ' + error.message, 'error')
+    agents.value = [] // 设置为空数组
+  }
+}
+
+// 添加新AI成员
+const addAgent = () => {
   editingAgent.value = {
     id: uuidv4(),
     name: '',
@@ -185,29 +207,123 @@ const editAgent = (agent) => {
 }
 
 // 保存AI成员
-const saveAgent = (agent) => {
-  const index = agents.value.findIndex(a => a.id === agent.id)
-  
-  if (index !== -1) {
-    agents.value[index] = agent
-  } else {
-    agents.value.push(agent)
+const saveAgent = async (agent) => {
+  try {
+    const response = await fetch('http://localhost:3000/api/agents', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(agent)
+    })
+    
+    if (!response.ok) {
+      throw new Error(`保存AI成员失败: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    if (!result.success) {
+      throw new Error(result.error || '保存AI成员失败')
+    }
+    
+    // 更新本地数组
+    const index = agents.value.findIndex(a => a.id === agent.id)
+    if (index !== -1) {
+      agents.value[index] = agent
+    } else {
+      agents.value.push(agent)
+    }
+    
+    showAgentEditor.value = false
+    showToast('AI成员保存成功', 'success')
+  } catch (error) {
+    console.error('保存AI成员失败:', error)
+    showToast('保存AI成员失败: ' + error.message, 'error')
   }
-  
-  localStorage.setItem('agents', JSON.stringify(agents.value))
-  showAgentEditor.value = false
 }
 
 // 删除AI成员
-const deleteAgent = (agent) => {
+const deleteAgent = async (agent) => {
   if (confirm(`确定要删除 ${agent.name} 吗？`)) {
-    agents.value = agents.value.filter(a => a.id !== agent.id)
-    localStorage.setItem('agents', JSON.stringify(agents.value))
+    try {
+      const response = await fetch(`http://localhost:3000/api/agents/${agent.id}`, {
+        method: 'DELETE'
+      })
+      
+      if (!response.ok) {
+        throw new Error(`删除AI成员失败: ${response.status}`)
+      }
+      
+      const result = await response.json()
+      if (!result.success) {
+        throw new Error(result.error || '删除AI成员失败')
+      }
+      
+      // 更新本地数组
+      agents.value = agents.value.filter(a => a.id !== agent.id)
+      showToast('AI成员删除成功', 'success')
+    } catch (error) {
+      console.error('删除AI成员失败:', error)
+      showToast('删除AI成员失败: ' + error.message, 'error')
+    }
+  }
+}
+
+// 修改任务相关的方法
+const loadTasks = async () => {
+  try {
+    const response = await fetch('http://localhost:3000/api/tasks')
+    if (!response.ok) {
+      throw new Error(`加载任务失败: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    if (result.success && result.data) {
+      rootTask.value = result.data
+      showTaskManager.value = rootTask.value !== null
+      console.log('已从后端加载任务:', rootTask.value)
+    } else {
+      console.log('没有保存的任务')
+      rootTask.value = null
+      showTaskManager.value = false
+    }
+  } catch (error) {
+    console.error('加载任务失败:', error)
+    showToast('加载任务失败: ' + error.message, 'error')
+    rootTask.value = null
+    showTaskManager.value = false
+  }
+}
+
+// 保存任务
+const saveTasks = async () => {
+  try {
+    const response = await fetch('http://localhost:3000/api/tasks', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(rootTask.value)
+    })
+    
+    if (!response.ok) {
+      throw new Error(`保存任务失败: ${response.status}`)
+    }
+    
+    const result = await response.json()
+    if (!result.success) {
+      throw new Error(result.error || '保存任务失败')
+    }
+    
+    console.log('任务保存成功')
+  } catch (error) {
+    console.error('保存任务失败:', error)
+    showToast('保存任务失败: ' + error.message, 'error')
   }
 }
 
 // 创建根任务
-const createRootTask = () => {
+const createRootTask = async () => {
   rootTask.value = {
     id: uuidv4(),
     title: '根任务',
@@ -223,7 +339,7 @@ const createRootTask = () => {
   }
   
   showTaskManager.value = true
-  localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
+  await saveTasks()
   
   // 打开任务编辑器
   editTask(rootTask.value)
@@ -269,7 +385,7 @@ const editTask = (task) => {
 };
 
 // 保存任务
-const saveTask = (task) => {
+const saveTask = async (task) => {
   console.log('AgentsView: 保存任务:', task);
   
   // 如果是根任务
@@ -293,8 +409,8 @@ const saveTask = (task) => {
     }
   }
   
-  // 保存到本地存储
-  localStorage.setItem('rootTask', JSON.stringify(rootTask.value));
+  // 保存到后端
+  await saveTasks();
   
   // 关闭编辑器
   showTaskEditor.value = false;
@@ -304,15 +420,29 @@ const saveTask = (task) => {
 };
 
 // 删除任务
-const deleteTask = (taskId) => {
+const deleteTask = async (taskId) => {
   console.log('AgentsView: 删除任务:', taskId);
   
   // 如果是根任务
   if (rootTask.value && rootTask.value.id === taskId) {
-    rootTask.value = null;
-    showTaskManager.value = false;
-    localStorage.removeItem('rootTask');
-    return;
+    try {
+      const response = await fetch('http://localhost:3000/api/tasks', {
+        method: 'DELETE'
+      })
+      
+      if (!response.ok) {
+        throw new Error(`删除根任务失败: ${response.status}`)
+      }
+      
+      rootTask.value = null;
+      showTaskManager.value = false;
+      showToast('根任务删除成功', 'success')
+      return;
+    } catch (error) {
+      console.error('删除根任务失败:', error)
+      showToast('删除根任务失败: ' + error.message, 'error')
+      return;
+    }
   }
   
   // 查找父任务
@@ -322,17 +452,17 @@ const deleteTask = (taskId) => {
     // 从父任务中移除
     parent.subtasks = parent.subtasks.filter(t => t.id !== taskId);
     
-    // 保存到本地存储
-    localStorage.setItem('rootTask', JSON.stringify(rootTask.value));
+    // 保存到后端
+    await saveTasks();
   }
 };
 
 // 处理任务保存
-const handleTasksSaved = (savedRootTask) => {
+const handleTasksSaved = async (savedRootTask) => {
   console.log('AgentsView: 处理任务保存:', savedRootTask);
   rootTask.value = savedRootTask;
   showTaskManager.value = true;
-  localStorage.setItem('rootTask', JSON.stringify(rootTask.value));
+  await saveTasks();
 };
 
 const formatApiUrl = (model) => {
@@ -529,7 +659,7 @@ const executeAllTasks = async (allTasks) => {
       }
       
       // 保存状态
-      localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
+      await saveTasks()
       
       // 给UI一点时间更新
       await new Promise(resolve => setTimeout(resolve, 100))
@@ -542,6 +672,7 @@ const executeAllTasks = async (allTasks) => {
     })
     
     console.log('所有任务执行完成')
+    await saveTasks()
   } catch (error) {
     console.error('执行所有任务失败:', error)
     
@@ -550,6 +681,8 @@ const executeAllTasks = async (allTasks) => {
       delete task._isPartOfBatch
       delete task._parentOutput
     })
+    
+    await saveTasks()
   } finally {
     isExecuting.value = false
   }
@@ -712,18 +845,21 @@ const executeTask = async (task) => {
       status: currentTask.status,
       output: finalContent ? finalContent.substring(0, 100) + '...' : null
     })
+    
+    // 保存到后端
+    await saveTasks()
   } catch (error) {
     console.error('执行任务失败:', error)
     currentTask.status = 'failed'
     currentTask.error = error.message
+    
+    // 保存到后端
+    await saveTasks()
   } finally {
     // 如果不是批量执行的一部分，重置执行状态
     if (!task._isPartOfBatch) {
       isExecuting.value = false
     }
-    
-    // 保存到本地存储
-    localStorage.setItem('rootTask', JSON.stringify(rootTask.value))
   }
 }
 
@@ -806,25 +942,19 @@ const findTaskById = (taskId) => {
 }
 
 // 加载数据
-onMounted(() => {
+onMounted(async () => {
   try {
     // 加载AI成员
-    const savedAgents = localStorage.getItem('agents')
-    if (savedAgents) {
-      agents.value = JSON.parse(savedAgents)
-    }
+    await loadAgents()
     
     // 加载任务
-    const savedRootTask = localStorage.getItem('rootTask')
-    if (savedRootTask) {
-      rootTask.value = JSON.parse(savedRootTask)
-      showTaskManager.value = true
-    }
+    await loadTasks()
     
     console.log('已加载AI成员:', agents.value)
     console.log('已加载根任务:', rootTask.value)
   } catch (error) {
     console.error('加载数据失败:', error)
+    showToast('加载数据失败: ' + error.message, 'error')
   }
 })
 </script>

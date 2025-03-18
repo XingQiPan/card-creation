@@ -56,6 +56,7 @@ const PROMPTS_FILE = path.join(DATA_DIR, 'prompts.json')
 const TAGS_FILE = path.join(DATA_DIR, 'tags.json')
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json')
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json')
+const TASKS_FILE = path.join(DATA_DIR, 'tasks.json')
 
 // 封装文件操作相关的工具函数
 const FileUtils = {
@@ -761,16 +762,6 @@ app.get('/api/agents', (req, res) => {
   }
 })
 
-// 更新模型路由
-app.get('/api/models', (req, res) => {
-  try {
-    const models = ModelService.getAllModels()
-    ResponseHandler.success(res, models)
-  } catch (error) {
-    ResponseHandler.error(res, error)
-  }
-})
-
 // 添加API文档路由
 app.get('/api/docs', (req, res) => {
   try {
@@ -855,6 +846,98 @@ app.post('/api/detect-ai-file', upload.single('file'), async (req, res) => {
 // 添加拆书场景相关的路由
 app.get('/api/load-book-scenes', RouteHandler.loadData(BOOK_SCENES_FILE))
 app.post('/api/save-book-scenes', RouteHandler.saveData(BOOK_SCENES_FILE))
+
+// 获取任务
+app.get('/api/tasks', (req, res) => {
+  try {
+    const tasks = FileUtils.loadData(TASKS_FILE, null)
+    res.json({
+      success: true,
+      data: tasks
+    })
+  } catch (error) {
+    console.error('获取任务失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '获取任务失败: ' + error.message
+    })
+  }
+})
+
+// 保存任务
+app.post('/api/tasks', (req, res) => {
+  try {
+    const taskData = req.body
+    const saved = FileUtils.saveData(TASKS_FILE, taskData)
+    
+    if (!saved) {
+      throw new Error('保存任务数据失败')
+    }
+    
+    res.json({
+      success: true,
+      data: taskData
+    })
+  } catch (error) {
+    console.error('保存任务失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '保存任务失败: ' + error.message
+    })
+  }
+})
+
+// 删除任务
+app.delete('/api/tasks', (req, res) => {
+  try {
+    if (fs.existsSync(TASKS_FILE)) {
+      fs.unlinkSync(TASKS_FILE)
+    }
+    
+    res.json({
+      success: true
+    })
+  } catch (error) {
+    console.error('删除任务失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '删除任务失败: ' + error.message
+    })
+  }
+})
+
+// 删除特定 AI 成员
+app.delete('/api/agents/:id', (req, res) => {
+  try {
+    const agentId = req.params.id
+    const agents = FileUtils.loadData(AGENTS_FILE, [])
+    
+    const filteredAgents = agents.filter(agent => String(agent.id) !== String(agentId))
+    
+    if (filteredAgents.length === agents.length) {
+      return res.status(404).json({
+        success: false,
+        error: '未找到指定的 AI 成员'
+      })
+    }
+    
+    const saved = FileUtils.saveData(AGENTS_FILE, filteredAgents)
+    
+    if (!saved) {
+      throw new Error('保存 AI 成员数据失败')
+    }
+    
+    res.json({
+      success: true
+    })
+  } catch (error) {
+    console.error('删除 AI 成员失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '删除 AI 成员失败: ' + error.message
+    })
+  }
+})
 
 // 启动服务器
 const PORT = process.env.PORT || 3000

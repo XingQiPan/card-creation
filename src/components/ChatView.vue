@@ -264,7 +264,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch, onUnmounted } from 'vue'
+import { ref, computed, onMounted, nextTick, watch, onUnmounted, onBeforeUnmount } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { showToastMessage, detectContentType, splitContent, showToast } from '../utils/common'
@@ -308,6 +308,7 @@ const {
 // 响应式数据声明
 const chatSessions = ref([])
 const currentChatId = ref(null)
+const models = ref([])
 const inputMessage = ref('')
 const messagesContainer = ref(null)
 const isRequesting = ref(false)
@@ -318,6 +319,7 @@ const selectedSceneId = ref('')
 const expandedKeywords = ref([])
 const abortController = ref(null)
 const requestStartTime = ref(0)
+const dataLoaded = ref(false)
 
 // 添加计时器
 let elapsedTimer = null
@@ -445,13 +447,24 @@ const createNewChat = async () => {
 
 // 删除对话
 const deleteChat = async (id) => {
-  if (confirm('确定要删除这个对话吗？')) {
-    chatSessions.value = chatSessions.value.filter(c => c.id !== id)
-    if (currentChatId.value === id) {
-      currentChatId.value = chatSessions.value[0]?.id || null
-    }
-    await saveSessions()
+  if (!confirm('确定要删除这个对话吗？')) return
+  
+  // 如果只有一个聊天会话，不允许删除
+  if (chatSessions.value.length <= 1) {
+    showToastMessage('至少保留一个对话', 'error')
+    return
   }
+  
+  // 删除聊天会话
+  chatSessions.value = chatSessions.value.filter(chat => chat.id !== id)
+  
+  // 如果删除的是当前聊天，切换到第一个聊天
+  if (id === currentChatId.value) {
+    currentChatId.value = chatSessions.value[0].id
+  }
+  
+  // 保存到后端
+  await saveSessions()
 }
 
 // 添加获取消息上下文的方法
@@ -585,6 +598,7 @@ const sendMessage = async () => {
     }
 
     chatService.saveChatSessions(chatSessions.value)
+    await saveSessions()
 
   } catch (error) {
     console.error('发送失败:', error)
@@ -686,19 +700,56 @@ const scrollToBottom = () => {
   }
 }
 
-// 修改保存会话的方法，使用 dataService
+// 修改保存会话的方法，使用专用的保存方法
 const saveSessions = async () => {
+  // 如果数据尚未加载完成，不执行保存
+  if (!dataLoaded.value) {
+    console.log('数据尚未加载完成，跳过保存');
+    return;
+  }
+  
   try {
-    // 使用 dataService 保存聊天会话
-    await dataService.saveItem('chatSessions', chatSessions.value);
-    // 成功保存后不需要再保存到本地存储
+    console.log('开始保存聊天会话到后端');
+    
+    // 使用专用方法保存聊天会话
+    await dataService.saveChatSessions(chatSessions.value);
+    
+    console.log('聊天会话已成功保存到后端', {
+      sessionCount: chatSessions.value.length,
+      firstSessionId: chatSessions.value[0]?.id
+    });
   } catch (error) {
     console.error('保存聊天会话失败:', error);
     showToast('保存聊天会话失败: ' + error.message, 'error');
-    // 如果 API 保存失败，至少保存到本地存储作为备份
-    localStorage.setItem('chatSessions', JSON.stringify(chatSessions.value));
   }
 }
+
+// 添加防抖保存函数
+const debouncedSave = (() => {
+  let timeout = null;
+  return () => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      saveSessions();
+    }, 1000); // 1秒后执行保存
+  };
+})();
+
+// 监听聊天会话变化，自动保存
+watch(chatSessions, () => {
+  if (dataLoaded.value) {
+    console.log('聊天会话数据变化，准备保存');
+    debouncedSave();
+  }
+}, { deep: true });
+
+// 在组件卸载前保存数据
+onBeforeUnmount(() => {
+  if (dataLoaded.value) {
+    console.log('组件即将卸载，保存数据');
+    saveSessions();
+  }
+});
 
 // 监听消息变化，自动滚动
 watch(
@@ -712,61 +763,42 @@ watch(() => props.scenes, (newScenes) => {
   //console.log("scenes changed:", newScenes)
 }, { deep: true })
 
-// 修改 onMounted 钩子，使用 dataService 加载数据
+// 修改 onMounted 钩子，使用专用的加载方法
 onMounted(async () => {
   try {
-    // 使用 dataService 加载聊天会话
-    const data = await dataService.loadAllData();
+    console.log('ChatView: 开始加载数据');
     
-    if (data.chatSessions && Array.isArray(data.chatSessions)) {
-      chatSessions.value = data.chatSessions;
-      currentChatId.value = data.chatSessions[0]?.id || null;
-      // 将本地数据同步到后端
-      await dataService.saveItem('chatSessions', data.chatSessions);
+    // 使用专用方法加载聊天会话
+    const chatSessionsData = await dataService.loadChatSessions();
+    console.log('ChatView: 加载的聊天会话数据', chatSessionsData);
+    
+    if (Array.isArray(chatSessionsData) && chatSessionsData.length > 0) {
+      chatSessions.value = chatSessionsData;
+      currentChatId.value = chatSessionsData[0]?.id || null;
+      console.log('ChatView: 已加载聊天会话', chatSessions.value.length);
     } else {
-      // 如果后端没有数据，尝试从本地存储加载
-      const savedSessions = localStorage.getItem('chatSessions');
-      if (savedSessions) {
-        try {
-          const sessions = JSON.parse(savedSessions);
-          if (Array.isArray(sessions) && sessions.length > 0) {
-            chatSessions.value = sessions;
-            currentChatId.value = sessions[0].id;
-            // 将本地数据同步到后端
-            await dataService.saveItem('chatSessions', sessions);
-          } else {
-            createDefaultChat();
-          }
-        } catch (e) {
-          console.error('解析本地聊天会话失败:', e);
-          createDefaultChat();
-        }
-      } else {
-        createDefaultChat();
-      }
+      console.log('ChatView: 没有找到聊天会话数据，创建默认聊天');
+      // 如果后端没有聊天会话数据，创建默认聊天
+      await createDefaultChat();
     }
+    
+    // 确保使用父组件传递的模型数据
+    if (props.models && props.models.length > 0) {
+      models.value = props.models;
+      console.log('ChatView: 使用父组件传递的模型数据', models.value.length);
+    }
+    
+    // 标记数据已加载
+    dataLoaded.value = true;
   } catch (error) {
-    console.error('加载聊天会话失败:', error);
-    
-    // 从本地存储加载作为备份
-    const savedSessions = localStorage.getItem('chatSessions');
-    if (savedSessions) {
-      try {
-        const sessions = JSON.parse(savedSessions);
-        if (Array.isArray(sessions) && sessions.length > 0) {
-          chatSessions.value = sessions;
-          currentChatId.value = sessions[0].id;
-        } else {
-          createDefaultChat();
-        }
-      } catch (e) {
-        console.error('解析本地聊天会话失败:', e);
-        createDefaultChat();
-      }
-    } else {
-      createDefaultChat();
-    }
+    console.error('ChatView: 加载聊天会话失败:', error);
+    // 创建默认聊天
+    await createDefaultChat();
+    dataLoaded.value = true;
   }
+  
+  // 初始化完成后滚动到底部
+  nextTick(scrollToBottom);
 });
 
 // 修改创建默认聊天的辅助函数
@@ -785,13 +817,7 @@ const createDefaultChat = async () => {
   currentChatId.value = newChat.id;
   
   // 保存到后端
-  try {
-    await dataService.saveItem('chatSessions', chatSessions.value);
-  } catch (error) {
-    console.error('保存默认聊天会话失败:', error);
-    // 保存到本地存储作为备份
-    localStorage.setItem('chatSessions', JSON.stringify(chatSessions.value));
-  }
+  await saveSessions();
 }
 
 // 添加消息编辑相关方法
@@ -814,10 +840,16 @@ const cancelMessageEdit = (msg) => {
 
 // 修改删除消息方法
 const deleteMessage = async (msgId) => {
-  if (!confirm('确定要删除这条消息吗？')) return
+  if (!confirm('确定要删除这条消息吗？')) return;
   
-  currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== msgId)
-  await saveSessions()
+  try {
+    currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== msgId);
+    await saveSessions();
+    console.log('消息已删除并保存');
+  } catch (error) {
+    console.error('删除消息失败:', error);
+    showToast('删除消息失败: ' + error.message, 'error');
+  }
 }
 
 // 切换关键词内容显示
@@ -1099,7 +1131,6 @@ onUnmounted(() => {
   }
 })
 
-// 不需要显式的 return 语句，setup script 会自动暴露声明的变量和方法
 </script>
 
 <style scoped>

@@ -1139,7 +1139,7 @@ const savePrompt = async () => {
     }
 
     // 使用syncData同步到后端
-    await syncData()
+      await syncData()
     
     closePromptModal()
     showToast('提示词保存成功', 'success')

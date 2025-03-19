@@ -304,6 +304,44 @@ export class DataService {
       throw error;
     }
   }
+
+  // 添加保存聊天会话的专用方法
+  async saveChatSessions(chatSessions) {
+    try {
+      const response = await fetch(`${this.baseUrl}/chat-sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(chatSessions)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API 请求失败: ${response.status} ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('保存聊天会话失败:', error);
+      throw error;
+    }
+  }
+
+  // 添加加载聊天会话的专用方法
+  async loadChatSessions() {
+    try {
+      const response = await fetch(`${this.baseUrl}/chat-sessions`);
+      
+      if (!response.ok) {
+        throw new Error(`API 请求失败: ${response.status} ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('加载聊天会话失败:', error);
+      throw error;
+    }
+  }
 }
 
 // 导出单例实例

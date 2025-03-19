@@ -52,13 +52,8 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 // 数据文件路径
 const SCENES_FILE = path.join(DATA_DIR, 'scenes.json')
 const BOOK_SCENES_FILE = path.join(DATA_DIR, 'book-scenes.json')
-const PROMPTS_FILE = path.join(DATA_DIR, 'prompts.json')
-const TAGS_FILE = path.join(DATA_DIR, 'tags.json')
-const CONFIG_FILE = path.join(DATA_DIR, 'config.json')
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json')
 const TASKS_FILE = path.join(DATA_DIR, 'tasks.json')
-
-// 添加内置提示词文件路径
 const BUILT_IN_PROMPTS_FILE = path.join(DATA_DIR, 'built-in-prompts.json')
 
 // 封装文件操作相关的工具函数
@@ -99,16 +94,7 @@ const DataManager = {
     const files = {
       [SCENES_FILE]: [],
       [BOOK_SCENES_FILE]: [],
-      [PROMPTS_FILE]: [],
-      [TAGS_FILE]: [],
       [AGENTS_FILE]: [],
-      [CONFIG_FILE]: {
-        models: [],
-        notepadContent: '',
-        currentSceneId: null,
-        selectedTags: [],
-        currentView: 'main'
-      },
       [BUILT_IN_PROMPTS_FILE]: [
         {
           id: 'built-in-1',
@@ -118,7 +104,6 @@ const DataManager = {
           category: '写作辅助',
           tags: ['写作', '改写']
         },
-        // 可以添加更多内置提示词...
       ]
     }
 
@@ -553,7 +538,6 @@ const APIDocService = {
     const dataRoutes = [
       { path: '/api/load-scenes', desc: '加载场景数据', type: 'Scene[]' },
       { path: '/api/load-prompts', desc: '加载提示词数据', type: 'Prompt[]' },
-      { path: '/api/load-tags', desc: '加载标签数据', type: 'Tag[]' },
       { path: '/api/load-config', desc: '加载配置数据', type: 'Config' },
       { path: '/api/load-book-scenes', desc: '加载书籍场景数据', type: 'BookScene[]' }
     ]
@@ -575,7 +559,6 @@ const APIDocService = {
       { path: '/api/save-scenes', desc: '保存场景数据', type: 'Scene[]' },
       { path: '/api/save-prompts', desc: '保存提示词数据', type: 'Prompt[]' },
       { path: '/api/save-tags', desc: '保存标签数据', type: 'Tag[]' },
-      { path: '/api/save-config', desc: '保存配置数据', type: 'Config' },
       { path: '/api/save-book-scenes', desc: '保存书籍场景数据', type: 'BookScene[]' }
     ]
 
@@ -644,7 +627,6 @@ app.get('/api/test', (req, res) => {
 // 使用封装的路由处理器简化路由定义
 app.get('/api/load-scenes', RouteHandler.loadData(SCENES_FILE))
 app.get('/api/load-prompts', RouteHandler.loadData(PROMPTS_FILE))
-app.get('/api/load-tags', RouteHandler.loadData(TAGS_FILE))
 app.get('/api/load-config', RouteHandler.loadData(CONFIG_FILE, {
   models: [],
   notepadContent: '',
@@ -655,8 +637,6 @@ app.get('/api/load-config', RouteHandler.loadData(CONFIG_FILE, {
 
 app.post('/api/save-scenes', RouteHandler.saveData(SCENES_FILE))
 app.post('/api/save-prompts', RouteHandler.saveData(PROMPTS_FILE))
-app.post('/api/save-tags', RouteHandler.saveData(TAGS_FILE))
-app.post('/api/save-config', RouteHandler.saveData(CONFIG_FILE))
 
 // 更新文件上传路由
 app.post('/api/split-book', upload.single('file'), async (req, res) => {
@@ -978,6 +958,35 @@ app.get('/api/built-in-prompts', (req, res) => {
     })
   }
 })
+
+
+// 处理聊天会话数据
+app.get('/api/chat-sessions', (req, res) => {
+  try {
+    const chatSessionsPath = path.join(__dirname, 'data', 'chat-sessions.json');
+    if (fs.existsSync(chatSessionsPath)) {
+      const chatSessions = JSON.parse(fs.readFileSync(chatSessionsPath, 'utf8'));
+      res.json(chatSessions);
+    } else {
+      res.json([]);
+    }
+  } catch (error) {
+    console.error('加载聊天会话失败:', error);
+    res.status(500).json({ error: '加载聊天会话失败' });
+  }
+});
+
+app.post('/api/chat-sessions', (req, res) => {
+  try {
+    const chatSessions = req.body;
+    const chatSessionsPath = path.join(__dirname, 'data', 'chat-sessions.json');
+    fs.writeFileSync(chatSessionsPath, JSON.stringify(chatSessions, null, 2));
+    res.json({ success: true });
+  } catch (error) {
+    console.error('保存聊天会话失败:', error);
+    res.status(500).json({ error: '保存聊天会话失败' });
+  }
+});
 
 // 确保内置提示词文件存在并包含初始数据
 const initializeBuiltInPrompts = () => {

@@ -331,14 +331,10 @@ const currentChat = computed(() =>
 
 // 获取所有卡片标题作为关键词
 const allKeywords = computed(() => {
-  //console.log("scenes:", props.scenes) // 打印整个 scenes 数据
   const keywords = new Set()
   props.scenes.forEach(scene => {
-    //console.log("scene:", scene) // 打印每个场景
     scene.cards?.forEach(card => {
-      //console.log("card:", card) // 打印每个卡片
       if (card.title?.trim()) {
-        //console.log("found title:", card.title.trim())
         keywords.add(card.title.trim())
       }
     })
@@ -505,17 +501,10 @@ const sendMessage = async () => {
     if (!model) {
       throw new Error('未找到选择的模型')
     }
-
-    // 检查模型配置
-    console.log('Current model:', model)
-    
-    // 使用 apiUrl 作为 endpoint
     const endpoint = model.apiUrl
-    console.log('endpoint', endpoint)
     if (!endpoint?.trim() && model.provider != 'gemini') {
       throw new Error('请先在设置中配置模型的 API 地址')
     }
-
     // 构建模型配置
     const modelConfig = {
       ...model, // 保留原始模型的所有属性
@@ -538,9 +527,6 @@ const sendMessage = async () => {
         ...(model.parameters || {})
       }
     }
-
-    //console.log('Sending request with config:', modelConfig)
-
     // 获取提示词模板
     let promptTemplate = null
     if (currentChat.value.promptId) {
@@ -704,20 +690,12 @@ const scrollToBottom = () => {
 const saveSessions = async () => {
   // 如果数据尚未加载完成，不执行保存
   if (!dataLoaded.value) {
-    console.log('数据尚未加载完成，跳过保存');
     return;
   }
   
   try {
-    console.log('开始保存聊天会话到后端');
-    
     // 使用专用方法保存聊天会话
     await dataService.saveChatSessions(chatSessions.value);
-    
-    console.log('聊天会话已成功保存到后端', {
-      sessionCount: chatSessions.value.length,
-      firstSessionId: chatSessions.value[0]?.id
-    });
   } catch (error) {
     console.error('保存聊天会话失败:', error);
     showToast('保存聊天会话失败: ' + error.message, 'error');
@@ -738,7 +716,6 @@ const debouncedSave = (() => {
 // 监听聊天会话变化，自动保存
 watch(chatSessions, () => {
   if (dataLoaded.value) {
-    console.log('聊天会话数据变化，准备保存');
     debouncedSave();
   }
 }, { deep: true });
@@ -746,7 +723,6 @@ watch(chatSessions, () => {
 // 在组件卸载前保存数据
 onBeforeUnmount(() => {
   if (dataLoaded.value) {
-    console.log('组件即将卸载，保存数据');
     saveSessions();
   }
 });
@@ -760,24 +736,19 @@ watch(
 
 // 添加 watch 来监听 scenes 的变化
 watch(() => props.scenes, (newScenes) => {
-  //console.log("scenes changed:", newScenes)
 }, { deep: true })
 
 // 修改 onMounted 钩子，使用专用的加载方法
 onMounted(async () => {
   try {
-    console.log('ChatView: 开始加载数据');
     
     // 使用专用方法加载聊天会话
     const chatSessionsData = await dataService.loadChatSessions();
-    console.log('ChatView: 加载的聊天会话数据', chatSessionsData);
     
     if (Array.isArray(chatSessionsData) && chatSessionsData.length > 0) {
       chatSessions.value = chatSessionsData;
       currentChatId.value = chatSessionsData[0]?.id || null;
-      console.log('ChatView: 已加载聊天会话', chatSessions.value.length);
     } else {
-      console.log('ChatView: 没有找到聊天会话数据，创建默认聊天');
       // 如果后端没有聊天会话数据，创建默认聊天
       await createDefaultChat();
     }
@@ -785,7 +756,6 @@ onMounted(async () => {
     // 确保使用父组件传递的模型数据
     if (props.models && props.models.length > 0) {
       models.value = props.models;
-      console.log('ChatView: 使用父组件传递的模型数据', models.value.length);
     }
     
     // 标记数据已加载
@@ -845,7 +815,6 @@ const deleteMessage = async (msgId) => {
   try {
     currentChat.value.messages = currentChat.value.messages.filter(m => m.id !== msgId);
     await saveSessions();
-    console.log('消息已删除并保存');
   } catch (error) {
     console.error('删除消息失败:', error);
     showToast('删除消息失败: ' + error.message, 'error');

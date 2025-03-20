@@ -168,23 +168,32 @@ export class ChatService {
             processedContent = "请回答我的问题";
           }
           
-          // 参考 modelRequests.js 中的方法
-          // 创建初始历史，包含系统提示
           let history = [];
           
           if (promptTemplate) {
-            console.log('为 Gemini 添加系统提示词:', promptTemplate.substring(0, 50) + '...');
-            history = [
-              {
-                role: 'user',
-                parts: [{ text: promptTemplate }]
-              },
-              {
-                role: 'model',
-                parts: [{ text: '好的，我已理解系统提示。' }]
-              }
-            ];
+            history.push({
+              role: 'user',
+              parts: [{ text: promptTemplate }]
+            });
           }
+          
+          // 添加历史消息到 Gemini 上下文
+          if (context && context.length > 0) {
+            // 遍历上下文消息并添加到历史
+            for (const msg of context) {
+              // 转换消息格式为 Gemini 格式
+              const role = msg.role === 'assistant' ? 'model' : 'user';
+              
+              // 确保消息内容不为空
+              const content = msg.content || "...";
+              
+              history.push({
+                role: role,
+                parts: [{ text: content }]
+              });
+            }
+          }
+          debugLog('history', history)
           
           // 创建聊天会话
           const chat = genModel.startChat({
@@ -194,8 +203,6 @@ export class ChatService {
               temperature: Number(model.parameters?.temperature) || 0.7
             }
           });
-          
-          console.log('发送到 Gemini 的用户内容:', processedContent.substring(0, 100) + '...');
           
           // 发送消息并获取流式响应
           const result = await chat.sendMessageStream(processedContent);
@@ -218,9 +225,6 @@ export class ChatService {
           throw new Error('模型配置错误：未设置 endpoint')
         }
         
-        // 确保提示词被正确传递
-        console.log('发送请求到模型，提示词:', promptTemplate ? promptTemplate.substring(0, 50) + '...' : '无');
-        
         return await this.handleRegularStream(processedContent, {
           model,
           context,
@@ -229,7 +233,6 @@ export class ChatService {
         })
       }
     } catch (error) {
-      //console.error('流式消息发送失败:', error)
       return { 
         success: false, 
         error: error.name === 'AbortError' ? 
@@ -244,7 +247,6 @@ export class ChatService {
   // 处理常规流式请求
   async handleRegularStream(content, { model, context, promptTemplate, onChunk }) {
     const endpoint = model.endpoint
-    console.log('提示词模板:', promptTemplate ? '已设置' : '未设置')
 
     if (!endpoint) {
       throw new Error('模型配置错误：未设置 endpoint')
@@ -264,7 +266,6 @@ export class ChatService {
         { role: 'system', content: promptTemplate },
         ...finalContext
       ]
-      console.log('已添加系统提示词到请求:', promptTemplate.substring(0, 50) + '...');
     }
 
     // 检查 API URL 是否包含 siliconflow
@@ -277,7 +278,7 @@ export class ChatService {
     // 针对 siliconflow API 特殊处理
     if (isSiliconFlow) {
       // 对于 siliconflow API，强制限制为 4000 (略小于4096以确保安全)
-      maxTokens = Math.min(maxTokens, 4000);
+      maxTokens = Math.min(maxTokens, 4096);
     }
 
     // 根据不同的提供商构建请求体
@@ -471,5 +472,4 @@ const buildHeaders = (model) => {
   return headers
 }
 
-// 导出单例实例
 export const chatService = new ChatService() 

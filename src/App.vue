@@ -680,7 +680,7 @@ import { debugLog, setDebugMode } from './utils/debug'
 import AIDetector from './components/AIDetector.vue'
 import KnowledgeBase from './components/KnowledgeBase.vue'
 
-setDebugMode(true)
+setDebugMode(false)
 
 // 添加版本号
 const version = __APP_VERSION__

@@ -52,6 +52,7 @@
             @edit="handleEditTask"
             @delete="handleDeleteTask"
             @select="selectTask"
+            @edit-output="handleEditOutput"
           />
         </div>
   
@@ -140,7 +141,8 @@
     'delete-task', 
     'add-subtask',
     'edit-task',
-    'add-card-to-scene'
+    'add-card-to-scene',
+    'edit-output'
   ]);
   
   // 状态
@@ -215,8 +217,6 @@
   };
   
   const executeAllTasks = async () => {
-    console.log('TaskManager: 执行所有任务')
-    
     if (props.isExecuting) {
       console.warn('已有任务正在执行，请等待完成')
       return
@@ -246,11 +246,9 @@
     // 从根任务开始收集
     collectTasks(props.rootTask)
     
-    console.log(`TaskManager: 收集到 ${allTasks.length} 个任务，包括子任务`)
     
     // 打印所有收集到的任务，便于调试
     allTasks.forEach((task, index) => {
-      console.log(`TaskManager: 任务 ${index+1}: ID=${task.id}, 标题=${task.title}`)
     })
     
     // 发出执行所有任务的事件
@@ -289,7 +287,6 @@
   };
   
   const toggleSettings = () => {
-    console.log('切换设置面板');
     showSettings.value = !showSettings.value;
   };
   
@@ -299,23 +296,23 @@
   };
   
   const selectTask = (taskId) => {
-    console.log('选择任务:', taskId);
     selectedTaskId.value = taskId;
   };
   
   const handleAddSubtask = (parentTask) => {
-    console.log('TaskManager: 添加子任务到', parentTask);
     emit('add-subtask', parentTask);
   };
   
   const handleEditTask = (task) => {
-    console.log('TaskManager: 编辑任务', task);
     emit('edit-task', task);
   };
   
   const handleDeleteTask = (taskId) => {
-    console.log('TaskManager: 删除任务', taskId);
     emit('delete-task', taskId);
+  };
+  
+  const handleEditOutput = (task) => {
+    emit('edit-output', task);
   };
   
   const closeSettings = () => {

@@ -1,5 +1,11 @@
 <template>
   <div class="book-splitter">
+    <!-- Add loading overlay -->
+    <div class="loading-overlay" v-if="isLoading">
+      <div class="loading-spinner"></div>
+      <div>处理中，请稍候主人~</div>
+    </div>
+    
     <div class="header">
       <div class="left-actions">
         <button @click="addScene" class="add-tab-btn">
@@ -311,7 +317,7 @@ const STORE_NAME = 'bookScenes'
 // 添加 delay 函数
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
-const isLoading = ref(true)
+const isLoading = ref(false)
 
 // 添加新的响应式数据
 const allResultsSelected = ref(false)
@@ -447,6 +453,7 @@ const DBUtils = {
 // 修改 loadScenes 方法
 const loadScenes = async () => {
   try {
+    isLoading.value = true;
     // 从专门的 book-scenes 端点加载
     const response = await fetch('http://localhost:3000/api/load-book-scenes');
     
@@ -503,6 +510,7 @@ const loadScenes = async () => {
     // 如果都失败了，创建默认场景
     createNewScene();
   } finally {
+    isLoading.value = false;
   }
 };
 
@@ -531,11 +539,10 @@ const currentScene = computed(() => {
 // 修改 saveScenes 方法
 const saveScenes = createDebounce(async () => {
   try {
-    
-    // 序列化场景数据用于保存
+    // Serialize scene data for saving
     const serializedScenes = scenes.value.map(scene => DataSerializer.serializeScene(scene));
 
-    // 使用 dataService 保存到后端 - 使用专门的 book-scenes 端点
+    // Use dataService to save to backend - using dedicated book-scenes endpoint
     const response = await fetch('http://localhost:3000/api/save-book-scenes', {
       method: 'POST',
       headers: {
@@ -555,7 +562,7 @@ const saveScenes = createDebounce(async () => {
   } catch (error) {
     console.error('保存场景失败:', error);
     
-    // 尝试使用 dataService 作为备份方法
+    // Try using dataService as backup method
     try {
       await dataService.saveItem('bookScenes', scenes.value.map(scene => 
         DataSerializer.serializeScene(scene)
@@ -564,7 +571,7 @@ const saveScenes = createDebounce(async () => {
     } catch (backupError) {
       console.error('备份保存也失败:', backupError);
       
-      // 最后尝试保存到 IndexedDB
+      // Finally try saving to IndexedDB
       try {
         await DBUtils.saveData(scenes.value);
       } catch (dbError) {
@@ -572,9 +579,8 @@ const saveScenes = createDebounce(async () => {
         showToast('保存场景失败主人~，请手动导出备份', 'error');
       }
     }
-  } finally {
   }
-}, 800); // 增加防抖时间，减少保存频率
+}, 800);
 
 // 修改清空所有场景的方法
 const clearAllScenes = async () => {
@@ -621,6 +627,7 @@ const handleBookUpload = async (event, scene) => {
   if (!file) return;
 
   try {
+    isLoading.value = true;
     
     const formData = new FormData();
     formData.append('file', file);
@@ -661,6 +668,7 @@ const handleBookUpload = async (event, scene) => {
     console.error('文件处理错误:', error);
     showToast(error.message || '文件处理失败', 'error');
   } finally {
+    isLoading.value = false;
   }
 };
 
@@ -892,6 +900,7 @@ const exportResults = (scene) => {
   } catch (error) {
     console.error('导出失败:', error);
     showToast('导出失败主人~: ' + error.message, 'error');
+  } finally {
   }
 };
 
@@ -966,6 +975,7 @@ const importResults = async (event) => {
     console.error('导入失败:', error);
     showToast('导入失败主人~: ' + error.message, 'error');
     event.target.value = '';
+  } finally {
   }
 };
 
@@ -1311,6 +1321,7 @@ const manualSave = async () => {
     console.error('手动保存失败:', error);
     showToast('手动保存失败主人~: ' + error.message, 'error');
   } finally {
+    isLoading.value = false;
   }
 };
 </script>

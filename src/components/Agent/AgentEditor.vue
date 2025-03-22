@@ -121,7 +121,7 @@
   background: white;
   border-radius: 16px;
   width: 90%;
-  max-width: 580px;
+  max-width: 1280px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
@@ -145,8 +145,9 @@
 }
 
 .editor-body {
-  padding: 28px;
+  padding: 48px;
   overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
 }
 

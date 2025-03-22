@@ -76,9 +76,12 @@
             <button @click.stop="handleCopyOutput" title="复制输出" class="icon-btn">
               <i class="fas fa-copy"></i>
             </button>
+            <button @click.stop="$emit('edit-output', task)" title="编辑输出" class="icon-btn">
+              <i class="fas fa-edit"></i>
+            </button>
           </div>
         </div>
-        <div class="output-content">{{ task.output }}</div>
+        <div class="output-content markdown-body" v-html="renderedOutput"></div>
       </div>
       
       <div class="task-error" v-if="task.error">
@@ -100,7 +103,7 @@
         :task="subtask"
         :agents="agents"
         :scenes="scenes"
-        :selected-id="selectedId"
+        :selected-id="selectedTaskId"
         :is-executing="isExecuting"
         @execute="$emit('execute', $event)"
         @execute-all="$emit('execute-all', $event)"
@@ -108,6 +111,7 @@
         @add-subtask="$emit('add-subtask', $event)"
         @edit="$emit('edit', $event)"
         @select="$emit('select', subtask.id)"
+        @edit-output="$emit('edit-output', $event)"
       />
     </div>
   </div>
@@ -116,6 +120,7 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
 import draggable from 'vuedraggable'
+import { marked } from 'marked'
 
 const props = defineProps({
   task: {
@@ -144,7 +149,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['execute', 'execute-all', 'delete', 'add-subtask', 'edit'])
+const emit = defineEmits(['execute', 'execute-all', 'delete', 'add-subtask', 'edit', 'edit-output'])
 
 const isDragging = ref(false)
 
@@ -173,7 +178,7 @@ const handleCopyOutput = async () => {
   
   try {
     await navigator.clipboard.writeText(props.task.output)
-    console.log('输出已复制到剪贴板')
+    showToast('输出已复制到剪贴板', 'success')
   } catch (err) {
     console.error('复制失败:', err)
   }
@@ -255,9 +260,22 @@ const getStatusText = (status) => {
 // 处理任务选择
 const handleSelect = (event) => {
   event.stopPropagation()
-  console.log('TaskNode: 选择任务:', props.task.id)
   emit('select', props.task.id)
 }
+
+// 添加计算属性来渲染Markdown
+const renderedOutput = computed(() => {
+  if (!props.task.output) return '';
+  
+  try {
+    // 尝试将输出解析为Markdown
+    return marked.parse(props.task.output);
+  } catch (error) {
+    console.error('Markdown解析错误:', error);
+    // 如果解析失败，返回原始文本
+    return props.task.output;
+  }
+});
 </script>
 
 <style scoped>

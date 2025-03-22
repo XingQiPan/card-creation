@@ -215,7 +215,7 @@
   background: white;
   border-radius: 12px;
   width: 90%;
-  max-width: 560px;
+  max-width: 1280px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -262,10 +262,12 @@
 }
 
 .editor-body {
-  padding: 24px;
+  padding: 48px;
   overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
 }
+
 
 .form-group {
   margin-bottom: 20px;

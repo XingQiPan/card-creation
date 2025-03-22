@@ -13,7 +13,7 @@ dist-ssr
 *.local
 
 backend/data
-
+!backend/data/built-in-prompts.json
 
 
 # Editor directories and files

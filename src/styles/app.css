@@ -310,14 +310,13 @@
   }
   
   .card-detail-content {
-    width: 100%;
+    width: 95%;
     height: calc(100% - 40px);
     padding: 16px;
     border: 1px solid #eee;
     border-radius: 8px;
     resize: none;
     font-family: inherit;
-    font-size: 14px;
     line-height: 1.6;
     color: #333;
     background: #fff;
@@ -702,10 +701,9 @@
     overflow: visible; /* 允许内容溢出 */
     padding: 20px;
     overflow-y: auto;
-    min-width: 1000px;
-    max-width: 1300px;
+    min-width: 1600px;
+    max-width: 95%;
     max-height: 85vh; /* 限制最大高度 */
-
   }
   
   .form-group {
@@ -953,7 +951,7 @@
   /* 编辑器样式 */
   .detail-modal {
     width: 80vw;
-    height: 80vh;
+    height: 85vh;
   }
   
   .card-title-input {

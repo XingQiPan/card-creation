@@ -390,12 +390,68 @@
     <div v-if="showSettings" class="modal">
       <div class="modal-content settings-modal">
         <div class="modal-header">
-          <h3>API 设置</h3>
+          <h3>应用设置</h3>
           <button @click="showSettings = false" class="close-btn">
             <i class="fas fa-times"></i>
           </button>
         </div>
         <div class="settings-body">
+          <!-- 添加字体大小设置部分 -->
+          <div class="settings-section">
+            <h4>界面设置</h4>
+            <div class="form-group">
+              <label>字体大小</label>
+              <div class="font-size-control">
+                <button @click="decreaseFontSize" class="font-size-btn">
+                  <i class="fas fa-minus"></i>
+                </button>
+                <span class="font-size-value">{{ fontSizeLevel }}级 ({{ baseFontSize }}px)</span>
+                <button @click="increaseFontSize" class="font-size-btn">
+                  <i class="fas fa-plus"></i>
+                </button>
+              </div>
+            </div>
+            
+            <!-- 添加卡片布局设置 -->
+            <div class="form-group">
+              <label>卡片布局</label>
+              <div class="card-layout-control">
+                <div class="layout-option">
+                  <input 
+                    type="radio" 
+                    id="layout-auto" 
+                    v-model="cardLayoutMode" 
+                    value="auto"
+                  />
+                  <label for="layout-auto">自适应布局</label>
+                </div>
+                <div class="layout-option">
+                  <input 
+                    type="radio" 
+                    id="layout-fixed" 
+                    v-model="cardLayoutMode" 
+                    value="fixed"
+                  />
+                  <label for="layout-fixed">固定列数</label>
+                </div>
+              </div>
+              
+              <!-- 固定列数时显示列数控制 -->
+              <div v-if="cardLayoutMode === 'fixed'" class="columns-control">
+                <label>每行显示列数</label>
+                <div class="columns-slider">
+                  <button @click="decreaseColumns" class="columns-btn">
+                    <i class="fas fa-minus"></i>
+                  </button>
+                  <span class="columns-value">{{ cardColumns }}列</span>
+                  <button @click="increaseColumns" class="columns-btn">
+                    <i class="fas fa-plus"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
           <div class="models-list">
             <div 
               v-for="model in models" 
@@ -836,7 +892,10 @@ const syncData = createDebounce(async () => {
         notepadContent: notepadInitialContent.value,
         currentSceneId: currentScene.value?.id,
         selectedTags: selectedTags.value,
-        currentView: currentView.value
+        currentView: currentView.value,
+        fontSizeLevel: fontSizeLevel.value,
+        cardLayoutMode: cardLayoutMode.value,
+        cardColumns: cardColumns.value
       }
     };
 
@@ -856,7 +915,10 @@ const syncData = createDebounce(async () => {
         notepadContent: notepadInitialContent.value,
         currentSceneId: currentScene.value?.id,
         selectedTags: selectedTags.value,
-        currentView: currentView.value
+        currentView: currentView.value,
+        fontSizeLevel: fontSizeLevel.value,
+        cardLayoutMode: cardLayoutMode.value,
+        cardColumns: cardColumns.value
       }
     }));
   } finally {
@@ -928,6 +990,21 @@ const initializeData = (data) => {
       const savedSceneId = data.config.currentSceneId
       currentScene.value = scenes.value.find(s => s.id === savedSceneId) || scenes.value[0]
     }
+    
+    // 初始化字体大小设置
+    if (data.config.fontSizeLevel) {
+      fontSizeLevel.value = data.config.fontSizeLevel
+      applyFontSize()
+    }
+    
+    // 初始化卡片布局设置
+    if (data.config.cardLayoutMode) {
+      cardLayoutMode.value = data.config.cardLayoutMode
+    }
+    if (data.config.cardColumns) {
+      cardColumns.value = data.config.cardColumns
+    }
+    applyCardLayout()
   }
 }
 
@@ -2376,7 +2453,10 @@ const saveImmediately = async () => {
         notepadContent: notepadInitialContent.value,
         currentSceneId: currentScene.value?.id,
         selectedTags: selectedTags.value,
-        currentView: currentView.value
+        currentView: currentView.value,
+        fontSizeLevel: fontSizeLevel.value,
+        cardLayoutMode: cardLayoutMode.value,
+        cardColumns: cardColumns.value
       }
     }
 
@@ -2463,6 +2543,86 @@ const fetchBuiltInPrompts = async () => {
 // 在组件挂载时获取内置提示词
 onMounted(async () => {
   await fetchBuiltInPrompts()
+})
+
+// 添加字体大小相关的响应式变量
+const fontSizeLevel = ref(3) // 默认为3级（中等大小）
+const baseFontSize = computed(() => {
+  // 基础字体大小，从14px到22px，共5个级别
+  const sizes = {
+    1: 14, // 最小
+    2: 16, // 小
+    3: 18, // 中等（默认）
+    4: 20, // 大
+    5: 22, // 最大
+    6: 32, // 超大
+    7: 48, // 巨大
+    8: 64, // 巨大
+    9: 96, // 巨大
+    10: 128, // 巨大
+  }
+  return sizes[fontSizeLevel.value] || 18
+})
+
+// 增加字体大小
+const increaseFontSize = () => {
+  if (fontSizeLevel.value < 10) {
+    fontSizeLevel.value++
+    applyFontSize()
+  }
+}
+
+// 减小字体大小
+const decreaseFontSize = () => {
+  if (fontSizeLevel.value > 1) {
+    fontSizeLevel.value--
+    applyFontSize()
+  }
+}
+
+// 应用字体大小到文档根元素
+const applyFontSize = () => {
+  document.documentElement.style.setProperty('--base-font-size', `${baseFontSize.value}px`)
+  // 保存设置
+  syncData()
+}
+
+// 在组件挂载时应用字体大小
+onMounted(() => {
+  applyFontSize()
+})
+
+// 添加卡片布局相关的响应式变量
+const cardLayoutMode = ref('auto') // 默认为自适应布局
+const cardColumns = ref(3) // 默认为3列
+
+// 增加列数
+const increaseColumns = () => {
+  if (cardColumns.value < 6) { // 设置最大列数为6
+    cardColumns.value++
+    applyCardLayout()
+  }
+}
+
+// 减少列数
+const decreaseColumns = () => {
+  if (cardColumns.value > 1) { // 最小列数为1
+    cardColumns.value--
+    applyCardLayout()
+  }
+}
+
+// 应用卡片布局设置
+const applyCardLayout = () => {
+  document.documentElement.style.setProperty('--card-layout-mode', cardLayoutMode.value)
+  document.documentElement.style.setProperty('--card-columns', cardColumns.value)
+  // 保存设置
+  syncData()
+}
+
+// 在组件挂载时应用卡片布局
+onMounted(() => {
+  applyCardLayout()
 })
 </script>
 

@@ -11,6 +11,14 @@
           <button @click="createNewCard">
             <i class="fas fa-plus"></i> 新建卡片
           </button>
+          <div class="card-size-control">
+            <button @click="decreaseCardSize" title="减小卡片尺寸">
+              <i class="fas fa-search-minus"></i>
+            </button>
+            <button @click="increaseCardSize" title="增大卡片尺寸">
+              <i class="fas fa-search-plus"></i>
+            </button>
+          </div>
           <button @click="deleteScene" class="delete-scene-btn">
             <i class="fas fa-trash"></i> 删除场景
           </button>
@@ -213,7 +221,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted, reactive } from 'vue'
+import { ref, computed, watch, onUnmounted, reactive, onMounted } from 'vue'
 import draggable from 'vuedraggable'
 import { debugLog } from '../utils/debug'
 import { showToast } from '../utils/common'
@@ -768,6 +776,37 @@ const handleInsertPrompt = (card) => {
 const removeInsertedContent = (card, index) => {
   emit('remove-inserted-content', { card, index })
 }
+
+// 添加卡片尺寸控制
+const cardSizeLevel = ref(3) // 默认为中等尺寸
+const cardSizeClass = computed(() => `card-size-${cardSizeLevel.value}`)
+
+// 增大卡片尺寸
+const increaseCardSize = () => {
+  if (cardSizeLevel.value < 10) { // 增加最大值到10
+    cardSizeLevel.value++
+    applyCardSize()
+  }
+}
+
+// 减小卡片尺寸
+const decreaseCardSize = () => {
+  if (cardSizeLevel.value > 1) {
+    cardSizeLevel.value--
+    applyCardSize()
+  }
+}
+
+// 应用卡片尺寸
+const applyCardSize = () => {
+  // 使用 CSS 变量设置卡片尺寸
+  document.documentElement.style.setProperty('--card-size-level', cardSizeLevel.value)
+}
+
+// 在组件挂载时应用卡片尺寸
+onMounted(() => {
+  applyCardSize()
+})
 </script>
 
 <style scoped>

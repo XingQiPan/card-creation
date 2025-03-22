@@ -168,7 +168,6 @@
   padding: 12px 16px;
   border: 1px solid #e5e5e5;
   border-radius: 8px;
-  font-size: 14px;
   line-height: 1.5;
   color: #1f1f1f;
   background: white;

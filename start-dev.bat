@@ -77,7 +77,7 @@ start cmd /c "cd backend && cmd /c title Backend-Service && color 0B && node ser
 start cmd /c "cmd /c title Frontend-Service && color 0E && npm run dev"
 
 echo [SUCCESS] Services started successfully!
-echo [INFO] Frontend URL: http://localhost:5173
+echo [INFO] Frontend URL: http://localhost:8888
 echo [INFO] Backend URL: http://localhost:3000
 
 pause 

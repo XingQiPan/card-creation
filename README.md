@@ -207,6 +207,10 @@ start-dev.bat
 本教程虽然才过了几天，但是已经与最新版本有较大差异，可以在本视频了解对应功能。
 有问题优先进群问，我后期会出新视频同步更新到这里。
 
+新教程：
+版本号：0.9.3.3
+1、[【星卡写作第一课教程，如何安装星卡写作！】](https://www.bilibili.com/video/BV1K3XnYrEmK/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1)
+
 ---
 
 如果这个项目对你有帮助，欢迎给一个 ⭐️ Star！

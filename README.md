@@ -105,42 +105,7 @@
 
 ### 安装步骤
 
-1. 克隆项目到本地：
-
-```bash
-git clone https://github.com/XingQiPan/card-creation.git
-cd card-creation
-```
-一、第一种方式
-
-2. 安装依赖：
-
-card-creation\
-
-```bash
-npm install
-```
-
-backend\
-
-```bash
-npm install
-```
-
-3. 运行开发服务器：
-
-card-creation\
-```bash
-npm run dev
-```
-
-backend\
-
-```bash
-node server.js
-```
-
-二、第二种启动方式
+一、第一种启动方式
 
 card-creation\
 ```bash
@@ -160,6 +125,7 @@ start-dev.bat
 
 在群文件也可以下载
 
+### 注意，使用的时候最佳比例是80%，建议缩小浏览器到80%使用，否则会出现样式问题
 
 ## 🛠️ 技术栈
 

@@ -244,42 +244,49 @@
       <button 
         :class="{ active: currentView === 'main' }"
         @click="navigateTo('main')"
+        title="首页/卡片"
       >
         <i class="fas fa-home"></i>
       </button>
       <button 
         :class="{ active: currentView === 'book' }"
         @click="navigateTo('book')"
+        title="拆书"
       >
         <i class="fas fa-book"></i>
       </button>
       <button 
         :class="{ active: currentView === 'chat' }"
         @click="navigateTo('chat')"
+        title="对话"
       >
         <i class="fas fa-comments"></i>
       </button>
       <button 
         :class="{ active: currentView === 'note' }"
         @click="navigateTo('note')"
+        title="写作助手"
       >
         <i class="fas fa-sticky-note"></i>
       </button>
       <button 
         @click="navigateTo('agents')" 
         :class="{ active: currentView === 'agents' }"
+        title="全自动工作流"
       >
         <i class="fas fa-robot"></i>
       </button>
       <button 
         @click="navigateTo('detector')" 
         :class="{ active: currentView === 'detector' }"
+        title="AI检测"
       >
         <i class="fas fa-search"></i>
       </button>
       <button 
         @click="navigateTo('knowledge')" 
         :class="{ active: currentView === 'knowledge' }"
+        title="知识库"
       >
         <i class="fas fa-database"></i>
       </button>
@@ -2667,4 +2674,23 @@ const navigateTo = (view) => {
 <style scoped>
 @import url("./styles/app.css");
 @import url("./styles/common.css");
+
+.view-switcher button {
+  position: relative;
+}
+
+.view-switcher button:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: 100%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 100;
+  margin-bottom: 5px;
+}
 </style> 

@@ -821,3 +821,72 @@
     outline: none;
     border-color: #2196f3;
   }
+
+  
+/* 关键词区域整体样式 */
+.keywords-area {
+  background: #f8f9fa;
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  margin: 8px 0;
+  padding: 0; /* 移除内边距 */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  position: relative;
+}
+
+/* 关键词标题栏样式 */
+.keywords-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 500;
+  color: #24292e;
+  padding: 10px 12px;
+  font-size: 0.9em;
+  cursor: pointer;
+  background: #f1f8ff;
+  border-radius: 8px;
+  transition: background-color 0.2s;
+}
+
+.keywords-header:hover {
+  background: #e1f0fe;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+}
+
+.keywords-header i {
+  margin-right: 6px;
+  color: #0366d6;
+}
+
+/* 关键词内容区域 */
+.keywords-content {
+  padding: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* 关键词列表样式 */
+.keywords-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 5px;
+}
+
+/* 关键词切换按钮样式 */
+.keywords-toggle {
+  color: #586069;
+  font-size: 0.9em;
+}
+
+/* 当关键词区域折叠时的样式 */
+.keywords-area.collapsed .keywords-header {
+  border-radius: 8px;
+}

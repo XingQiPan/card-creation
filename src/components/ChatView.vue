@@ -80,27 +80,62 @@
           </div>
         </div>
 
-        <!-- 修改关键词显示区域 -->
+        <!-- 修改关键词显示区域，使整个区域可折叠 -->
         <div v-if="currentChat.enableKeywords && detectedKeywords.length" class="keywords-area">
-          <div class="keywords-header">
-            <i class="fas fa-link"></i> 检测到相关卡片:
+          <div class="keywords-header" @click="toggleKeywordsArea">
+            <div class="header-left">
+              <i class="fas fa-link"></i> 检测到相关卡片 ({{ detectedKeywords.length }})
+            </div>
+            <div class="keywords-toggle">
+              <i :class="['fas', keywordsAreaCollapsed ? 'fa-chevron-down' : 'fa-chevron-up']"></i>
+            </div>
           </div>
-          <div class="keywords-list">
-            <div 
-              v-for="keyword in detectedKeywords" 
-              :key="keyword.id"
-              class="keyword-card"
-              @click="toggleKeywordContent(keyword)"
-            >
-              <div class="keyword-title">
-                <span>{{ keyword.name }}</span>
-                <i :class="['fas', expandedKeywords.includes(keyword.id) ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
-              </div>
+          
+          <!-- 根据折叠状态显示或隐藏整个内容区域 -->
+          <div v-if="!keywordsAreaCollapsed" class="keywords-content">
+            <div class="keywords-list">
+              <!-- 主卡片 -->
               <div 
-                v-if="expandedKeywords.includes(keyword.id)"
-                class="keyword-content"
+                v-for="keyword in detectedKeywords" 
+                :key="keyword.id"
+                class="keyword-card"
               >
-                {{ getKeywordContent(keyword) }}
+                <div class="keyword-title" @click="toggleKeywordContent(keyword)">
+                  <span>{{ keyword.name }}</span>
+                  <i :class="['fas', expandedKeywords.includes(keyword.id) ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
+                </div>
+                <div 
+                  v-if="expandedKeywords.includes(keyword.id)"
+                  class="keyword-content"
+                >
+                  {{ getKeywordContent(keyword) }}
+                </div>
+                
+                <!-- 关联卡片 -->
+                <div v-if="keyword.linkedCards && keyword.linkedCards.length" class="linked-cards-container">
+                  <div class="linked-cards-header" @click="toggleLinkedCardsArea(keyword.id)">
+                    <i class="fas fa-sitemap"></i> 关联卡片 ({{ keyword.linkedCards.length }})
+                    <i :class="['fas', isLinkedCardsCollapsed(keyword.id) ? 'fa-chevron-down' : 'fa-chevron-up']" class="collapse-icon"></i>
+                  </div>
+                  <div class="linked-cards-list" v-show="!isLinkedCardsCollapsed(keyword.id)">
+                    <div 
+                      v-for="linkedCard in keyword.linkedCards"
+                      :key="linkedCard.id"
+                      class="linked-card"
+                    >
+                      <div class="linked-card-title" @click="toggleLinkedCardContent(keyword.id, linkedCard.id)">
+                        <span>{{ linkedCard.title }}</span>
+                        <i :class="['fas', isLinkedCardExpanded(keyword.id, linkedCard.id) ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
+                      </div>
+                      <div 
+                        v-if="isLinkedCardExpanded(keyword.id, linkedCard.id)"
+                        class="linked-card-content"
+                      >
+                        {{ getLinkedCardContent(linkedCard) }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -321,6 +356,9 @@ const abortController = ref(null)
 const requestStartTime = ref(0)
 const dataLoaded = ref(false)
 
+// 添加控制关联卡片区域折叠状态的变量
+const linkedCardsCollapsed = ref({})
+
 // 添加计时器
 let elapsedTimer = null
 
@@ -346,7 +384,7 @@ const allKeywords = computed(() => {
   return result
 })
 
-// 检测关键词并找到关联卡片
+// 修改检测关键词的计算属性，增加关联卡片信息
 const detectedKeywords = computed(() => {
   if (!currentChat.value?.enableKeywords || !currentChat.value?.messages.length) {
     return []
@@ -359,11 +397,82 @@ const detectedKeywords = computed(() => {
 
   if (!latestMessage) return []
 
-  // 检测消息中包含的关键词
-  return allKeywords.value.filter(keyword => 
-    latestMessage.content.toLowerCase().includes(keyword.name.toLowerCase())
-  )
+  // 存储已处理的卡片ID，避免重复显示
+  const processedCardIds = new Set()
+  
+  // 改进关键词匹配逻辑，更精确地匹配整个词或短语
+  const result = []
+  
+  allKeywords.value.forEach(keyword => {
+    if (!keyword.name || keyword.name.length < 2) return
+    
+    // 转换为小写进行比较
+    const content = latestMessage.content.toLowerCase()
+    const keywordText = keyword.name.toLowerCase()
+    
+    // 检查是否完整包含关键词
+    if (content.includes(keywordText)) {
+      // 找到匹配的卡片
+      const matchedCard = getAllCards().find(card => 
+        card.title?.toLowerCase() === keyword.name.toLowerCase()
+      )
+      
+      if (matchedCard && !processedCardIds.has(matchedCard.id)) {
+        processedCardIds.add(matchedCard.id)
+        
+        // 获取关联卡片
+        const linkedCards = []
+        if (matchedCard.links && matchedCard.links.length > 0) {
+          matchedCard.links.forEach(linkId => {
+            const linkedCard = findCardById(linkId)
+            if (linkedCard && !processedCardIds.has(linkedCard.id)) {
+              processedCardIds.add(linkedCard.id)
+              linkedCards.push(linkedCard)
+            }
+          })
+        }
+        
+        // 添加主卡片和关联卡片信息
+        result.push({
+          id: matchedCard.id,
+          name: matchedCard.title,
+          card: matchedCard,
+          linkedCards: linkedCards
+        })
+      }
+    }
+  })
+  
+  return result
 })
+
+// 修改获取关键词内容的方法，只返回主卡片内容
+const getKeywordContent = (keyword) => {
+  if (!keyword.card) return null
+  return keyword.card.content || ''
+}
+
+// 新增获取关联卡片内容的方法
+const getLinkedCardContent = (card) => {
+  return card.content || ''
+}
+
+// 新增切换关联卡片内容显示的方法
+const toggleLinkedCardContent = (keywordId, cardId) => {
+  const expandKey = `${keywordId}-${cardId}`
+  const index = expandedKeywords.value.indexOf(expandKey)
+  if (index === -1) {
+    expandedKeywords.value.push(expandKey)
+  } else {
+    expandedKeywords.value.splice(index, 1)
+  }
+}
+
+// 新增检查关联卡片是否展开的方法
+const isLinkedCardExpanded = (keywordId, cardId) => {
+  const expandKey = `${keywordId}-${cardId}`
+  return expandedKeywords.value.includes(expandKey)
+}
 
 // 添加获取所有卡片的辅助方法
 const getAllCards = () => {
@@ -379,49 +488,6 @@ const getAllCards = () => {
 // 添加根据ID查找卡片的辅助方法
 const findCardById = (cardId) => {
   return getAllCards().find(card => card.id === cardId)
-}
-
-// 修改获取关键词内容的方法
-const getKeywordContent = (keyword) => {
-  const processedCards = new Set() // 避免循环引用
-
-  const getCardContent = (card) => {
-    if (!card || processedCards.has(card.id)) return null
-    processedCards.add(card.id)
-
-    let content = card.content || ''
-
-    // 处理关联卡片
-    if (card.links?.length > 0) {
-      const linkedContents = []
-      card.links.forEach(linkedCardId => {
-        const linkedCard = findCardById(linkedCardId)
-        if (linkedCard) {
-          const linkedContent = getCardContent(linkedCard)
-          if (linkedContent) {
-            linkedContents.push(`关联内容「${linkedCard.title}」：\n${linkedContent}`)
-          }
-        }
-      })
-
-      if (linkedContents.length > 0) {
-        content += '\n\n--- 关联内容 ---\n\n' + linkedContents.join('\n\n')
-      }
-    }
-
-    return content
-  }
-
-  // 在所有卡片中查找匹配的卡片
-  const allCards = getAllCards()
-  const card = allCards.find(card => 
-    card.title?.toLowerCase() === keyword.name.toLowerCase()
-  )
-  
-  if (card) {
-    return getCardContent(card)
-  }
-  return null
 }
 
 // 修改创建新对话的函数
@@ -482,18 +548,22 @@ const getMessageContext = () => {
   return recentMessages
 }
 
-// 修改发送消息方法
+// 修改发送消息方法，分离用户显示内容和发送给模型的内容
 const sendMessage = async () => {
   if (!inputMessage.value.trim() || !currentChat.value?.modelId) return
 
+  // 保存原始用户输入
+  const originalUserContent = inputMessage.value.trim()
+  
   const userMessage = {
     id: Date.now(),
     role: 'user',
-    content: inputMessage.value,
+    content: originalUserContent, // 保持原始内容用于显示
     timestamp: new Date()
   }
 
   let assistantMessage = null
+  let processedContent = originalUserContent // 用于发送给模型的处理后内容
 
   try {
     // 获取完整的模型配置
@@ -505,6 +575,7 @@ const sendMessage = async () => {
     if (!endpoint?.trim() && model.provider != 'gemini') {
       throw new Error('请先在设置中配置模型的 API 地址')
     }
+    
     // 构建模型配置
     const modelConfig = {
       ...model, // 保留原始模型的所有属性
@@ -527,6 +598,7 @@ const sendMessage = async () => {
         ...(model.parameters || {})
       }
     }
+    
     // 获取提示词模板
     let promptTemplate = null
     if (currentChat.value.promptId) {
@@ -536,7 +608,7 @@ const sendMessage = async () => {
       }
     }
 
-    // 添加用户消息到聊天记录
+    // 添加用户消息到聊天记录 - 只添加原始消息
     currentChat.value.messages.push(userMessage)
     inputMessage.value = ''
     await nextTick()
@@ -559,8 +631,33 @@ const sendMessage = async () => {
     }
     currentChat.value.messages.push(assistantMessage)
 
-    // 发送请求
-    const response = await chatService.sendStreamMessage(userMessage.content, {
+    // 处理关键词检测 - 只修改发送给模型的内容，不影响显示
+    if (currentChat.value.enableKeywords) {
+      const keywords = allKeywords.value.filter(keyword => 
+        originalUserContent.toLowerCase().includes(keyword.name.toLowerCase())
+      )
+
+      if (keywords.length > 0) {
+        let keywordsContext = '检测到以下相关内容:\n\n'
+        for (const keyword of keywords) {
+          const content = getKeywordContent(keyword)
+          if (content) {
+            keywordsContext += `【${keyword.name}】:\n${content}\n\n`
+          }
+        }
+        
+        // 处理提示词和消息内容，但不修改原始用户消息
+        if (promptTemplate) {
+          promptTemplate = promptTemplate.replace('{{content}}', keywordsContext + '\n\n用户问题:\n{{content}}')
+        } else {
+          // 创建新的处理后内容，而不是修改原始消息
+          processedContent = keywordsContext + '\n\n用户问题:\n' + originalUserContent
+        }
+      }
+    }
+
+    // 发送请求 - 使用处理后的内容
+    const response = await chatService.sendStreamMessage(processedContent, {
       model: modelConfig,
       context: getMessageContext(),
       promptTemplate,
@@ -932,10 +1029,21 @@ const resendMessage = async (msg) => {
     requestStartTime.value = Date.now()
     elapsedTime.value = 0
     
+    // 启动计时器
+    elapsedTimer = setInterval(() => {
+      elapsedTime.value = Date.now() - requestStartTime.value
+    }, 100)
+
     abortController.value = new AbortController()
 
     const model = props.models.find(m => m.id === currentChat.value.modelId)
     if (!model) throw new Error('未找到选择的模型')
+
+    // 1. 先移除之前的回复消息
+    const lastMessage = currentChat.value.messages[currentChat.value.messages.length - 1]
+    if (lastMessage.role === 'assistant') {
+      currentChat.value.messages.pop()
+    }
 
     // 获取提示词模板
     let promptTemplate = null
@@ -947,11 +1055,7 @@ const resendMessage = async (msg) => {
     }
 
     // 获取历史消息
-    const context = currentChat.value.messages.map(m => ({
-      role: m.role === 'user' ? 'user' : 'assistant',
-      content: m.content
-    }))
-    context.pop()
+    const context = getMessageContext()
 
     // 处理关键词检测
     let processedContent = msg.content
@@ -972,42 +1076,83 @@ const resendMessage = async (msg) => {
       }
     }
 
-    const response = await sendToModel(
-      model,
-      processedContent,
-      context,
-      abortController.value,
-      promptTemplate
-    )
-    
-    const endTime = Date.now()
-    const responseTimeValue = endTime - requestStartTime.value
-    
+    // 2. 创建新的流式回复消息
     const assistantMessage = {
       id: Date.now(),
       role: 'assistant',
-      content: response,
+      content: '',
       timestamp: new Date(),
-      responseTime: responseTimeValue
+      isStreaming: true,
+      responseTime: 0,
+      isPartial: false
     }
-
     currentChat.value.messages.push(assistantMessage)
-    await saveSessions()
-
     await nextTick()
     scrollToBottom()
-    
+
+    // 3. 使用流式API发送请求
+    const response = await chatService.sendStreamMessage(processedContent, {
+      model: {
+        ...model,
+        endpoint: model.apiUrl,
+        apiKey: model.apiKey,
+        parameters: {
+          model: model.modelId,
+          temperature: Number(model.temperature) || 0.7,
+          max_tokens: Number(model.maxTokens) || 2000,
+          stream: true
+        }
+      },
+      context,
+      promptTemplate,
+      enableKeywords: currentChat.value.enableKeywords,
+      keywords: detectedKeywords.value,
+      getKeywordContent,
+      onChunk: (chunk) => {
+        assistantMessage.content += chunk
+        scrollToBottom()
+      },
+      abortSignal: abortController.value?.signal,
+      onAbort: () => {
+        // 中止时保留已接收内容
+        assistantMessage.isStreaming = false
+        assistantMessage.isPartial = true
+        assistantMessage.responseTime = Date.now() - requestStartTime.value
+        showToastMessage('请求已停止，保留已接收内容', 'info')
+        return { success: true } // 标记为成功中止
+      }
+    })
+
+    if (!response.success) {
+      throw response.error
+    }
+
+    // 更新消息状态
+    assistantMessage.isStreaming = false
+    assistantMessage.responseTime = Date.now() - requestStartTime.value
+
+    await saveSessions()
     showToastMessage('消息已重新发送')
   } catch (error) {
-    console.error('重新发送失败:', error)
-    showToastMessage(error.message, 'error')
-    // 发送失败时移除刚才添加的用户消息
-    currentChat.value.messages.pop()
+    // 只处理非中止错误
+    if (error.name !== 'AbortError' && error.message !== '请求已取消') {
+      console.error('重新发送失败:', error)
+      showToastMessage(error.message, 'error')
+      // 只有非中止错误才移除消息
+      const lastMessage = currentChat.value.messages[currentChat.value.messages.length - 1]
+      if (lastMessage.role === 'assistant') {
+        currentChat.value.messages.pop()
+      }
+    }
     await saveSessions()
   } finally {
     isRequesting.value = false
     abortController.value = null
     elapsedTime.value = 0
+    if (elapsedTimer) {
+      clearInterval(elapsedTimer)
+      elapsedTimer = null
+    }
   }
 }
 
@@ -1099,6 +1244,25 @@ onUnmounted(() => {
     elapsedTimer = null
   }
 })
+
+// 切换特定关键词的关联卡片区域的折叠状态
+const toggleLinkedCardsArea = (keywordId) => {
+  linkedCardsCollapsed.value[keywordId] = !linkedCardsCollapsed.value[keywordId]
+}
+
+// 检查特定关键词的关联卡片区域是否折叠
+const isLinkedCardsCollapsed = (keywordId) => {
+  // 默认折叠状态为true（折叠）
+  return linkedCardsCollapsed.value[keywordId] !== false
+}
+
+// 确保关键词区域折叠状态的变量初始化为true（默认折叠）
+const keywordsAreaCollapsed = ref(true)
+
+// 切换关键词区域的折叠状态
+const toggleKeywordsArea = () => {
+  keywordsAreaCollapsed.value = !keywordsAreaCollapsed.value
+}
 
 </script>
 

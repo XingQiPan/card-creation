@@ -16,16 +16,14 @@ const formatApiUrl = (model) => {
 
 // 构建请求体
 const buildRequestBody = (model, messages, context = []) => {
-
-
-
   switch (model.provider) {
     case 'openai':
       return {
         model: model.modelId,
         messages: [...context, ...messages],
         max_tokens: model.maxTokens,
-        temperature: Number(model.temperature) || 0.7
+        temperature: Number(model.temperature) || 0.7,
+        stream: true // 默认启用流式
       }
     case 'mistral':
     case 'custom':
@@ -49,10 +47,9 @@ const buildRequestBody = (model, messages, context = []) => {
       return {
         model: model.modelId,
         messages: [...context, ...messages],
-        stream: true,
+        stream: true, // 强制流式
         options: {
           temperature: Number(model.temperature) || 0.7,
-          //max_tokens: model.maxTokens
           max_tokens: 4096
         }
       }
@@ -260,14 +257,24 @@ export const sendToModel = async (
   message, 
   context = [], 
   abortController = null,
-  promptTemplate = null
+  promptTemplate = null,
+  forceStream = false
 ) => {
   try {
     if (model.provider === 'gemini') {
       const { GoogleGenerativeAI } = await import("@google/generative-ai");
       const genAI = new GoogleGenerativeAI(model.apiKey);
       const genModel = genAI.getGenerativeModel({ model: model.modelId });
-            
+      
+      // 为Gemini添加中止支持
+      const abortSignal = abortController?.signal;
+      if (abortSignal) {
+        abortSignal.addEventListener('abort', () => {
+          // Gemini没有直接的中止API，我们只能忽略响应
+          throw new Error('请求已被用户中止');
+        });
+      }
+      
       // Convert context and messages to Gemini format
       const history = [
         {
@@ -292,19 +299,22 @@ export const sendToModel = async (
       return result.response.text();
     }
 
-    // Handle other providers as before
-    let url = formatApiUrl(model)
-    const headers = buildHeaders(model)
+    // 处理其他供应商
+    let url = formatApiUrl(model);
+    const headers = buildHeaders(model);
     
-    let finalContext = context
+    let finalContext = context;
     if (promptTemplate) {
       finalContext = [
         { role: 'system', content: promptTemplate },
         ...context
-      ]
+      ];
     }
 
-    const body = buildRequestBody(model, [{ role: 'user', content: message }], finalContext)
+    const body = buildRequestBody(model, [{ role: 'user', content: message }], finalContext);
+    if (forceStream && model.provider !== 'gemini') {
+      body.stream = true;
+    }
     
     // 添加调试日志
     console.log('发送请求到模型:', {
@@ -319,41 +329,106 @@ export const sendToModel = async (
         hasMaxTokens: !!body?.max_tokens,
         hasTemperature: !!body?.temperature
       }
-    })
+    });
     
-    const response = await fetch(url, {
+    // 为所有请求添加中止支持
+    const fetchOptions = {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
-      signal: abortController?.signal
-    })
-    
-    // 如果响应不成功，记录更多信息
-    if (!response.ok) {
-      console.error('API 响应错误:', {
-        status: response.status,
-        statusText: response.statusText,
-        headers: Object.fromEntries([...response.headers.entries()])
-      })
+    };
+
+    // 为Ollama和其他流式响应添加特殊处理
+    if (model.provider === 'ollama' || body.stream) {
+      const response = await fetch(url, {
+        ...fetchOptions,
+        signal: abortController?.signal
+      });
+
+      if (!response.ok) {
+        console.error('API 响应错误:', {
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries([...response.headers.entries()])
+        });
+        
+        // 尝试获取响应体
+        const errorText = await response.text();
+        console.error('API 错误响应体:', errorText);
+        
+        // 重置 response 以便后续处理
+        const errorResponse = new Response(errorText, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers
+        });
+        
+        return await parseResponse(errorResponse, model);
+      }
+
+      // 创建可中止的读取器
+      const reader = response.body.getReader();
+      let result = '';
       
-      // 尝试获取响应体
-      const errorText = await response.text()
-      console.error('API 错误响应体:', errorText)
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          // 检查是否已中止
+          if (abortController?.signal.aborted) {
+            reader.cancel();
+            throw new Error('请求已被用户中止');
+          }
+          
+          const text = new TextDecoder().decode(value);
+          // 处理流式数据...
+          result += text;
+        }
+        return result;
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          throw new Error('请求已被用户中止');
+        }
+        throw error;
+      }
+    } else {
+      // 标准非流式请求
+      const response = await fetch(url, {
+        ...fetchOptions,
+        signal: abortController?.signal
+      });
       
-      // 重置 response 以便后续处理
-      const errorResponse = new Response(errorText, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers
-      })
+      if (!response.ok) {
+        console.error('API 响应错误:', {
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries([...response.headers.entries()])
+        });
+        
+        // 尝试获取响应体
+        const errorText = await response.text();
+        console.error('API 错误响应体:', errorText);
+        
+        // 重置 response 以便后续处理
+        const errorResponse = new Response(errorText, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers
+        });
+        
+        return await parseResponse(errorResponse, model);
+      }
       
-      return await parseResponse(errorResponse, model)
+      return await parseResponse(response, model);
     }
-    
-    return await parseResponse(response, model)
   } catch (error) {
-    showToast(error.message, 'error')
-    console.error('API 请求错误:', error)
-    throw error
+    if (error.name === 'AbortError' || error.message === '请求已被用户中止') {
+      console.log('请求已成功中止');
+      throw new Error('请求已中止');
+    }
+    showToast(error.message, 'error');
+    console.error('API 请求错误:', error);
+    throw error;
   }
-} 
+}; 

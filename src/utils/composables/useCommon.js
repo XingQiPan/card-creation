@@ -47,24 +47,36 @@ export function useCommon() {
     }
   }
 
-  // 通用的本地存储操作
+  // 保存数据到本地存储
   const saveToStorage = (key, data) => {
     try {
       localStorage.setItem(key, JSON.stringify(data))
+      return true
     } catch (error) {
-      console.error(`保存${key}失败:`, error)
-      showToastMessage(`保存${key}失败: ` + error.message, 'error')
+      console.error('保存数据失败:', error)
+      return false
     }
   }
-
+  
+  // 从本地存储加载数据
   const loadFromStorage = (key, defaultValue = null) => {
     try {
       const data = localStorage.getItem(key)
       return data ? JSON.parse(data) : defaultValue
     } catch (error) {
-      console.error(`加载${key}失败:`, error)
-      showToastMessage(`加载${key}失败: ` + error.message, 'error')
+      console.error('加载数据失败:', error)
       return defaultValue
+    }
+  }
+  
+  // 删除本地存储中的数据
+  const removeFromStorage = (key) => {
+    try {
+      localStorage.removeItem(key)
+      return true
+    } catch (error) {
+      console.error('删除数据失败:', error)
+      return false
     }
   }
 
@@ -103,6 +115,7 @@ export function useCommon() {
     importData,
     saveToStorage,
     loadFromStorage,
+    removeFromStorage,
     formatTime,
     formatResponseTime,
     truncateText,

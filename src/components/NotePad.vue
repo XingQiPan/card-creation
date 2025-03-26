@@ -28,6 +28,7 @@
         :key="chapter.id"
         class="work-card"
         :class="{'active-card': activeManagementMenu === chapter.id}"
+        @click="navigateToChapter(chapter.id)"
       >
         <div class="card-cover" :style="{ backgroundColor: getRandomColor(chapter.id) }">
           <div class="card-title">{{ chapter.title || '新建作品' }}</div>
@@ -41,7 +42,7 @@
           </div>
         </div>
         <div class="card-actions">
-          <div class="action-btn" @click="navigateToChapter(chapter.id)">
+          <div class="action-btn" @click.stop="navigateToChapter(chapter.id)">
             <span class="action-icon">⊕</span>
             <span>新建章节</span>
           </div>
@@ -51,10 +52,10 @@
           </div>
         </div>
         
-        <!-- 作品管理下拉菜单 - 移到卡片外部 -->
+        <!-- 作品管理下拉菜单 -->
         <div v-if="activeManagementMenu === chapter.id" class="management-menu">
           <div class="menu-item">作品信息</div>
-          <div class="menu-item">删除作品</div>
+          <div class="menu-item" @click.stop="deleteChapter(chapter.id)">删除作品</div>
           <div class="menu-item">拆书</div>
           <div class="menu-item">置顶作品</div>
           <div class="menu-item">作品导出</div>
@@ -202,15 +203,43 @@ const createNewChapter = () => {
 
 // 导航到章节内容
 const navigateToChapter = (chapterId) => {
+  console.log('导航到章节:', chapterId)
   const chapter = chapters.value.find(c => c.id === chapterId)
-  if (!chapter) return
+  if (!chapter) {
+    console.error('找不到章节:', chapterId)
+    return
+  }
+  
+  console.log('找到章节:', chapter)
   
   // 如果章节有内容，导航到第一个章节
-  if (chapter.sections.length > 0) {
-    router.push(`/chapter/${chapter.id}/section/${chapter.sections[0].id}`)
+  if (chapter.sections && chapter.sections.length > 0) {
+    const targetPath = `/editor/${chapter.id}/section/${chapter.sections[0].id}`
+    console.log('导航到已有章节:', targetPath)
+    router.push(targetPath)
   } else {
-    // 否则导航到创建章节页面
-    router.push(`/chapter/${chapter.id}`)
+    // 创建一个新的章节
+    const newSection = {
+      id: Date.now(),
+      title: '第一章',
+      content: '',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+    
+    // 如果章节没有sections数组，创建一个
+    if (!chapter.sections) {
+      chapter.sections = []
+    }
+    
+    // 添加新章节
+    chapter.sections.push(newSection)
+    saveChapters()
+    
+    // 导航到编辑器页面
+    const targetPath = `/editor/${chapter.id}/section/${newSection.id}`
+    console.log('导航到新章节:', targetPath)
+    router.push(targetPath)
   }
 }
 
@@ -227,6 +256,29 @@ const getRandomColor = (id) => {
 const closeManagementMenu = (event) => {
   if (activeManagementMenu.value !== null && !event.target.closest('.management-btn') && !event.target.closest('.management-menu')) {
     activeManagementMenu.value = null
+  }
+}
+
+// 删除作品
+const deleteChapter = (chapterId) => {
+  // 阻止事件冒泡
+  event.stopPropagation()
+  
+  // 确认删除
+  if (confirm('确定要删除这个作品吗？此操作不可恢复。')) {
+    // 找到要删除的章节索引
+    const chapterIndex = chapters.value.findIndex(c => c.id === chapterId)
+    
+    if (chapterIndex !== -1) {
+      // 将章节标记为已删除，而不是直接从数组中移除
+      chapters.value[chapterIndex].deleted = true
+      
+      // 保存更改
+      saveChapters()
+      
+      // 关闭管理菜单
+      activeManagementMenu.value = null
+    }
   }
 }
 

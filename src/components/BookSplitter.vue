@@ -450,65 +450,57 @@ const DBUtils = {
   }
 }
 
-// 修改 loadScenes 方法
+// 修改 loadScenes 方法，增加更详细的错误处理和日志
 const loadScenes = async () => {
+  isLoading.value = true;
+  
   try {
-    isLoading.value = true;
-    // 从专门的 book-scenes 端点加载
+    // 尝试从后端加载
     const response = await fetch('http://localhost:3000/api/load-book-scenes');
-    
-    if (!response.ok) {
-      throw new Error(`从服务器加载场景失败: ${response.status}`);
-    }
-    
     const result = await response.json();
     
-    if (Array.isArray(result)) {
-      if (result.length > 0) {
-        scenes.value = result.map(scene => 
-          DataSerializer.deserializeScene(scene)
-        );
-        
-        // 如果没有当前场景ID，设置为第一个场景
-        if (!currentSceneId.value || !scenes.value.find(s => s.id === currentSceneId.value)) {
-          currentSceneId.value = scenes.value[0].id;
-        }
-        
-        // 同步到 IndexedDB
-        try {
-          await DBUtils.saveData(scenes.value);
-        } catch (dbError) {
-          console.error('同步到 IndexedDB 失败:', dbError);
-        }
-        
-        showToast('已恢复保存的场景数据主人~', 'success');
-      } else {
-        // 如果没有场景，创建默认场景
-        createNewScene();
-      }
-    } else {
-      throw new Error('加载的场景数据格式不正确');
-    }
-  } catch (error) {
-    console.error('加载场景失败:', error);
+    console.log('从后端加载的数据:', result); // 添加详细日志
     
-    // 尝试从 IndexedDB 加载
+    if (Array.isArray(result?.data)) {  // 更安全的检查方式
+      scenes.value = result.data.map(scene => {
+        const deserialized = DataSerializer.deserializeScene(scene);
+        if (!deserialized) throw new Error('反序列化失败');
+        return deserialized;
+      });
+      
+      // 设置当前场景
+      if (scenes.value.length > 0) {
+        currentSceneId.value = currentSceneId.value && scenes.value.some(s => s.id === currentSceneId.value) 
+          ? currentSceneId.value 
+          : scenes.value[0].id;
+      }
+      
+      // 保存到 IndexedDB
+      await DBUtils.saveData(scenes.value);
+      showToast('场景加载成功', 'success');
+      return;
+    }
+    throw new Error('返回数据格式无效');
+    
+  } catch (error) {
+    console.error('从后端加载失败，尝试本地恢复:', error);
+    
     try {
+      // 从 IndexedDB 恢复
       const localScenes = await DBUtils.loadData();
-      if (localScenes && localScenes.length > 0) {
+      if (localScenes?.length > 0) {
         scenes.value = localScenes;
-        if (!currentSceneId.value || !scenes.value.find(s => s.id === currentSceneId.value)) {
-          currentSceneId.value = localScenes[0].id;
-        }
-        showToast('已从本地恢复场景数据主人~', 'success');
+        currentSceneId.value = scenes.value[0].id;
+        showToast('从本地恢复场景成功', 'warning');
         return;
       }
     } catch (dbError) {
-      console.error('从 IndexedDB 加载失败:', dbError);
+      console.error('本地恢复失败:', dbError);
     }
     
-    // 如果都失败了，创建默认场景
+    // 最终回退：创建新场景
     createNewScene();
+    showToast('已创建新场景', 'info');
   } finally {
     isLoading.value = false;
   }

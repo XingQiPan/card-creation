@@ -1,10 +1,9 @@
 <template>
   <div class="container">    
     <!-- 其他视图内容 -->
-    <div class="content-area">
+    <div class="content-area" v-if="currentView !== 'editor'">
       <!-- 主要内容区域 -->
       <div v-if="currentView === 'main'" class="main-content">
-
         <!-- 左侧提示词模板区 -->
         <div class="prompt-panel" :style="{ width: promptPanelWidth + 'px' }">
           <div class="panel-header">
@@ -239,53 +238,53 @@
         :models="models"
       />
     </div>
-
-
+    <router-view v-else />
     <!-- 视图切换按钮 -->
     <div class="view-switcher">
       <button 
         :class="{ active: currentView === 'main' }"
-        @click="currentView = 'main'"
+        @click="navigateTo('main')"
       >
         <i class="fas fa-home"></i>
       </button>
       <button 
         :class="{ active: currentView === 'book' }"
-        @click="currentView = 'book'"
+        @click="navigateTo('book')"
       >
         <i class="fas fa-book"></i>
       </button>
       <button 
         :class="{ active: currentView === 'chat' }"
-        @click="currentView = 'chat'"
+        @click="navigateTo('chat')"
       >
         <i class="fas fa-comments"></i>
       </button>
       <button 
         :class="{ active: currentView === 'note' }"
-        @click="currentView = 'note'"
+        @click="navigateTo('note')"
       >
         <i class="fas fa-sticky-note"></i>
       </button>
       <button 
-        @click="currentView = 'agents'" 
+        @click="navigateTo('agents')" 
         :class="{ active: currentView === 'agents' }"
       >
         <i class="fas fa-robot"></i>
       </button>
       <button 
-        @click="currentView = 'detector'" 
+        @click="navigateTo('detector')" 
         :class="{ active: currentView === 'detector' }"
       >
         <i class="fas fa-search"></i>
       </button>
       <button 
-      @click="currentView = 'knowledge'" 
-      :class="{ active: currentView === 'knowledge' }"
-    >
-      <i class="fas fa-database"></i>
-    </button>
+        @click="navigateTo('knowledge')" 
+        :class="{ active: currentView === 'knowledge' }"
+      >
+        <i class="fas fa-database"></i>
+      </button>
     </div>
+  
   </div>
 
   
@@ -735,14 +734,39 @@ import { dataService } from './utils/services/dataService'
 import { debugLog, setDebugMode } from './utils/debug'
 import AIDetector from './components/AIDetector.vue'
 import KnowledgeBase from './components/KnowledgeBase.vue'
+import { useRoute, useRouter } from 'vue-router'
 
 setDebugMode(false)
+
 
 // 添加版本号
 const version = __APP_VERSION__
 
-// 将状态声明移到最前面
-const currentView = ref('main') // 添加视图切换状态
+
+const route = useRoute()
+const router = useRouter()
+
+const currentView = ref('main')
+
+watch(() => route.path, (newPath) => {
+  if (newPath === '/') {
+    currentView.value = 'main'
+  } else if (newPath.startsWith('/editor')) {
+    currentView.value = 'editor'
+    // 保存当前书籍ID
+    const bookId = route.params.bookId
+    if (bookId) {
+      localStorage.setItem('currentBookId', bookId)
+    }
+  } else {
+    // 从路径中提取视图名称
+    const viewPath = newPath.substring(1) // 去掉开头的'/'
+    if (['book', 'chat', 'note', 'agents', 'detector', 'knowledge'].includes(viewPath)) {
+      currentView.value = viewPath
+    }
+  }
+})
+
 const prompts = ref([])
 const textCards = ref([])
 const selectedCards = ref([])
@@ -2624,6 +2648,20 @@ const applyCardLayout = () => {
 onMounted(() => {
   applyCardLayout()
 })
+
+// 导航方法
+const navigateTo = (view) => {
+  if (view === 'main') {
+    router.push('/')
+  } else if (view === 'editor') {
+    // 如果有当前选中的书籍，导航到该书籍
+    const currentBookId = localStorage.getItem('currentBookId') || 'default'
+    router.push(`/editor/${currentBookId}`)
+  } else {
+    // 导航到对应的路由
+    router.push(`/${view}`)
+  }
+}
 </script>
 
 <style scoped>

@@ -61,6 +61,14 @@ const TASKS_FILE = path.join(DATA_DIR, 'tasks.json')
 // 添加内置提示词文件路径
 const BUILT_IN_PROMPTS_FILE = path.join(DATA_DIR, 'built-in-prompts.json')
 
+// 定义存储书籍章节的目录
+const BOOKS_DIR = path.join(DATA_DIR, 'books')
+
+// 确保书籍目录存在
+if (!fs.existsSync(BOOKS_DIR)) {
+  fs.mkdirSync(BOOKS_DIR, { recursive: true })
+}
+
 // 封装文件操作相关的工具函数
 const FileUtils = {
   ensureDirectory(dir) {
@@ -1031,6 +1039,118 @@ app.use((err, req, res, next) => {
     success: false,
     error: process.env.NODE_ENV === 'development' ? err.message : '服务器错误'
   })
+})
+
+// 添加书籍章节相关API - 使用bookId参数区分不同的书籍
+app.get('/api/books/:bookId/chapters', (req, res) => {
+  try {
+    const { bookId } = req.params
+    const bookFile = path.join(BOOKS_DIR, `${bookId}.json`)
+    
+    // 检查文件是否存在，不存在则返回空数组
+    if (!fs.existsSync(bookFile)) {
+      return res.json([])
+    }
+    
+    const chaptersData = JSON.parse(fs.readFileSync(bookFile, 'utf8'))
+    res.json(chaptersData)
+  } catch (error) {
+    console.error('获取书籍章节失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '获取书籍章节失败: ' + error.message
+    })
+  }
+})
+
+app.post('/api/books/:bookId/chapters', (req, res) => {
+  try {
+    const { bookId } = req.params
+    const chapters = req.body
+    const bookFile = path.join(BOOKS_DIR, `${bookId}.json`)
+    
+    if (!Array.isArray(chapters)) {
+      return res.status(400).json({
+        success: false,
+        error: '无效的章节数据格式'
+      })
+    }
+    
+    // 确保目录存在
+    if (!fs.existsSync(BOOKS_DIR)) {
+      fs.mkdirSync(BOOKS_DIR, { recursive: true })
+    }
+    
+    // 保存章节数据到对应书籍的JSON文件
+    fs.writeFileSync(bookFile, JSON.stringify(chapters, null, 2))
+    
+    res.json({
+      success: true,
+      message: '章节数据保存成功'
+    })
+  } catch (error) {
+    console.error('保存书籍章节失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '保存书籍章节失败: ' + error.message
+    })
+  }
+})
+
+// 获取所有书籍列表
+app.get('/api/books', (req, res) => {
+  try {
+    // 如果目录不存在，创建它
+    if (!fs.existsSync(BOOKS_DIR)) {
+      fs.mkdirSync(BOOKS_DIR, { recursive: true })
+      return res.json([])
+    }
+    
+    // 读取books目录下的所有JSON文件
+    const files = fs.readdirSync(BOOKS_DIR).filter(file => file.endsWith('.json'))
+    
+    // 从每个文件中提取基本信息组成书籍列表
+    const books = files.map(file => {
+      const bookId = file.replace('.json', '')
+      try {
+        const bookData = JSON.parse(fs.readFileSync(path.join(BOOKS_DIR, file), 'utf8'))
+        const chapterCount = bookData.length || 0
+        const wordCount = bookData.reduce((total, chapter) => {
+          // 从HTML内容中提取纯文本计算字数
+          const content = chapter.content || ''
+          const textContent = content.replace(/<[^>]*>/g, '')
+          return total + textContent.replace(/\s+/g, '').length
+        }, 0)
+        
+        return {
+          id: bookId,
+          title: bookData[0]?.title || '未命名书籍',
+          preview: bookData[0]?.content?.replace(/<[^>]*>/g, '').substring(0, 100) || '',
+          chapterCount,
+          wordCount,
+          updatedAt: bookData[0]?.updatedAt || new Date().toISOString()
+        }
+      } catch (error) {
+        console.error(`读取书籍 ${bookId} 信息失败:`, error)
+        return {
+          id: bookId,
+          title: '损坏的书籍',
+          preview: '',
+          chapterCount: 0,
+          wordCount: 0,
+          updatedAt: new Date().toISOString()
+        }
+      }
+    })
+    
+    res.json(books)
+  } catch (error) {
+    console.error('获取书籍列表失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '获取书籍列表失败: ' + error.message
+    })
+  }
 })
 
 // 启动服务器

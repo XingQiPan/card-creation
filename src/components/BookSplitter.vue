@@ -143,11 +143,13 @@
             </div>
 
             <div class="processing-status" v-if="currentScene.processing">
-              <div>正在处理 #{{ currentScene.originalCards[currentScene.currentIndex]?.chapterNumber }}/{{ currentScene.originalCards.length }} 章</div>
+              <div>
+                正在处理 {{ currentScene.processedChapters }}/{{ currentScene.totalChapters }} 章
+              </div>
               <div class="progress-bar">
                 <div 
                   class="progress" 
-                  :style="{ width: `${(currentScene.currentIndex / currentScene.originalCards.length) * 100}%` }"
+                  :style="{ width: `${currentScene.currentProgress}%` }"
                 ></div>
               </div>
             </div>
@@ -283,6 +285,7 @@ import { useCommon } from '../utils/composables/useCommon'
 import { showToast } from '../utils/common'
 import { sendToModel } from '../utils/modelRequests'
 import { dataService } from '../utils/services/dataService'
+import { debugLog } from '../utils/debug'
 
 // 定义 props
 const props = defineProps({
@@ -407,11 +410,10 @@ const initializeDB = async () => {
       upgrade(db) {
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: 'id' })
-          console.log('Created book scenes store')
         }
       }
     })
-    console.log('数据库初始化成功')
+    debugLog('数据库初始化成功')
     return db
   } catch (error) {
     console.error('数据库初始化失败:', error)
@@ -459,7 +461,7 @@ const loadScenes = async () => {
     const response = await fetch('http://localhost:3000/api/load-book-scenes');
     const result = await response.json();
     
-    console.log('从后端加载的数据:', result); // 添加详细日志
+    debugLog('从后端加载的数据:', result); // 添加详细日志
     
     if (Array.isArray(result?.data)) {  // 更安全的检查方式
       scenes.value = result.data.map(scene => {
@@ -664,6 +666,50 @@ const handleBookUpload = async (event, scene) => {
   }
 };
 
+// 修改处理单个卡片的方法
+const processCard = async (card, scene) => {
+  const prompt = getSelectedPrompt(scene);
+  if (!prompt) throw new Error('未选择提示词');
+
+  try {
+    const response = await fetch('http://localhost:3000/api/process-chapter', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        chapter: card.content,
+        prompt: prompt.content,
+        model: prompt.selectedModel
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`处理失败 (${response.status}): ${errorText}`);
+    }
+
+    const result = await response.json();
+    
+    if (!result.success) {
+      throw new Error(result.error || '处理失败');
+    }
+
+    return {
+      id: Date.now(),
+      originalNumber: card.chapterNumber,
+      promptSequence: result.data.sequence || [],
+      content: result.data.content,
+      promptId: prompt.id,
+      title: card.title || `第${card.chapterNumber}章`,
+      selected: false,
+      updatedAt: new Date()
+    };
+  } catch (error) {
+    console.error('处理章节失败:', error);
+    throw error;
+  }
+};
 
 // 处理单个章节
 const processChapter = async (card, scene) => {
@@ -684,7 +730,7 @@ const processChapter = async (card, scene) => {
     return
   }
 
-  console.log('开始处理章节:', {
+  debugLog('开始处理章节:', {
     chapterTitle: card.title,
     modelInfo: {
       provider: model.provider,
@@ -731,7 +777,7 @@ const processChapter = async (card, scene) => {
 
 // 修改处理函数以支持多场景
 const processWithPrompt = async (scene) => {
-  if (!scene.selectedPromptId || scene.processing) return
+  if (!scene.selectedPromptId) return
 
   const prompt = props.prompts.find(p => p.id === scene.selectedPromptId)
   if (!prompt) {
@@ -739,20 +785,19 @@ const processWithPrompt = async (scene) => {
     return
   }
 
-  // 如果已经在处理中，先重置状态
+  // 如果已经在处理中，立即设置停止标志并返回
   if (scene.processing) {
+    scene.shouldStop = true
     scene.processing = false
-    scene.isPaused = false
-    scene.shouldStop = false
-    scene.currentIndex = 0
     await saveScenes()
+    showToast('已终止处理主人~', 'info')
     return
   }
 
+  // 初始化处理状态
   scene.processing = true
   scene.isPaused = false
   scene.shouldStop = false
-  scene.currentIndex = 0
 
   // 获取选中的模型
   const model = props.models.find(m => m.id === prompt.selectedModel)
@@ -763,29 +808,60 @@ const processWithPrompt = async (scene) => {
   }
 
   try {
-    // 清空之前的结果
-    scene.resultCards = []
-    
     // 如果是阶跃星辰或Mistral模型，先等待2秒
     if (model.provider === 'stepfun' || model.provider === 'mistral') {
       await delay(2000)
     }
 
-    // 开始处理所有章节
-    for (let i = 0; i < scene.originalCards.length; i++) {
-      if (scene.shouldStop || scene.isPaused) {
-        break
-      }
+    // 1. 先清理无效的结果卡片
+    scene.resultCards = scene.resultCards.filter(resultCard => 
+      scene.originalCards.some(oc => oc.chapterNumber === resultCard.originalNumber)
+    )
 
-      const card = scene.originalCards[i]
+    // 2. 找出需要处理的章节
+    const chaptersToProcess = scene.originalCards.filter(originalCard => 
+      !scene.resultCards.some(rc => rc.originalNumber === originalCard.chapterNumber)
+    )
+
+    // 计算已处理章节数
+    const alreadyProcessedCount = scene.originalCards.length - chaptersToProcess.length
+
+    // 更新进度信息
+    scene.totalChapters = scene.originalCards.length
+    scene.processedChapters = alreadyProcessedCount
+    scene.currentProgress = Math.round((alreadyProcessedCount / scene.originalCards.length) * 100)
+    await saveScenes()
+
+    if (chaptersToProcess.length === 0) {
+      showToast('所有章节都已处理完成主人~', 'info')
+      return
+    }
+
+    // 3. 处理缺失的章节
+    for (let i = 0; i < chaptersToProcess.length; i++) {
+      if (scene.shouldStop) break
+
+      const card = chaptersToProcess[i]
       try {
-        const result = await processWithAPI(card, prompt, scene)
-        
-        if (scene.shouldStop || scene.isPaused) {
-          break
-        }
+        const result = await Promise.race([
+          processWithAPI(card, prompt, scene),
+          new Promise((_, reject) => {
+            const checkStop = () => {
+              if (scene.shouldStop) reject(new Error('处理已终止'))
+            }
+            const interval = setInterval(checkStop, 100)
+            return () => clearInterval(interval)
+          })
+        ])
 
-        scene.resultCards.push({
+        if (scene.shouldStop) break
+
+        // 更新结果卡片
+        const existingIndex = scene.resultCards.findIndex(
+          rc => rc.originalNumber === card.chapterNumber
+        )
+        
+        const newResultCard = {
           id: Date.now() + Math.random(),
           originalNumber: card.chapterNumber,
           promptSequence: prompt.sequence,
@@ -793,34 +869,35 @@ const processWithPrompt = async (scene) => {
           promptId: prompt.id,
           title: card.title,
           updatedAt: new Date()
-        })
+        }
 
-        scene.currentIndex = i + 1
+        if (existingIndex >= 0) {
+          scene.resultCards[existingIndex] = newResultCard
+        } else {
+          const insertIndex = scene.originalCards.findIndex(
+            oc => oc.chapterNumber === card.chapterNumber
+          )
+          scene.resultCards.splice(insertIndex, 0, newResultCard)
+        }
+
+        // 更新进度（已处理数 = 已存在的 + 新处理的）
+        scene.processedChapters = alreadyProcessedCount + i + 1
+        scene.currentProgress = Math.round((scene.processedChapters / scene.originalCards.length) * 100)
         await saveScenes()
         
-        if (i < scene.originalCards.length - 1 && !scene.isPaused && !scene.shouldStop) {
-          await delay(1500) // 添加延迟避免请求过快
+        if (i < chaptersToProcess.length - 1 && !scene.shouldStop) {
+          await delay(1500)
         }
 
-        showToast(`已完成第 ${i + 1}/${scene.originalCards.length} 章处理主人~`, 'success')
       } catch (error) {
-        console.error(`处理章节 ${card.title} 失败:`, error)
-        showToast(`处理章节 "${card.title}" 失败主人~: ${error.message}`, 'error')
-        
-        if (!confirm('是否继续处理下一章节主人~？')) {
-          scene.shouldStop = true
-          break
-        }
+        if (error.message === '处理已终止') break
+        console.error('处理章节失败:', error)
+        showToast(`第${card.chapterNumber}章处理失败: ${error.message}`, 'error')
       }
     }
-  } catch (error) {
-    console.error('处理过程发生错误:', error)
-    showToast('处理过程发生错误主人~: ' + error.message, 'error')
   } finally {
     scene.processing = false
-    scene.isPaused = false
     scene.shouldStop = false
-    scene.currentIndex = 0
     await saveScenes()
   }
 }
@@ -1316,6 +1393,28 @@ const manualSave = async () => {
     isLoading.value = false;
   }
 };
+
+// 添加方法：当删除原书卡片时自动清理对应的结果
+const deleteOriginalCard = (scene, cardId) => {
+  const cardIndex = scene.originalCards.findIndex(c => c.id === cardId)
+  if (cardIndex === -1) return
+
+  // 获取章节号用于清理结果
+  const chapterNumber = scene.originalCards[cardIndex].chapterNumber
+  
+  // 删除原书卡片
+  scene.originalCards.splice(cardIndex, 1)
+  
+  // 清理对应的结果卡片
+  const resultIndex = scene.resultCards.findIndex(
+    rc => rc.originalNumber === chapterNumber
+  )
+  if (resultIndex >= 0) {
+    scene.resultCards.splice(resultIndex, 1)
+  }
+
+  saveScenes()
+}
 </script>
 
 <style scoped>

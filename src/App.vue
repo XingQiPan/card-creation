@@ -1174,6 +1174,66 @@ watch(
   { deep: true }
 )
 
+watch(dragScene, (isDragging) => {
+  preventTextSelection(isDragging)
+})
+
+// 添加保存当前场景ID的逻辑
+watch(currentScene, (newScene) => {
+  if (newScene) {
+    syncData()
+  }
+}, { deep: true })
+
+// 修改数据监听，增加即时性
+watch(
+  [scenes, currentScene],
+  async () => {
+    await syncData() // 场景变化立即同步
+  },
+  { deep: true }
+)
+
+// 其他数据变化使用防抖同步
+watch(
+  [prompts, tags, models, selectedTags, currentView],
+  () => {
+    syncData()
+  },
+  { deep: true }
+)
+
+// 监听当前场景变化，保存当前场景ID
+watch(currentScene, (newScene) => {
+  if (newScene) {
+    syncData() // 使用 syncData 同步到后端
+  }
+}, { deep: true })
+
+// 保存当前视图到后端
+watch(currentView, (newView) => {
+  syncData() // 使用 syncData 同步到后端
+})
+
+// 保存当前视图到本地存储
+watch(currentView, (newView) => {
+  dataService.saveToLocalStorage('currentView', newView)
+})
+
+
+// 修改保存当前视图的 watch
+watch(currentView, (newView) => {
+  // 使用 syncData 同步到后端
+  syncData()
+})
+
+// 修改保存当前场景ID的 watch
+watch(currentScene, (newScene) => {
+  if (newScene) {
+    // 使用 syncData 同步到后端
+    syncData()
+  }
+}, { deep: true })
 
 const canInsertText = (prompt) => {
   if (!prompt?.userPrompt) return false
@@ -1815,9 +1875,7 @@ const preventTextSelection = (prevent) => {
   document.body.style.userSelect = prevent ? 'none' : ''
 }
 
-watch(dragScene, (isDragging) => {
-  preventTextSelection(isDragging)
-})
+
 
 onUnmounted(() => {
   preventTextSelection(false)
@@ -1877,12 +1935,7 @@ const handleDeleteScene = async (sceneId) => {
   }
 }
 
-// 添加保存当前场景ID的逻辑
-watch(currentScene, (newScene) => {
-  if (newScene) {
-    syncData()
-  }
-}, { deep: true })
+
 
 // 修改关键操作的保存方法
 const deleteCard = async (id) => {
@@ -1917,35 +1970,6 @@ const deleteCard = async (id) => {
   }
 }
 
-// 修改数据监听，增加即时性
-watch(
-  [scenes, currentScene],
-  async () => {
-    await syncData() // 场景变化立即同步
-  },
-  { deep: true }
-)
-
-// 其他数据变化使用防抖同步
-watch(
-  [prompts, tags, models, selectedTags, currentView],
-  () => {
-    syncData()
-  },
-  { deep: true }
-)
-
-// 监听当前场景变化，保存当前场景ID
-watch(currentScene, (newScene) => {
-  if (newScene) {
-    syncData() // 使用 syncData 同步到后端
-  }
-}, { deep: true })
-
-// 保存当前视图到后端
-watch(currentView, (newView) => {
-  syncData() // 使用 syncData 同步到后端
-})
 
 // 减少自动同步间隔到10秒
 onMounted(async () => {
@@ -2351,10 +2375,7 @@ defineExpose({
   exportScene // 更新导出的函数名
 })
 
-// 保存当前视图到本地存储
-watch(currentView, (newView) => {
-  dataService.saveToLocalStorage('currentView', newView)
-})
+
 
 // 处理场景更新
 const handleSceneUpdate = async (updatedScene) => {
@@ -2412,19 +2433,6 @@ onMounted(async () => {
   }
 })
 
-// 修改保存当前视图的 watch
-watch(currentView, (newView) => {
-  // 使用 syncData 同步到后端
-  syncData()
-})
-
-// 修改保存当前场景ID的 watch
-watch(currentScene, (newScene) => {
-  if (newScene) {
-    // 使用 syncData 同步到后端
-    syncData()
-  }
-}, { deep: true })
 
 // 修改场景保存逻辑
 const saveScenes = async () => {

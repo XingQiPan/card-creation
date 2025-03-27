@@ -1165,75 +1165,32 @@ onMounted(async () => {
   }
 })
 
-// 监听数据变化并保存
+// 合并后的数据监听
 watch(
-  [scenes, currentScene, prompts, tags, models],
-  async () => {
-    await syncData() // 改为使用 syncData
+  [
+    () => [...scenes.value], 
+    () => currentScene.value,
+    () => [...prompts.value],
+    () => [...tags.value],
+    () => [...models.value],
+    () => selectedTags.value,
+    () => currentView.value,
+    () => dragScene.value
+  ],
+  async ([scenes, currentScene, prompts, tags, models, selectedTags, currentView, isDragging]) => {
+    // 处理文本选择阻止
+    preventTextSelection(isDragging)
+    
+    // 保存当前视图到本地存储
+    if (currentView) {
+      dataService.saveToLocalStorage('currentView', currentView)
+    }
+    
+    // 同步数据到后端
+    await syncData()
   },
   { deep: true }
 )
-
-watch(dragScene, (isDragging) => {
-  preventTextSelection(isDragging)
-})
-
-// 添加保存当前场景ID的逻辑
-watch(currentScene, (newScene) => {
-  if (newScene) {
-    syncData()
-  }
-}, { deep: true })
-
-// 修改数据监听，增加即时性
-watch(
-  [scenes, currentScene],
-  async () => {
-    await syncData() // 场景变化立即同步
-  },
-  { deep: true }
-)
-
-// 其他数据变化使用防抖同步
-watch(
-  [prompts, tags, models, selectedTags, currentView],
-  () => {
-    syncData()
-  },
-  { deep: true }
-)
-
-// 监听当前场景变化，保存当前场景ID
-watch(currentScene, (newScene) => {
-  if (newScene) {
-    syncData() // 使用 syncData 同步到后端
-  }
-}, { deep: true })
-
-// 保存当前视图到后端
-watch(currentView, (newView) => {
-  syncData() // 使用 syncData 同步到后端
-})
-
-// 保存当前视图到本地存储
-watch(currentView, (newView) => {
-  dataService.saveToLocalStorage('currentView', newView)
-})
-
-
-// 修改保存当前视图的 watch
-watch(currentView, (newView) => {
-  // 使用 syncData 同步到后端
-  syncData()
-})
-
-// 修改保存当前场景ID的 watch
-watch(currentScene, (newScene) => {
-  if (newScene) {
-    // 使用 syncData 同步到后端
-    syncData()
-  }
-}, { deep: true })
 
 const canInsertText = (prompt) => {
   if (!prompt?.userPrompt) return false

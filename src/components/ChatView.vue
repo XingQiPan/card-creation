@@ -810,12 +810,27 @@ const debouncedSave = (() => {
   };
 })();
 
-// 监听聊天会话变化，自动保存
-watch(chatSessions, () => {
-  if (dataLoaded.value) {
-    debouncedSave();
-  }
-}, { deep: true });
+// 合并后的监听器
+watch(
+  [
+    () => chatSessions.value,
+    () => currentChat.value?.messages,
+    () => props.scenes
+  ],
+  ([sessions, messages, scenes]) => {
+    // 1. 聊天会话变化时自动保存
+    if (dataLoaded.value) {
+      debouncedSave();
+    }
+
+    // 2. 消息变化时自动滚动
+    if (messages) {
+      nextTick(scrollToBottom);
+    }
+
+  },
+  { deep: true }
+);
 
 // 在组件卸载前保存数据
 onBeforeUnmount(() => {
@@ -824,16 +839,6 @@ onBeforeUnmount(() => {
   }
 });
 
-// 监听消息变化，自动滚动
-watch(
-  () => currentChat.value?.messages,
-  () => nextTick(scrollToBottom),
-  { deep: true }
-)
-
-// 添加 watch 来监听 scenes 的变化
-watch(() => props.scenes, (newScenes) => {
-}, { deep: true })
 
 // 修改 onMounted 钩子，使用专用的加载方法
 onMounted(async () => {

@@ -214,7 +214,7 @@
 .task-editor {
   background: white;
   border-radius: 12px;
-  width: 90%;
+  width: 80%;
   max-width: 1280px;
   max-height: 90vh;
   display: flex;
@@ -262,14 +262,18 @@
 }
 
 .editor-body {
-  padding: 48px;
+  display: flex;
+  flex-direction: column;
+  padding: 50px;
   overflow-y: auto;
   overflow-x: hidden;
-  flex: 1;
 }
 
 
 .form-group {
+  margin: 10px;
+  display: flex;
+  flex-direction: column;
   margin-bottom: 20px;
 }
 

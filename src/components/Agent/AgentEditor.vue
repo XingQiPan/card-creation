@@ -145,6 +145,8 @@
 }
 
 .editor-body {
+  flex-direction: column;
+  display: flex;
   padding: 48px;
   overflow-y: auto;
   overflow-x: hidden;

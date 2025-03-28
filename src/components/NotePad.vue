@@ -38,7 +38,7 @@
           <div class="card-preview">{{ chapter.preview }}</div>
           <div class="card-tags">
             <span class="card-tag">{{ chapter.type }}</span>
-            <span class="card-tag word-count">{{ chapter.wordTag }}</span>
+            <span class="card-tag word-count">{{ formatWordCount(chapter.totalWords) }}</span>
           </div>
         </div>
         <div class="card-actions">
@@ -280,6 +280,13 @@ const deleteChapter = (chapterId) => {
       activeManagementMenu.value = null
     }
   }
+}
+
+// 格式化字数
+const formatWordCount = (count) => {
+  if (!count) return '0字'
+  if (count >= 10000) return `${(count/10000).toFixed(1)}万字`
+  return `${count}字`
 }
 
 // 组件初始化和清理

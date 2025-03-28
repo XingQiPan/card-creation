@@ -5,6 +5,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { AIDetector } from './ai-detector.js'
+import { v4 as uuidv4 } from 'uuid'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -1067,8 +1068,8 @@ app.post('/api/books/:bookId/chapters', (req, res) => {
   try {
     const { bookId } = req.params
     const chapters = req.body
-    const bookFile = path.join(BOOKS_DIR, `${bookId}.json`)
     
+    // 添加更严格的验证
     if (!Array.isArray(chapters)) {
       return res.status(400).json({
         success: false,
@@ -1081,18 +1082,19 @@ app.post('/api/books/:bookId/chapters', (req, res) => {
       fs.mkdirSync(BOOKS_DIR, { recursive: true })
     }
     
-    // 保存章节数据到对应书籍的JSON文件
-    fs.writeFileSync(bookFile, JSON.stringify(chapters, null, 2))
+    // 保存原始HTML内容
+    fs.writeFileSync(
+      path.join(BOOKS_DIR, `${bookId}.json`),
+      JSON.stringify(chapters, null, 2),
+      'utf8'
+    )
     
-    res.json({
-      success: true,
-      message: '章节数据保存成功'
-    })
+    res.json({ success: true })
   } catch (error) {
-    console.error('保存书籍章节失败:', error)
+    console.error('保存失败:', error)
     res.status(500).json({
       success: false,
-      error: '保存书籍章节失败: ' + error.message
+      error: '保存失败: ' + error.message
     })
   }
 })

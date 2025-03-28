@@ -6,33 +6,33 @@
         <button class="icon-btn" @click="toggleSidebar" title="显示/隐藏侧边栏">
           <i class="fas fa-bars"></i>
         </button>
-        <button class="tool-btn" title="字体">
+        <button class="tool-btn" @click="fontSettings.showModal = true" title="字体">
           <i class="fas fa-font"></i> 字体
         </button>
-        <button class="tool-btn" title="背景">
+        <button class="tool-btn" @click="backgroundSettings.showModal = true" title="背景">
           <i class="fas fa-palette"></i> 背景
         </button>
-        <button class="icon-btn" title="撤销">
+        <button class="icon-btn" @click="undo" title="撤销 (Ctrl+Z)">
           <i class="fas fa-undo"></i>
         </button>
-        <button class="icon-btn" title="重做">
+        <button class="icon-btn" @click="redo" title="重做 (Ctrl+Shift+Z 或 Ctrl+Y)">
           <i class="fas fa-redo"></i>
         </button>
-        <button class="tool-btn" title="排版">
-          <i class="fas fa-paragraph"></i> 排版
+        <button class="tool-btn" @click="formatContent" title="一键排版 (首行缩进2空格)">
+          <i class="fas fa-align-left"></i> 排版
         </button>
         <button class="tool-btn" title="插入">
           <i class="fas fa-plus"></i> 插入
         </button>
       </div>
       <div class="header-right">
+        <button class="icon-btn" @click="saveCurrentChapter" title="保存 (Ctrl+S)">
+          <i class="fas fa-save"></i>
+        </button>
         <button class="icon-btn" @click="toggleFullscreen" title="全屏">
           <i class="fas fa-expand"></i>
         </button>
-        <button class="icon-btn" title="保存" @click="saveCurrentChapter">
-          <i class="fas fa-save"></i>
-        </button>
-        <button class="icon-btn" title="查找">
+        <button class="icon-btn" title="查找" @click="searchState.showModal = true">
           <i class="fas fa-search"></i>
         </button>
         <button class="icon-btn" title="取名">
@@ -49,9 +49,6 @@
       <!-- 左侧章节列表 -->
       <div class="chapter-sidebar" :class="{ 'collapsed': !showSidebar }">
         <div class="sidebar-content">
-          <div class="search-container">
-            <input type="text" placeholder="全书" class="search-input">
-          </div>
           <div class="action-buttons">
             <button class="create-btn" @click="createNewChapter">新建章</button>
             <button class="create-btn light" @click="createNewVolume">新建卷</button>
@@ -76,6 +73,9 @@
               @contextmenu.prevent="showContextMenu($event, chapter)"
             >
               <span class="chapter-title">{{ chapter.title }}</span>
+              <span class="chapter-word-count">
+                {{ calculateWordCount(chapter.content) }}字
+              </span>
             </div>
           </div>
         </div>
@@ -125,12 +125,108 @@
       </div>
     </div>
   </div>
+
+  <!-- Font Settings Modal -->
+  <div v-if="fontSettings.showModal" class="settings-modal">
+    <div class="modal-content">
+      <h3>字体设置</h3>
+      <div class="setting-group">
+        <label>字体:</label>
+        <select v-model="fontSettings.family">
+          <option value="Arial">Arial</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Courier New">Courier New</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Verdana">Verdana</option>
+          <option value="SimSun">宋体</option>
+          <option value="Microsoft YaHei">微软雅黑</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <label>大小:</label>
+        <input type="range" v-model="fontSettings.size" min="12" max="36" step="1">
+        <span>{{ fontSettings.size }}px</span>
+      </div>
+      <div class="setting-group">
+        <label>颜色:</label>
+        <input type="color" v-model="fontSettings.color">
+      </div>
+      <div class="modal-actions">
+        <button @click="applyFontSettings">应用</button>
+        <button @click="fontSettings.showModal = false">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Background Settings Modal -->
+  <div v-if="backgroundSettings.showModal" class="settings-modal">
+    <div class="modal-content">
+      <h3>背景设置</h3>
+      <div class="setting-group">
+        <label>类型:</label>
+        <select v-model="backgroundSettings.type">
+          <option value="color">纯色</option>
+          <option value="image">图片</option>
+        </select>
+      </div>
+      
+      <div v-if="backgroundSettings.type === 'color'" class="setting-group">
+        <label>颜色:</label>
+        <input type="color" v-model="backgroundSettings.color">
+      </div>
+      
+      <div v-else class="setting-group">
+        <label>图片:</label>
+        <input type="file" accept="image/*" @change="handleImageUpload">
+        <div v-if="backgroundSettings.imageUrl" class="image-preview">
+          <img :src="backgroundSettings.imageUrl" alt="背景预览">
+        </div>
+        <div class="setting-group">
+          <label>透明度: {{ backgroundSettings.opacity }}</label>
+          <input 
+            type="range" 
+            v-model="backgroundSettings.opacity" 
+            min="0" 
+            max="1" 
+            step="0.1"
+          >
+        </div>
+      </div>
+      
+      <div class="modal-actions">
+        <button @click="applyBackgroundSettings">应用</button>
+        <button @click="backgroundSettings.showModal = false">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 查找替换模态框 -->
+  <div v-if="searchState.showModal" class="search-modal">
+    <div class="modal-content">
+      <h3>查找替换</h3>
+      <div class="search-group">
+        <input v-model="searchState.searchText" placeholder="查找内容">
+        <input v-model="searchState.replaceText" placeholder="替换为">
+      </div>
+      <div class="search-options">
+        <label>
+          <input type="checkbox" v-model="searchState.caseSensitive"> 区分大小写
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button @click="findText">查找</button>
+        <button @click="replaceText">替换</button>
+        <button @click="searchState.showModal = false">关闭</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { v4 as uuidv4 } from 'uuid'
+import { debounce, showToast } from '../utils/common'
 
 export default {
   name: 'Editor',
@@ -169,99 +265,110 @@ export default {
       targetChapter: null
     })
 
+    // Add new state for font and background settings
+    const fontSettings = reactive({
+      showModal: false,
+      family: 'Arial',
+      size: 16,
+      color: '#333333'
+    })
+
+    const backgroundSettings = reactive({
+      showModal: false,
+      type: 'color', // 'color' or 'image'
+      color: '#ffffff',
+      image: null,
+      imageUrl: '',
+      opacity: 0.8 // 新增透明度设置，默认0.8
+    })
+
+    // 添加撤销/重做状态
+    const history = reactive({
+      stack: [],
+      index: -1,
+      maxSize: 20
+    })
+
+    // 添加查找替换状态
+    const searchState = reactive({
+      showModal: false,
+      searchText: '',
+      replaceText: '',
+      caseSensitive: false
+    })
+
+    // 添加快捷键支持
+    const handleKeyDown = (event) => {
+      // Save shortcut (Ctrl+S)
+      if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+        event.preventDefault()
+        saveCurrentChapter()
+      }
+      
+      if (event.ctrlKey || event.metaKey) {
+        if (event.key === 'z' && !event.shiftKey) {
+          undo()
+          event.preventDefault()
+        } else if ((event.key === 'Z' && event.shiftKey) || (event.key === 'y' && !event.shiftKey)) {
+          redo()
+          event.preventDefault()
+        }
+      }
+    }
+
     // 计算属性
     const isEditing = computed(() => {
       return currentChapterId.value !== null
     })
 
-    // 加载所有章节
+    // 加载章节数据
     const loadChapters = async () => {
       try {
-        isLoading.value = true
-        // 从后端加载书籍章节数据
-        const response = await fetch(`http://localhost:3000/api/books/${bookId.value}/chapters`)
-        if (response.ok) {
-          const data = await response.json()
-          chapters.value = data
-          
-          // 如果没有章节，创建一个默认章节
-          if (chapters.value.length === 0) {
-            const defaultChapter = {
-              id: uuidv4(),
-              title: '第一章',
-              content: '',
-              order: 0,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            }
-            chapters.value.push(defaultChapter)
-            saveChapters()
-          }
-          
-          // 如果没有当前章节ID，默认打开第一个章节
-          if (!currentChapterId.value && chapters.value.length > 0) {
-            openChapter(chapters.value[0].id)
-          }
-        } else {
-          console.error('加载章节失败', await response.text())
-          // 从本地存储加载备份
-          const localChapters = localStorage.getItem(`book-${bookId.value}-chapters`)
-          if (localChapters) {
-            chapters.value = JSON.parse(localChapters)
-          }
-        }
+        const response = await fetch(`/api/books/${bookId.value}/chapters`)
+        if (!response.ok) throw new Error('加载失败')
+        const data = await response.json()
+        chapters.value = data
       } catch (error) {
         console.error('加载章节出错:', error)
-        // 创建一个默认的章节列表
-        if (chapters.value.length === 0) {
-          chapters.value = [{
-            id: uuidv4(),
-            title: '第一章',
-            content: '',
-            order: 0,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          }]
-        }
-      } finally {
-        isLoading.value = false
+        showToast('加载章节失败', 'error')
       }
     }
 
-    // 保存所有章节
-    const saveChapters = async () => {
+    // 保存章节数据
+    const saveChapters = async (manualSave = false) => {
       try {
-        // 更新本章节的时间戳
-        const currentIndex = chapters.value.findIndex(c => c.id === currentChapterId.value)
-        if (currentIndex >= 0) {
-          chapters.value[currentIndex].updatedAt = new Date().toISOString()
-        }
-        
-        // 保存到后端
-        const response = await fetch(`http://localhost:3000/api/books/${bookId.value}/chapters`, {
+        // 准备保存数据
+        const data = chapters.value.map(chapter => ({
+          id: chapter.id,
+          title: chapter.title,
+          content: chapter.content,
+          order: chapter.order,
+          isVolume: chapter.isVolume,
+          createdAt: chapter.createdAt,
+          updatedAt: new Date().toISOString()
+        }))
+
+        // 发送保存请求
+        const response = await fetch(`/api/books/${bookId.value}/chapters`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(chapters.value)
+          body: JSON.stringify(data)
         })
-        
-        if (!response.ok) {
-          throw new Error(`保存失败: ${response.status}`)
-        }
-        
-        // 同时保存到本地作为备份
-        localStorage.setItem(`book-${bookId.value}-chapters`, JSON.stringify(chapters.value))
-        
-        // 重置变更标志
+
+        if (!response.ok) throw new Error('保存失败')
+
+        // 更新变更标志
         contentChanged.value = false
         titleChanged.value = false
         
-        console.log('章节保存成功')
+        if (manualSave) {
+          showToast('保存成功', 'success')
+        }
       } catch (error) {
-        console.error('保存章节失败:', error)
-        // 仍然保存到本地存储作为备份
-        localStorage.setItem(`book-${bookId.value}-chapters`, JSON.stringify(chapters.value))
+        console.error('保存章节出错:', error)
+        showToast('保存章节失败', 'error')
       }
     }
 
@@ -293,63 +400,105 @@ export default {
         // 重置变更标志
         contentChanged.value = false
         titleChanged.value = false
+        
+        // 初始化历史记录
+        history.stack = [{
+          content: chapter.content || '',
+          title: chapter.title,
+          timestamp: new Date().getTime()
+        }]
+        history.index = 0
       }
     }
 
-    // 保存当前章节
+    // 增强保存当前章节的方法
     const saveCurrentChapter = async () => {
-      if (!currentChapterId.value) return
-      
-      // 更新当前章节内容（从编辑器获取最新内容）
-      if (editorContent.value) {
-        currentChapter.content = editorContent.value.innerHTML
-      }
-      
-      // 在章节列表中更新当前章节
-      const index = chapters.value.findIndex(c => c.id === currentChapterId.value)
-      if (index !== -1) {
-        // 更新章节数据
-        chapters.value[index].title = currentChapter.title
-        chapters.value[index].content = currentChapter.content
-        chapters.value[index].updatedAt = new Date().toISOString()
+      try {
+        if (!currentChapterId.value) return
         
-        // 保存所有章节
-        await saveChapters()
+        // 确保章节数据是最新的
+        if (editorContent.value) {
+          currentChapter.content = editorContent.value.innerHTML
+        }
+        
+        // 找到当前章节索引
+        const index = chapters.value.findIndex(c => c.id === currentChapterId.value)
+        if (index === -1) return
+        
+        // 更新章节数据
+        chapters.value[index] = {
+          ...chapters.value[index],
+          title: currentChapter.title,
+          content: currentChapter.content,
+          updatedAt: new Date().toISOString()
+        }
+        
+        // 调用保存方法
+        await saveChapters(true) // true表示手动保存
+        showToast('章节保存成功', 'success')
+      } catch (error) {
+        console.error('保存章节失败:', error)
+        showToast('保存章节失败', 'error')
       }
     }
 
     // 创建新章节
-    const createNewChapter = () => {
-      const newChapter = {
-        id: uuidv4(),
-        title: `第${chapters.value.length + 1}章`,
-        content: '',
-        order: chapters.value.length,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+    const createNewChapter = async () => {
+      try {
+        // 确保 chapters.value 是数组
+        if (!Array.isArray(chapters.value)) {
+          chapters.value = []
+        }
+        
+        const newChapter = {
+          id: uuidv4(),
+          title: '新建章节',
+          content: '',
+          order: chapters.value.length,
+          isVolume: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+        
+        chapters.value.push(newChapter)
+        openChapter(newChapter.id)
+        
+        // 立即保存到服务器
+        await saveChapters()
+        showToast('章节创建成功', 'success')
+      } catch (error) {
+        console.error('创建章节失败:', error)
+        showToast('创建章节失败', 'error')
       }
-      
-      chapters.value.push(newChapter)
-      saveChapters()
-      openChapter(newChapter.id)
     }
 
     // 创建新卷
-    const createNewVolume = () => {
-      // 目前处理为创建一个标记为"卷"的特殊章节
-      const newVolume = {
-        id: uuidv4(),
-        title: `第${Math.ceil(chapters.value.length / 10) + 1}卷`,
-        content: '<!-- 这是一个卷分隔符 -->',
-        order: chapters.value.length,
-        isVolume: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+    const createNewVolume = async () => {
+      try {
+        if (!Array.isArray(chapters.value)) {
+          chapters.value = []
+        }
+        
+        const newVolume = {
+          id: uuidv4(),
+          title: '新建卷',
+          content: '',
+          order: chapters.value.length,
+          isVolume: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+        
+        chapters.value.push(newVolume)
+        openChapter(newVolume.id)
+        
+        // 立即保存到服务器
+        await saveChapters()
+        showToast('卷创建成功', 'success')
+      } catch (error) {
+        console.error('创建卷失败:', error)
+        showToast('创建卷失败', 'error')
       }
-      
-      chapters.value.push(newVolume)
-      saveChapters()
-      openChapter(newVolume.id)
     }
 
     // 删除章节
@@ -472,20 +621,9 @@ export default {
 
     // 内容更新处理
     const onContentUpdate = () => {
-      // 标记内容已修改
       contentChanged.value = true
-      
-      // 计算字数
       calculateWordCount()
-      
-      // 设置自动保存定时器
-      if (autoSaveTimeout.value) {
-        clearTimeout(autoSaveTimeout.value)
-      }
-      
-      autoSaveTimeout.value = setTimeout(() => {
-        saveCurrentChapter()
-      }, 2000) // 两秒后自动保存
+      recordHistory()
     }
 
     // 计算字数
@@ -520,6 +658,16 @@ export default {
     // 全屏切换
     const toggleFullscreen = () => {
       isFullscreen.value = !isFullscreen.value
+      if (isFullscreen.value) {
+        document.documentElement.requestFullscreen().catch(err => {
+          showToast(`无法进入全屏: ${err}`, 'error')
+        })
+      } else {
+        document.exitFullscreen().catch(err => {
+          showToast(`无法退出全屏: ${err}`, 'error')
+        })
+      }
+      showToast(isFullscreen.value ? '已进入全屏模式' : '已退出全屏模式', 'success')
     }
 
     // 侧边栏切换
@@ -547,10 +695,197 @@ export default {
       }
     })
 
+    // Add new methods for font and background handling
+    const applyFontSettings = () => {
+      if (editorContent.value) {
+        editorContent.value.style.fontFamily = fontSettings.family
+        editorContent.value.style.fontSize = `${fontSettings.size}px`
+        editorContent.value.style.color = fontSettings.color
+      }
+    }
+
+    const applyBackgroundSettings = () => {
+      const editorContainer = document.querySelector('.editor-container')
+      if (editorContainer) {
+        if (backgroundSettings.type === 'color') {
+          editorContainer.style.background = backgroundSettings.color
+          editorContainer.style.backgroundImage = 'none'
+        } else {
+          // 使用rgba设置背景色作为底色，配合透明度
+          editorContainer.style.backgroundColor = `rgba(255, 255, 255, ${1 - backgroundSettings.opacity})`
+          editorContainer.style.backgroundImage = `url(${backgroundSettings.imageUrl})`
+          editorContainer.style.backgroundSize = 'cover'
+          editorContainer.style.backgroundAttachment = 'fixed'
+          editorContainer.style.backgroundBlendMode = 'overlay' // 混合模式让效果更好
+        }
+      }
+    }
+
+    const handleImageUpload = (event) => {
+      const file = event.target.files[0]
+      if (file) {
+        backgroundSettings.image = file
+        backgroundSettings.imageUrl = URL.createObjectURL(file)
+      }
+    }
+
+    // 记录历史状态
+    const recordHistory = debounce(() => {
+      if (!editorContent.value) return
+      
+      const content = editorContent.value.innerHTML
+      const title = currentChapter.title
+      
+      // 如果内容没有变化，则不记录
+      if (history.stack[history.index]?.content === content && 
+          history.stack[history.index]?.title === title) {
+        return
+      }
+      
+      // 如果当前不是最新状态，则丢弃后面的历史
+      if (history.index < history.stack.length - 1) {
+        history.stack = history.stack.slice(0, history.index + 1)
+      }
+      
+      // 添加新记录
+      history.stack.push({
+        content,
+        title,
+        timestamp: new Date().getTime()
+      })
+      
+      // 限制历史记录数量
+      if (history.stack.length > history.maxSize) {
+        history.stack.shift()
+      } else {
+        history.index = history.stack.length - 1
+      }
+    }, 500)
+
+    // 撤销功能
+    const undo = () => {
+      if (history.index <= 0) {
+        showToast('已到达最早记录', 'info')
+        return
+      }
+      
+      history.index--
+      applyHistoryState()
+    }
+
+    // 重做功能
+    const redo = () => {
+      if (history.index >= history.stack.length - 1) {
+        showToast('已到达最新记录', 'info')
+        return
+      }
+      
+      history.index++
+      applyHistoryState()
+    }
+
+    // 应用历史状态
+    const applyHistoryState = () => {
+      const state = history.stack[history.index]
+      if (!state || !editorContent.value) return
+      
+      currentChapter.title = state.title
+      editorContent.value.innerHTML = state.content
+      calculateWordCount()
+    }
+
+    // 一键排版
+    const formatContent = () => {
+      const editor = editorContent.value
+      if (!editor) return
+      
+      // Get current selection
+      const selection = window.getSelection()
+      if (!selection.rangeCount) return
+      
+      const range = selection.getRangeAt(0)
+      const selectedText = range.toString()
+      
+      // If text is selected, format only the selection
+      if (selectedText) {
+        formatSelectedText(range, selectedText)
+      } else {
+        // Format the entire content
+        formatAllContent(editor)
+      }
+      
+      // Trigger content update
+      onContentUpdate()
+      showToast('排版完成', 'success')
+    }
+
+    // Helper method to format selected text
+    const formatSelectedText = (range, text) => {
+      const formattedText = text.split('\n').map(line => {
+        // Remove all leading whitespace
+        const trimmed = line.replace(/^\s+/, '')
+        // Add exactly two spaces if line is not empty
+        return trimmed ? '  ' + trimmed : ''
+      }).join('\n')
+      
+      // Replace the selected text
+      range.deleteContents()
+      range.insertNode(document.createTextNode(formattedText))
+    }
+
+    // Helper method to format all content
+    const formatAllContent = (editor) => {
+      // Process each paragraph (p element) in the content
+      const paragraphs = editor.querySelectorAll('p')
+      paragraphs.forEach(p => {
+        // Get the text content
+        const text = p.textContent || ''
+        
+        // Remove all leading whitespace
+        const trimmed = text.replace(/^\s+/, '')
+        
+        // Clear the paragraph
+        p.innerHTML = ''
+        
+        // Add exactly two spaces if line is not empty
+        if (trimmed) {
+          p.appendChild(document.createTextNode('  ' + trimmed))
+        }
+      })
+    }
+
+    // 查找方法
+    const findText = () => {
+      if (!searchState.searchText) return
+      
+      const editor = editorContent.value
+      const content = editor.innerHTML
+      const flags = searchState.caseSensitive ? 'g' : 'gi'
+      const regex = new RegExp(searchState.searchText, flags)
+      
+      editor.innerHTML = content.replace(regex, match => 
+        `<span class="search-highlight">${match}</span>`
+      )
+    }
+
+    // 替换方法
+    const replaceText = () => {
+      if (!searchState.searchText) return
+      
+      const editor = editorContent.value
+      const flags = searchState.caseSensitive ? 'g' : 'gi'
+      const regex = new RegExp(searchState.searchText, flags)
+      
+      editor.innerHTML = editor.innerHTML.replace(
+        /<span class="search-highlight">(.*?)<\/span>/g, 
+        searchState.replaceText
+      ).replace(regex, searchState.replaceText)
+      
+      showToast(`已替换所有匹配项`, 'success')
+    }
+
     // 组件挂载
     onMounted(async () => {
-      console.log('Editor mounted with bookId:', props.bookId)
-      
       // 添加关闭窗口前保存的事件监听
       window.addEventListener('beforeunload', beforeUnloadHandler)
       
@@ -561,6 +896,9 @@ export default {
       if (chapters.value.length > 0 && !currentChapterId.value) {
         openChapter(chapters.value[0].id)
       }
+      
+      // 初始化时添加事件监听
+      window.addEventListener('keydown', handleKeyDown)
     })
 
     // 组件卸载
@@ -578,20 +916,31 @@ export default {
       if (autoSaveTimeout.value) {
         clearTimeout(autoSaveTimeout.value)
       }
+      
+      // 组件卸载时移除事件监听
+      window.removeEventListener('keydown', handleKeyDown)
     })
 
     // 关闭窗口前保存
     const beforeUnloadHandler = (event) => {
       if (contentChanged.value || titleChanged.value) {
-        // 尝试保存
-        saveCurrentChapter()
-        
-        // 显示确认对话框
+        // Only show confirmation for unsaved changes
         event.preventDefault()
         event.returnValue = '您有未保存的更改，确定要离开吗？'
         return event.returnValue
       }
     }
+
+    // 修改自动保存逻辑
+    watch([() => currentChapter.content, () => currentChapter.title], () => {
+      if (autoSaveTimeout.value) {
+        clearTimeout(autoSaveTimeout.value)
+      }
+      
+      autoSaveTimeout.value = setTimeout(() => {
+        saveCurrentChapter() // 改为调用saveCurrentChapter而不是saveChapters
+      }, 5000)
+    })
 
     // 返回组件暴露的属性和方法
     return {
@@ -617,395 +966,25 @@ export default {
       insertTab,
       onPaste,
       toggleFullscreen,
-      toggleSidebar
+      toggleSidebar,
+      fontSettings,
+      backgroundSettings,
+      applyFontSettings,
+      applyBackgroundSettings,
+      handleImageUpload,
+      undo,
+      redo,
+      history,
+      formatContent,
+      searchState,
+      findText,
+      replaceText,
+      calculateWordCount
     }
   }
 }
 </script>
 
 <style>
-/* 基础样式重置与变量 */
-:root {
-  --primary-color: #646cff;
-  --primary-light: rgba(100, 108, 255, 0.08);
-  --text-color: #333;
-  --text-secondary: #666;
-  --text-light: #999;
-  --border-color: #eaeaea;
-  --bg-color: #fff;
-  --bg-secondary: #f9f9fa;
-  --bg-sidebar: #f9f9fa;
-  --border-radius: 4px;
-  --box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --transition: all 0.2s ease;
-}
-
-/* 编辑器容器 */
-.editor-container {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  width: 100%;
-  background-color: var(--bg-color);
-  color: var(--text-color);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
-}
-
-/* 顶部导航栏 */
-.editor-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 8px;
-  height: 40px;
-  background-color: var(--bg-color);
-  border-bottom: 1px solid var(--border-color);
-  box-shadow: var(--box-shadow);
-  z-index: 10;
-}
-
-.header-left, .header-right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.editor-tools {
-  display: flex;
-  align-items: center;
-  margin-left: 4px;
-}
-
-/* 工具按钮 */
-.tool-btn {
-  padding: 4px 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-color);
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  border-radius: var(--border-radius);
-  transition: var(--transition);
-  height: 32px;
-}
-
-.tool-btn:hover {
-  background-color: var(--bg-secondary);
-}
-
-.icon-btn {
-  padding: 4px;
-  border: none;
-  background: transparent;
-  color: var(--text-color);
-  font-size: 16px;
-  cursor: pointer;
-  border-radius: var(--border-radius);
-  transition: var(--transition);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  width: 32px;
-}
-
-.icon-btn:hover {
-  background-color: var(--bg-secondary);
-}
-
-/* 编辑器主体区域 */
-.editor-body {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-}
-
-/* 侧边栏 */
-.chapter-sidebar {
-  width: 220px;
-  height: 100%;
-  background-color: var(--bg-sidebar);
-  border-right: 1px solid var(--border-color);
-  overflow-y: auto;
-  transition: width 0.3s ease;
-}
-
-.chapter-sidebar.collapsed {
-  width: 0;
-  overflow: hidden;
-}
-
-.sidebar-content {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-/* 搜索框 */
-.search-container {
-  padding: 12px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.search-input {
-  width: 100%;
-  padding: 6px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius);
-  font-size: 14px;
-  background-color: white;
-}
-
-/* 操作按钮 */
-.action-buttons {
-  display: flex;
-  padding: 12px;
-  gap: 8px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.create-btn {
-  padding: 6px 12px;
-  background-color: var(--primary-color);
-  color: white;
-  border: none;
-  border-radius: var(--border-radius);
-  font-size: 14px;
-  cursor: pointer;
-  flex: 1;
-  transition: var(--transition);
-}
-
-.create-btn:hover {
-  background-color: #5258cc;
-}
-
-.create-btn.light {
-  background-color: white;
-  color: var(--primary-color);
-  border: 1px solid var(--primary-color);
-}
-
-.create-btn.light:hover {
-  background-color: var(--primary-light);
-}
-
-/* 章节列表 */
-.chapter-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 0;
-}
-
-.chapter-category {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  font-size: 14px;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.chapter-count {
-  font-size: 12px;
-  color: var(--text-light);
-}
-
-.chapter-item {
-  padding: 8px 12px;
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  transition: var(--transition);
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  height: 36px;
-}
-
-.chapter-item:hover {
-  background-color: #f9f9fa;
-}
-
-.chapter-item.active {
-  background-color: #eef0ff;
-  color: #646cff;
-}
-
-.chapter-title {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 章节标题编辑 */
-.chapter-title-container {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.chapter-title-input {
-  font-size: 18px;
-  font-weight: 500;
-  padding: 8px 0;
-  border: none;
-  outline: none;
-  width: 80%;
-  background: transparent;
-}
-
-.word-count-display {
-  font-size: 14px;
-  color: var(--text-light);
-  background-color: var(--bg-secondary);
-  padding: 4px 8px;
-  border-radius: var(--border-radius);
-}
-
-/* 内容编辑区 */
-.editor-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background-color: white;
-}
-
-.content-editor {
-  flex: 1;
-  padding: 20px 40px;
-  overflow-y: auto;
-  line-height: 1.8;
-  font-size: 16px;
-  outline: none;
-  max-width: 800px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-/* 右侧工具栏 */
-.right-sidebar {
-  position: fixed;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px 5px;
-  background: transparent;
-  z-index: 5;
-}
-
-.right-sidebar .icon-btn {
-  color: #666;
-  background-color: white;
-  border: 1px solid #eaeaea;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-  width: 36px;
-  height: 36px;
-}
-
-.right-sidebar .icon-btn:hover {
-  background-color: #f5f5f5;
-}
-
-/* 右键菜单 */
-.context-menu {
-  position: fixed;
-  background: white;
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius);
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-  z-index: 1000;
-  min-width: 150px;
-}
-
-.context-menu-item {
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.context-menu-item:hover {
-  background-color: var(--bg-secondary);
-}
-
-.context-menu-item.delete {
-  color: #ff4d4f;
-}
-
-.context-menu-item.delete:hover {
-  background-color: #fff1f0;
-}
-
-/* 全屏模式 */
-.fullscreen-mode {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1000;
-  background-color: var(--bg-color);
-}
-
-/* 响应式调整 */
-@media (max-width: 768px) {
-  .tool-btn span {
-    display: none;
-  }
-  
-  .content-editor {
-    padding: 16px;
-  }
-  
-  .chapter-sidebar {
-    position: absolute;
-    left: 0;
-    top: 40px;
-    bottom: 0;
-    z-index: 20;
-    box-shadow: 2px 0 8px rgba(0,0,0,0.1);
-  }
-}
-
-/* 写作区域预设样式 */
-.content-editor h1, .content-editor h2, .content-editor h3 {
-  margin-top: 24px;
-  margin-bottom: 16px;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.content-editor h1 {
-  font-size: 1.5em;
-}
-
-.content-editor h2 {
-  font-size: 1.3em;
-}
-
-.content-editor h3 {
-  font-size: 1.1em;
-}
-
-.content-editor p {
-  margin-top: 0;
-  margin-bottom: 16px;
-}
-
-.content-editor ul, .content-editor ol {
-  padding-left: 2em;
-  margin-bottom: 16px;
-}
+@import url('../styles/editor.css');
 </style> 

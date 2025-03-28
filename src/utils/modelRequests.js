@@ -1,4 +1,5 @@
 import { showToast } from './common'
+import { debugLog } from './debug'
 
 // 格式化API URL
 const formatApiUrl = (model) => {
@@ -126,7 +127,6 @@ const parseResponse = async (response, model) => {
       try {
         // 获取响应文本
         const responseText = await responseClone.text();
-        console.log('Ollama 原始响应:', responseText.substring(0, 200) + '...');
         
         // 处理 Ollama 的流式响应格式
         // Ollama 返回的是多行 JSON，每行是一个独立的 JSON 对象
@@ -187,7 +187,6 @@ const parseResponse = async (response, model) => {
     // 其他提供商使用 JSON 响应
     try {
       const responseText = await responseClone.text();
-      console.log('API 响应原始内容:', responseText.substring(0, 200) + '...');
       
       // 尝试解析 JSON
       try {
@@ -317,7 +316,7 @@ export const sendToModel = async (
     }
     
     // 添加调试日志
-    console.log('发送请求到模型:', {
+    debugLog('发送请求到模型:', {
       url,
       provider: model.provider,
       modelId: model.modelId,
@@ -424,7 +423,6 @@ export const sendToModel = async (
     }
   } catch (error) {
     if (error.name === 'AbortError' || error.message === '请求已被用户中止') {
-      console.log('请求已成功中止');
       throw new Error('请求已中止');
     }
     showToast(error.message, 'error');

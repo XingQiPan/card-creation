@@ -456,6 +456,23 @@
                 </div>
               </div>
             </div>
+            <!-- 添加关键词检测设置 -->
+            <div class="form-group">
+              <label>关键词检测</label>
+              <div class="keyword-detection-control">
+                <div class="detection-option">
+                  <input 
+                    type="checkbox" 
+                    id="show-keyword-modal" 
+                    v-model="showKeywordDetectionModal"
+                  />
+                  <label for="show-keyword-modal">显示关键词匹配选择弹窗</label>
+                  <span class="setting-description">
+                    开启后，在处理提示词时会显示关键词匹配内容的选择弹窗
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
           
           <div class="models-list">
@@ -720,6 +737,48 @@
         </div>
       </div>
     </div>
+
+    <!-- 在其他模态框后添加关键词选择模态框 -->
+    <div v-if="showKeywordModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>选择要包含的关联内容</h3>
+          <button @click="closeKeywordModal" class="close-btn">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body keyword-matches">
+          <div class="select-all">
+            <label>
+              <input 
+                type="checkbox" 
+                :checked="isAllSelected"
+                @change="toggleAll"
+              >
+              全选
+            </label>
+          </div>
+          <div 
+            v-for="(match, index) in keywordMatches" 
+            :key="index" 
+            class="keyword-match-item"
+          >
+            <label>
+              <input 
+                type="checkbox"
+                v-model="match.selected"
+              >
+              <span class="keyword-title">{{ match.title }}</span>
+            </label>
+            <div class="keyword-preview">{{ truncateText(match.content, 100) }}</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeKeywordModal" class="cancel-btn">取消</button>
+          <button @click="confirmKeywordSelection" class="save-btn">确认</button>
+        </div>
+      </div>
+    </div>
 </template>
 
 
@@ -854,6 +913,9 @@ const dragScene = ref(false)
 const isPreview = ref(false)
 const editorTextarea = ref(null)
 
+// 在其他 ref 定义附近添加
+const showKeywordDetectionModal = ref(true) // 默认启用关键词检测弹窗
+
 // Toast 相关
 const toast = ref({
   show: false,
@@ -926,7 +988,8 @@ const syncData = createDebounce(async () => {
         currentView: currentView.value,
         fontSizeLevel: fontSizeLevel.value,
         cardLayoutMode: cardLayoutMode.value,
-        cardColumns: cardColumns.value
+        cardColumns: cardColumns.value,
+        showKeywordDetectionModal: showKeywordDetectionModal.value,
       }
     };
 
@@ -949,7 +1012,8 @@ const syncData = createDebounce(async () => {
         currentView: currentView.value,
         fontSizeLevel: fontSizeLevel.value,
         cardLayoutMode: cardLayoutMode.value,
-        cardColumns: cardColumns.value
+        cardColumns: cardColumns.value,
+        showKeywordDetectionModal: showKeywordDetectionModal.value,
       }
     }));
   } finally {
@@ -1036,13 +1100,18 @@ const initializeData = (data) => {
       cardColumns.value = data.config.cardColumns
     }
     applyCardLayout()
+
+    // 加载关键词检测模态框设置
+    if (typeof data.config.showKeywordDetectionModal === 'boolean') {
+      showKeywordDetectionModal.value = data.config.showKeywordDetectionModal
+    }
   }
 }
 
 // 处理关键词匹配和上下文构建
-const processKeywords = (text) => {
-  const processedCards = new Set() // 用于追踪已处理的卡片，避免循环引用
-  const keywordMatches = []
+const processKeywords = async (text) => {
+  const processedCards = new Set()
+  let matches = []
   const keywordTags = tags.value.filter(tag => tag.isKeyword)
   
   // 获取所有场景中的所有卡片
@@ -1103,7 +1172,7 @@ const processKeywords = (text) => {
       }
 
       // 避免重复添加相同的卡片
-      const isDuplicate = keywordMatches.some(
+      const isDuplicate = matches.some(
         match => match.title === card.title
       )
       
@@ -1115,7 +1184,7 @@ const processKeywords = (text) => {
           content += '\n\n--- 关联内容 ---\n\n' + linkedContents.join('\n\n')
         }
 
-        keywordMatches.push({
+        matches.push({
           keyword: card.title,
           title: card.title,
           content: content
@@ -1142,15 +1211,38 @@ const processKeywords = (text) => {
     processCard(card)
   })
 
-  // 如果找到关键词匹配，构建上下文信息
-  if (keywordMatches.length > 0) {
-    debugLog('Found keyword matches:', keywordMatches)
-    const contextInfo = keywordMatches
-      .map(match => `关键词「${match.title}」相关内容：\n${match.content}`)
-      .join('\n\n')
-    
-    const processedText = `${contextInfo}\n\n---\n\n${text}`
-    return processedText
+  // 如果找到关键词匹配，根据设置决定是否显示选择模态框
+  if (matches.length > 0) {
+    if (showKeywordDetectionModal.value) {
+      // 显示选择模态框的逻辑
+      keywordMatches.value = matches.map(match => ({
+        ...match,
+        selected: true
+      }))
+      
+      showKeywordModal.value = true
+      const selectedMatches = await new Promise(resolve => {
+        keywordModalResolve.value = resolve
+      })
+      
+      if (!selectedMatches) {
+        return text
+      }
+      
+      // 构建只包含选中项的上下文信息
+      const contextInfo = selectedMatches
+        .map(match => `关键词「${match.title}」相关内容：\n${match.content}`)
+        .join('\n\n')
+      
+      return `${contextInfo}\n\n---\n\n${text}`
+    } else {
+      // 不显示选择模态框，直接使用所有匹配
+      const contextInfo = matches
+        .map(match => `关键词「${match.title}」相关内容：\n${match.content}`)
+        .join('\n\n')
+      
+      return `${contextInfo}\n\n---\n\n${text}`
+    }
   }
 
   return text
@@ -1309,7 +1401,7 @@ const sendPromptRequest = async (prompt) => {
 
     // 2. 再进行关键词检测和处理
     if (prompt.detectKeywords !== false) {  // 默认为 true，除非明确设置为 false
-      processedTemplate = processKeywords(processedTemplate)
+      processedTemplate = await processKeywords(processedTemplate)
     }
 
     // 使用 sendToModel 发送请求
@@ -2452,7 +2544,8 @@ const saveImmediately = async () => {
         currentView: currentView.value,
         fontSizeLevel: fontSizeLevel.value,
         cardLayoutMode: cardLayoutMode.value,
-        cardColumns: cardColumns.value
+        cardColumns: cardColumns.value,
+        showKeywordDetectionModal: showKeywordDetectionModal.value,
       }
     }
 
@@ -2634,6 +2727,41 @@ const navigateTo = (view) => {
     router.push(`/${view}`)
   }
 }
+
+// 添加新的响应式变量
+const showKeywordModal = ref(false)
+const keywordMatches = ref([])
+const pendingText = ref('')
+const keywordModalResolve = ref(null)
+
+// 计算是否全选
+const isAllSelected = computed(() => {
+  return keywordMatches.value.length > 0 && 
+         keywordMatches.value.every(match => match.selected)
+})
+
+// 全选/取消全选
+const toggleAll = (e) => {
+  const checked = e.target.checked
+  keywordMatches.value.forEach(match => match.selected = checked)
+}
+
+// 关闭关键词模态框
+const closeKeywordModal = () => {
+  showKeywordModal.value = false
+  if (keywordModalResolve.value) {
+    keywordModalResolve.value(null)
+  }
+}
+
+// 确认关键词选择
+const confirmKeywordSelection = () => {
+  showKeywordModal.value = false
+  if (keywordModalResolve.value) {
+    const selectedMatches = keywordMatches.value.filter(match => match.selected)
+    keywordModalResolve.value(selectedMatches)
+  }
+}
 </script>
 
 <style scoped>
@@ -2658,4 +2786,76 @@ const navigateTo = (view) => {
   z-index: 100;
   margin-bottom: 5px;
 }
-</style> 
+
+/* 添加关键词选择模态框的样式 */
+.keyword-matches {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.keyword-match-item {
+  margin-bottom: 1rem;
+  padding: 0.8rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.keyword-match-item label {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.keyword-match-item input[type="checkbox"] {
+  margin-right: 0.5rem;
+}
+
+.keyword-title {
+  font-weight: bold;
+  margin-left: 0.5rem;
+}
+
+.keyword-preview {
+  color: #666;
+  font-size: 0.9em;
+  margin-left: 1.5rem;
+  white-space: pre-wrap;
+}
+
+.select-all {
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.select-all label {
+  display: flex;
+  align-items: center;
+  font-weight: bold;
+}
+
+.select-all input[type="checkbox"] {
+  margin-right: 0.5rem;
+}
+
+/* 添加新的样式 */
+.keyword-detection-control {
+  margin: 10px 0;
+}
+
+.detection-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.setting-description {
+  font-size: 0.9em;
+  color: #666;
+  margin-left: 4px;
+}
+
+/* ...existing styles... */
+</style>
+

@@ -306,7 +306,6 @@ function splitIntoChapters(book) {
 // 修改文件处理服务
 const FileProcessingService = {
   async processBookFile(file) {
-    console.log('处理文件:', file.originalname, '大小:', file.size)
     
     try {
       // 读取文件内容
@@ -807,13 +806,9 @@ app.post('/api/detect-ai-text', async (req, res) => {
             });
         }
 
-        console.log('接收到文本内容，长度:', text.length);
 
         const detector = new AIDetector();
         const result = await detector.analyze(text);
-        
-        console.log('AI检测结果:', result.isAIGenerated ? 'AI生成' : '人工创作', 
-                   '置信度:', Math.round(result.confidence * 100) + '%');
 
         res.json({
             success: true,
@@ -841,7 +836,6 @@ app.post('/api/detect-ai-file', upload.single('file'), async (req, res) => {
 
         // 读取文件内容
         const fileContent = fs.readFileSync(req.file.path, 'utf8');
-        console.log('文件内容读取成功，长度:', fileContent.length);
 
         // 删除临时文件
         fs.unlinkSync(req.file.path);
@@ -849,8 +843,6 @@ app.post('/api/detect-ai-file', upload.single('file'), async (req, res) => {
         const detector = new AIDetector();
         const result = await detector.analyze(fileContent);
         
-        console.log('AI检测结果:', result.isAIGenerated ? 'AI生成' : '人工创作', 
-                   '置信度:', Math.round(result.confidence * 100) + '%');
 
         res.json({
             success: true,
@@ -858,7 +850,6 @@ app.post('/api/detect-ai-file', upload.single('file'), async (req, res) => {
         });
 
     } catch (error) {
-        console.error('AI检测失败:', error);
         res.status(500).json({
             success: false,
             error: error.message || '检测失败'
@@ -1029,7 +1020,6 @@ initializeBuiltInPrompts()
 
 // 添加调试中间件
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`)
   next()
 })
 
@@ -1158,18 +1148,14 @@ app.get('/api/books', (req, res) => {
 // 启动服务器
 const PORT = process.env.PORT || 3000
 app.listen(PORT, async () => {
-  console.log(`Server is running on port ${PORT}`);
   
   // 测试 AI 检测器
   try {
     const testResult = await new AIDetector().analyze("这是一个测试文本");
-    console.log('AI检测器测试成功:', testResult);
   } catch (error) {
     console.error('AI检测器测试失败:', error);
   }
   
-  console.log(`Data directory: ${DATA_DIR}`);
-  console.log('\nAvailable API Routes:');
   APIDocService.getAllRoutes().forEach(route => {
     console.log(`${route.method.padEnd(6)} ${route.path.padEnd(30)} ${route.description}`)
   });

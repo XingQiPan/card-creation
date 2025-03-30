@@ -1308,6 +1308,39 @@ onUnmounted(() => {
   isCtrlPressed.value = false
   isAltPressed.value = false
 })
+
+// 添加 Alt 键状态管理
+const isAltPressed = ref(false)
+
+// 监听键盘事件
+onMounted(() => {
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Alt') {
+      isAltPressed.value = true
+    }
+  })
+  
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'Alt') {
+      isAltPressed.value = false
+    }
+  })
+})
+
+// 在组件卸载时移除事件监听器
+onUnmounted(() => {
+  window.removeEventListener('keydown', (e) => {
+    if (e.key === 'Alt') {
+      isAltPressed.value = true
+    }
+  })
+  
+  window.removeEventListener('keyup', (e) => {
+    if (e.key === 'Alt') {
+      isAltPressed.value = false
+    }
+  })
+})
 </script>
 
 <style scoped>
@@ -1661,4 +1694,3 @@ onUnmounted(() => {
   z-index: 1000;
 }
 </style>
-``` 

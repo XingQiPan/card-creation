@@ -31,6 +31,9 @@
 - 修复了拆书无法终止，删除记录后不会处理的bug
 - 基本的小说编辑器功能（没上ai功能）
 - 手动选择关键词是否附加检索（羽制作）
+- 用户可以发送助手的回答（羽制作）
+- 可以导出选中拆书的卡片导出txt
+- 可以制作卡片组，用来自由组合卡片（羽制作）
 
 </details>
 
@@ -175,6 +178,7 @@ start-dev.bat
 
 - [IssaCic0](https://github.com/IssaCic0)
 - [山河](https://github.com/shanheinfo)
+- [羽](https://github.com/xhaskk)
 
 ## 📧 联系方式
 

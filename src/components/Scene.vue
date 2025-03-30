@@ -1,5 +1,11 @@
 <template>
   <div class="scene">
+    <!-- 添加快速删除提示 -->
+    <div v-if="isCtrlPressed" class="quick-delete-hint">
+      <i class="fas fa-exclamation-circle"></i>
+      点击删除按钮直接删除卡片、卡组
+    </div>
+    
     <div 
       class="content-panel"
       @dragover="handleDragOver"
@@ -8,9 +14,14 @@
       <div class="panel-header">
         <h2>{{ scene.name }}</h2>
         <div class="header-actions">
-          <button @click="createNewCard">
-            <i class="fas fa-plus"></i> 新建卡片
-          </button>
+          <div class="create-buttons">
+            <button @click="createNewCard">
+              <i class="fas fa-plus"></i> 新建卡片
+            </button>
+            <button @click="createNewCardGroup">
+              <i class="fas fa-folder-plus"></i> 新建卡组
+            </button>
+          </div>
           <div class="card-size-control">
             <button @click="decreaseCardSize" title="减小卡片尺寸">
               <i class="fas fa-search-minus"></i>
@@ -38,15 +49,68 @@
         @end="drag=false"
       >
         <template #item="{ element: card }">
+          <div v-if="card.type === 'group'"
+               class="card-group"
+               :class="{ 
+                 'is-dragging': drag,
+                 'is-dropping': isDropTarget === card.id
+               }"
+               draggable="false"
+               @dragover.prevent="handleGroupDragOver($event, card)"
+               @dragleave="handleGroupDragLeave(card)"
+               @drop.stop="handleGroupDrop($event, card)">
+            <div class="group-header">
+              <input v-model="card.title" 
+                     placeholder="卡组名称..."
+                     class="group-title"
+                     @input="$emit('update-card', card)" />
+              <div class="group-actions">
+                <span class="card-count">{{ card.cards?.length || 0 }}</span>
+                <button @click.stop="showAddCardsToGroup(card)" title="添加卡片">
+                  <i class="fas fa-plus"></i>
+                </button>
+                <button @click.stop="handleDeleteCard(card)" class="delete-btn">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+            </div>
+            
+            <div class="group-cards">
+              <div v-for="groupCard in card.cards" 
+                   :key="groupCard.id" 
+                   class="group-card-item"
+                   @dblclick="viewCardDetail(groupCard)"
+                   @click.alt="handleAltClick($event, groupCard)">
+                <span class="group-card-title">{{ groupCard.title || '未命名卡片' }}</span>
+                <div class="group-card-actions">
+                  <button @click.stop="showTagSelector(groupCard)" 
+                          class="group-card-tag-btn" 
+                          :class="{ 'has-tags': groupCard.tags?.length }">
+                    <i class="fas fa-tag"></i>
+                    <span v-if="groupCard.tags?.length" class="tag-count">
+                      {{ groupCard.tags.length }}
+                    </span>
+                  </button>
+                  <button @click.stop="removeFromGroup(card, groupCard)" class="remove-from-group">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
           <div 
-            v-if="!selectedTags.length || (card.tags && selectedTags.some(tagId => card.tags.includes(tagId)))"
+            v-else-if="!selectedTags.length || (card.tags && selectedTags.some(tagId => card.tags.includes(tagId)))"
             class="text-card"
             :class="{ 
               'is-dragging': drag,
               'is-linked': hasLinks(card),
               'is-selected': selectedForLink.includes(card.id)
             }"
+            draggable="true"
+            @dragstart="handleDragStart($event, card)"
             @click.ctrl="toggleCardSelection(card)"
+            @click.alt="handleAltClick($event, card)"
           >
             <div class="card-header">
               <input 
@@ -102,7 +166,7 @@
               <button @click.stop="addToNotepad(card)" title="添加到记事本">
                 <i class="fas fa-book"></i>
               </button>
-              <button @click.stop="$emit('delete-card', card.id)" class="delete-btn">
+              <button @click.stop="handleDeleteCard(card)" class="delete-btn">
                 <i class="fas fa-times"></i>
               </button>
             </div>
@@ -217,6 +281,39 @@
         </button>
       </div>
     </div>
+
+    <!-- 添加卡片到卡组的模态框 -->
+    <div v-if="showAddToGroupModal" class="modal add-to-group-modal" @click="closeAddToGroupModal">
+      <div class="modal-content" @click.stop>
+        <h3>添加卡片到卡组</h3>
+        <div class="select-all-container">
+          <label>
+            <input type="checkbox" 
+                   :checked="isAllSelected"
+                   @change="toggleSelectAll">
+            全选
+          </label>
+        </div>
+        <div class="cards-list">
+          <div v-for="card in availableCards" 
+               :key="card.id"
+               class="card-select-item">
+            <label>
+              <input type="checkbox"
+                     v-model="selectedCards"
+                     :value="card.id">
+              {{ card.title || '未命名卡片' }}
+            </label>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button @click="confirmAddToGroup" class="confirm-btn">
+            确认添加 ({{ selectedCards.length }})
+          </button>
+          <button @click="closeAddToGroupModal" class="cancel-btn">取消</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -287,6 +384,12 @@ const showMoveModal = ref(false)
 const cardToMove = ref(null)
 const isLinkMode = ref(false)
 const selectedForLink = ref([])
+const isDropTarget = ref(null)
+
+// 添加新的响应式变量
+const showAddToGroupModal = ref(false)
+const selectedCards = ref([])
+const currentGroup = ref(null)
 
 // 添加 UUID 生成函数
 const generateUUID = () => {
@@ -339,6 +442,61 @@ const createNewCard = async () => {
   }
 }
 
+// 修改处理数据保存的方法
+const saveSceneData = async () => {
+  try {
+    // 获取所有场景
+    const allScenes = [...props.scenes]
+    // 找到当前场景的索引
+    const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
+    
+    if (sceneIndex !== -1) {
+      // 确保卡组数据完整性
+      const updatedScene = {
+        ...props.scene,
+        cards: props.scene.cards.map(card => ({
+          ...card,
+          type: card.type || 'normal',
+          cards: card.type === 'group' ? (card.cards || []) : undefined
+        }))
+      }
+      
+      allScenes[sceneIndex] = updatedScene
+      
+      // 保存到后端
+      await dataService.saveItem('scenes', allScenes)
+    }
+  } catch (error) {
+    console.error('保存场景数据失败:', error)
+    showToast('保存场景数据失败，但已在本地更新', 'warning')
+  }
+}
+
+// 创建新卡组
+const createNewCardGroup = async () => {
+  if (!props.scene.cards) {
+    props.scene.cards = []
+  }
+  
+  const newGroup = {
+    id: generateUUID(),
+    title: '新建卡组',
+    type: 'group',
+    cards: [],
+    expanded: true
+  }
+  
+  const updatedScene = {
+    ...props.scene,
+    cards: [...props.scene.cards, newGroup]
+  }
+  
+  emit('update:scene', updatedScene)
+  
+  // 保存更新后的场景数据
+  await saveSceneData()
+}
+
 // 优化卡片过滤方法
 const taggedCardsMap = computed(() => {
   const map = new Map()
@@ -358,10 +516,13 @@ const handleDragOver = (event) => {
   event.preventDefault()
   event.stopPropagation()
 }
+
+// 修改拖放处理方法
 const handleDrop = async (event) => {
   event.preventDefault()
   event.stopPropagation()
   
+  // 处理文件拖放
   const files = event.dataTransfer.files
   if (files.length > 0) {
     try {
@@ -386,16 +547,11 @@ const handleDrop = async (event) => {
       const updatedScene = {...props.scene}
       emit('update:scene', updatedScene)
       
-      // 保存数据
       try {
-        // 获取所有场景
         const allScenes = [...props.scenes]
-        // 找到当前场景的索引
         const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
-        // 更新场景
         if (sceneIndex !== -1) {
           allScenes[sceneIndex] = updatedScene
-          // 保存到后端
           await dataService.saveItem('scenes', allScenes)
         }
       } catch (error) {
@@ -406,6 +562,46 @@ const handleDrop = async (event) => {
       console.error('文件导入错误:', error)
       showToast('文件导入失败: ' + error.message, 'error')
     }
+    return
+  }
+
+  // 处理拖放数据
+  try {
+    const draggedData = event.dataTransfer.getData('text/plain')
+    if (!draggedData) return
+
+    // 尝试解析为JSON格式的卡片数据
+    try {
+      const cardData = JSON.parse(draggedData)
+      // 处理卡片数据
+      console.log('拖放的卡片数据:', cardData)
+      // 这里可以添加处理卡片拖放的逻辑
+    } catch (e) {
+      // 如果解析JSON失败，说明可能是标签数据
+      console.log('拖放的标签数据:', draggedData)
+      // 这里可以添加处理标签拖放的逻辑
+    }
+  } catch (error) {
+    console.error('处理拖放数据失败:', error)
+  }
+}
+
+// 为卡片添加拖动开始事件处理
+const handleDragStart = (event, card) => {
+  if (!card) return
+  
+  try {
+    // 添加一个类型标识
+    const cardData = {
+      type: 'card',
+      id: card.id,
+      title: card.title || '',
+      content: card.content || '',
+      height: card.height || '120px'
+    }
+    event.dataTransfer.setData('text/plain', JSON.stringify(cardData))
+  } catch (error) {
+    console.error('设置拖动数据失败:', error)
   }
 }
 
@@ -807,8 +1003,662 @@ const applyCardSize = () => {
 onMounted(() => {
   applyCardSize()
 })
+
+// 处理卡组的拖放
+const handleGroupDragOver = (event, group) => {
+  event.preventDefault()
+  isDropTarget.value = group.id
+}
+
+const handleGroupDragLeave = (group) => {
+  if (isDropTarget.value === group.id) {
+    isDropTarget.value = null
+  }
+}
+
+const handleGroupDrop = async (event, group) => {
+  event.preventDefault()
+  isDropTarget.value = null
+  
+  try {
+    const cardDataStr = event.dataTransfer.getData('text/plain')
+    if (!cardDataStr) return
+
+    let cardData
+    try {
+      cardData = JSON.parse(cardDataStr)
+    } catch (e) {
+      console.error('解析卡片数据失败:', e)
+      return
+    }
+
+    // 避免重复添加或添加自身
+    if (cardData.id === group.id || group.cards?.some(c => c.id === cardData.id)) {
+      return
+    }
+
+    // 从场景中移除卡片
+    const updatedSceneCards = props.scene.cards.filter(c => c.id !== cardData.id)
+    const cardToAdd = props.scene.cards.find(c => c.id === cardData.id)
+
+    if (cardToAdd) {
+      // 确保卡组的 cards 数组存在
+      if (!group.cards) {
+        group.cards = []
+      }
+      
+      // 添加到卡组
+      group.cards.push({
+        ...cardToAdd,
+        id: cardToAdd.id
+      })
+
+      // 更新场景的卡片列表，移除已添加到卡组的卡片
+      props.scene.cards = updatedSceneCards
+
+      // 更新场景
+      const updatedScene = {...props.scene}
+      emit('update:scene', updatedScene)
+      
+      // 保存更新后的场景数据
+      await saveSceneData()
+      
+      showToast('已添加到卡组')
+    }
+  } catch (error) {
+    console.error('添加到卡组失败:', error)
+    showToast('添加到卡组失败', 'error')
+  }
+}
+
+// 显示添加卡片模态框
+const showAddCardsToGroup = (group) => {
+  currentGroup.value = group
+  showAddToGroupModal.value = true
+  selectedCards.value = [] // 重置选择
+}
+
+// 关闭模态框
+const closeAddToGroupModal = () => {
+  showAddToGroupModal.value = false
+  currentGroup.value = null
+  selectedCards.value = []
+}
+
+// 计算可用的卡片（排除已在组内和卡组类型的卡片）
+const availableCards = computed(() => {
+  if (!currentGroup.value) return []
+  return props.scene.cards.filter(card => 
+    card.type !== 'group' && 
+    !currentGroup.value.cards?.some(groupCard => groupCard.id === card.id)
+  )
+})
+
+// 全选状态
+const isAllSelected = computed(() => {
+  return availableCards.value.length > 0 && 
+         selectedCards.value.length === availableCards.value.length
+})
+
+// 切换全选
+const toggleSelectAll = () => {
+  if (isAllSelected.value) {
+    selectedCards.value = []
+  } else {
+    selectedCards.value = availableCards.value.map(card => card.id)
+  }
+}
+
+// 确认添加到卡组
+const confirmAddToGroup = async () => {
+  if (!currentGroup.value || selectedCards.value.length === 0) return
+
+  try {
+    // 获取选中的卡片数据
+    const cardsToAdd = props.scene.cards.filter(card => 
+      selectedCards.value.includes(card.id)
+    )
+
+    // 初始化卡组的cards数组
+    if (!currentGroup.value.cards) {
+      currentGroup.value.cards = []
+    }
+
+    // 更新场景卡片列表，移除已添加到卡组的卡片
+    props.scene.cards = props.scene.cards.filter(card => 
+      !selectedCards.value.includes(card.id)
+    )
+
+    // 添加卡片到卡组
+    currentGroup.value.cards.push(...cardsToAdd)
+
+    // 更新场景
+    emit('update:scene', {...props.scene})
+
+    // 保存数据
+    try {
+      const allScenes = [...props.scenes]
+      const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
+      if (sceneIndex !== -1) {
+        allScenes[sceneIndex] = props.scene
+        await dataService.saveItem('scenes', allScenes)
+      }
+    } catch (error) {
+      console.error('保存场景数据失败:', error)
+      showToast('保存场景数据失败，但已在本地更新', 'warning')
+    }
+
+    showToast(`已添加 ${selectedCards.value.length} 张卡片到卡组`)
+    closeAddToGroupModal()
+  } catch (error) {
+    console.error('添加卡片到卡组失败:', error)
+    showToast('添加卡片到卡组失败', 'error')
+  }
+}
+
+// 从卡组中移除卡片
+const removeFromGroup = async (group, card) => {
+  try {
+    // 从卡组中移除卡片
+    const index = group.cards.findIndex(c => c.id === card.id)
+    if (index !== -1) {
+      // 移除卡片
+      const removedCard = group.cards.splice(index, 1)[0]
+      
+      // 将卡片添加回场景
+      props.scene.cards.push({
+        ...removedCard,
+        id: removedCard.id
+      })
+      
+      // 更新场景
+      emit('update:scene', {...props.scene})
+      
+      // 保存数据
+      const allScenes = [...props.scenes]
+      const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
+      if (sceneIndex !== -1) {
+        allScenes[sceneIndex] = props.scene
+        await dataService.saveItem('scenes', allScenes)
+      }
+
+      showToast('已从卡组移除卡片')
+    }
+  } catch (error) {
+    console.error('从卡组移除卡片失败:', error)
+    showToast('从卡组移除卡片失败', 'error')
+  }
+}
+
+// 添加监听卡组内卡片数量变化
+const updateGroupScroll = (group) => {
+  if (group && group.cards) {
+    const container = document.querySelector(`[data-group-id="${group.id}"] .group-cards`)
+    if (container) {
+      container.classList.toggle('scrollable', group.cards.length > 4)
+    }
+  }
+}
+
+// 在卡片添加/移除时更新滚动状态
+watch(() => currentGroup.value?.cards?.length, (newLength) => {
+  if (currentGroup.value) {
+    updateGroupScroll(currentGroup.value)
+  }
+})
+
+// 在组件挂载后初始化滚动状态
+onMounted(() => {
+  if (props.scene.cards) {
+    props.scene.cards.forEach(card => {
+      if (card.type === 'group') {
+        updateGroupScroll(card)
+      }
+    })
+  }
+})
+
+// 添加处理卡片删除的函数
+const handleDeleteCard = async (card) => {
+  try {
+    // 如果按住了ctrl键,跳过确认直接删除
+    if (!isCtrlPressed.value) {
+      // 原有的确认逻辑
+      if (card.type === 'group' && card.cards?.length > 0) {
+        if (!confirm(`确定要删除此卡组吗？卡组内的 ${card.cards.length} 张卡片将会移动到场景中。`)) {
+          return
+        }
+        props.scene.cards.push(...card.cards)
+      } else if (!confirm('确定要删除此卡片吗？')) {
+        return
+      }
+    } else if (card.type === 'group' && card.cards?.length > 0) {
+      // ctrl快速删除卡组时,仍需要处理其中的卡片
+      props.scene.cards.push(...card.cards)
+    }
+
+    // 从场景中删除卡片/卡组
+    props.scene.cards = props.scene.cards.filter(c => c.id !== card.id);
+    
+    // 更新场景
+    const updatedScene = {...props.scene};
+    emit('delete-card', card.id);
+    emit('update:scene', updatedScene);
+    
+    // 保存数据
+    try {
+      const allScenes = [...props.scenes];
+      const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id);
+      if (sceneIndex !== -1) {
+        allScenes[sceneIndex] = updatedScene;
+        await dataService.saveItem('scenes', allScenes);
+      }
+      showToast(card.type === 'group' ? '卡组已删除' : '卡片已删除');
+    } catch (error) {
+      console.error('保存删除操作失败:', error);
+      showToast('保存删除操作失败，但已在本地更新', 'warning');
+    }
+  } catch (error) {
+    console.error('删除失败:', error);
+    showToast('删除失败', 'error');
+  }
+};
+
+// 添加 Ctrl 键状态追踪
+const isCtrlPressed = ref(false)
+
+// 监听 Ctrl 键
+const handleKeyDown = (e) => {
+  if (e.key === 'Control') {
+    isCtrlPressed.value = true
+  } else if (e.key === 'Alt') {
+    isAltPressed.value = true
+  }
+}
+
+const handleKeyUp = (e) => {
+  if (e.key === 'Control') {
+    isCtrlPressed.value = false
+  } else if (e.key === 'Alt') {
+    isAltPressed.value = false
+  }
+}
+
+// 处理 Alt 点击事件
+const handleAltClick = (event, card) => {
+  // 如果点击的是按钮，不触发插入功能
+  if (event.target.closest('button')) {
+    return
+  }
+  
+  // 复用现有的插入提示词功能
+  handleInsertPrompt(card)
+}
+
+// 在组件挂载时添加事件监听
+onMounted(() => {
+  window.addEventListener('keydown', handleKeyDown)
+  window.addEventListener('keyup', handleKeyUp)
+})
+
+// 在组件卸载时移除事件监听
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyDown)
+  window.removeEventListener('keyup', handleKeyUp)
+  isCtrlPressed.value = false
+  isAltPressed.value = false
+})
 </script>
 
 <style scoped>
 @import url("../styles/scene.css");
+
+/* 添加卡组相关样式 */
+.create-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.card-group {
+  width: 80%;
+  height: 380px; /* 固定高度 */
+  min-height: unset; /* 移除最小高度限制 */
+  background: var(--card-bg-color);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  position: relative; /* 添加相对定位 */
+  user-select: none; /* 防止文本选择 */
+  pointer-events: auto; /* 确保可以接收拖放事件 */
+  display: flex;
+  flex-direction: column; /* 确保内容垂直布局 */
+}
+
+.card-group.is-dropping {
+  background: var(--card-hover-bg-color);
+  box-shadow: 0 0 0 2px var(--primary-color);
+}
+
+.group-header {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-start; /* 改为靠左对齐 */
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px; /* 添加间距 */
+}
+
+.group-title {
+  width: 200px; /* 限制输入框宽度 */
+  font-size: 1.1em;
+  font-weight: bold;
+  border: none;
+  background: transparent;
+  padding: 4px;
+}
+
+.group-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto; /* 确保按钮靠左 */
+}
+
+.group-actions button {
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary-color);
+  transition: color 0.2s ease;
+}
+
+.group-actions button:hover {
+  color: var(--text-primary-color);
+}
+
+.group-cards {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  overflow-y: auto;
+  padding: 8px; /* 增加内边距 */
+  padding-right: 16px;
+  background-color: white; /* 添加白色背景 */
+  border-radius: 4px; /* 添加圆角 */
+  mask-image: linear-gradient(to bottom, 
+    transparent,
+    black 8px,
+    black calc(100% - 8px),
+    transparent
+  );
+}
+
+/* 自定义滚动条样式 */
+.group-cards::-webkit-scrollbar {
+  width: 6px;
+}
+
+.group-cards::-webkit-scrollbar-track {
+  background: var(--scroll-track-color, rgba(0, 0, 0, 0.1));
+  border-radius: 3px;
+}
+
+.group-cards::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb-color, rgba(0, 0, 0, 0.2));
+  border-radius: 3px;
+}
+
+.group-cards::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover-color, rgba(0, 0, 0, 0.3));
+}
+
+/* 当卡片数量少于等于4个时隐藏滚动条 */
+.group-cards:has(.group-card-item:nth-child(-n+3):last-child) {
+  overflow-y: hidden;
+}
+
+.group-card-item {
+  flex: 0 0 auto; /* 防止卡片被压缩 */
+  min-height: 30px; /* 设置最小高度 */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background: var(--card-item-bg-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.group-card-item:hover {
+  background: var(--card-item-hover-bg-color);
+}
+
+.group-card-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.remove-from-group {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.group-card-item:hover .remove-from-group {
+  opacity: 1;
+}
+
+/* 确保卡组和卡片具有相同的网格尺寸 */
+.card-group {
+  grid-column: span 1;
+  height: var(--card-height, auto);
+}
+
+/* 添加新的样式 */
+.add-to-group-modal .modal-content {
+  max-width: 400px;
+  max-height: 80vh;
+}
+
+.select-all-container {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.cards-list {
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.card-select-item {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.card-select-item label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.card-select-item:last-child {
+  border-bottom: none;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border-color);
+}
+
+.confirm-btn {
+  background: var(--primary-color);
+  color: white;
+}
+
+.cancel-btn {
+  background: var(--secondary-bg-color);
+}
+
+/* 新增卡片数量指示器样式 */
+.cards-count-indicator {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  background: var(--primary-color);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.card-group:hover .cards-count-indicator {
+  opacity: 1;
+}
+
+/* 确保卡组在网格中保持固定尺寸 */
+.cards-grid > .card-group {
+  width: 95%;
+  height: 360px !important; /* 强制固定高度 */
+}
+
+/* 添加快速删除提示样式 */
+.quick-delete-hint {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(255, 87, 34, 0.9);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 0 0 4px 4px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  animation: slideDown 0.3s ease-out;
+}
+
+.quick-delete-hint i {
+  font-size: 16px;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translate(-50%, -100%);
+  }
+  to {
+    transform: translate(-50%, 0);
+  }
+}
+
+/* 添加卡组卡片标签按钮样式 */
+.group-card-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.group-card-item:hover .group-card-actions {
+  opacity: 1;
+}
+
+.group-card-tag-btn {
+  position: relative;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary-color);
+  transition: all 0.2s ease;
+}
+
+.group-card-tag-btn:hover {
+  color: var(--primary-color);
+}
+
+.group-card-tag-btn.has-tags {
+  color: var(--primary-color);
+}
+
+.tag-count {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background: var(--primary-color);
+  color: white;
+  font-size: 0.7em;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.remove-from-group {
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary-color);
+  transition: color 0.2s ease;
+}
+
+.remove-from-group:hover {
+  color: var(--danger-color);
+}
+
+/* 调整卡组卡片项布局 */
+.group-card-item {
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.group-card-title {
+  margin-right: auto;
+  padding-right: 8px;
+}
+
+/* 当按住 Alt 键时，为卡片添加视觉提示 */
+.text-card:has(:root[data-alt-pressed="true"]:not(:has(button:hover))),
+.group-card-item:has(:root[data-alt-pressed="true"]:not(:has(button:hover))) {
+  cursor: copy;
+  position: relative;
+}
+
+.text-card:has(:root[data-alt-pressed="true"]:not(:has(button:hover)))::after,
+.group-card-item:has(:root[data-alt-pressed="true"]:not(:has(button:hover)))::after {
+  content: '点击插入到提示词';
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 1000;
+}
 </style>
+``` 

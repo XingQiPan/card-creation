@@ -196,6 +196,19 @@
       </div>
 
       <div class="chat-input">
+        <div class="role-selector">
+          <button 
+            class="role-toggle-btn"
+            :class="{
+              'assistant': inputRole === 'assistant',
+              'visitor': inputRole === 'visitor'
+            }"
+            @click="toggleInputRole"
+            :title="getRoleTitle()"
+          >
+            {{ getRoleText() }}
+          </button>
+        </div>
         <textarea 
           v-model="inputMessage"
           @keydown.enter.exact.prevent="sendMessage"
@@ -548,39 +561,85 @@ const getMessageContext = () => {
   return recentMessages
 }
 
+// 修改角色选择状态
+const inputRole = ref('user')
+
+// 修改角色切换方法
+const toggleInputRole = () => {
+  if (inputRole.value === 'user') {
+    inputRole.value = 'assistant'
+  } else if (inputRole.value === 'assistant') {
+    inputRole.value = 'visitor'
+  } else {
+    inputRole.value = 'user'
+  }
+}
+
+// 添加获取角色文本的方法
+const getRoleText = () => {
+  switch (inputRole.value) {
+    case 'user': return '用户'
+    case 'assistant': return '助手'
+    case 'visitor': return '游客'
+    default: return '用户'
+  }
+}
+
+// 添加获取角色提示的方法
+const getRoleTitle = () => {
+  switch (inputRole.value) {
+    case 'user': return '点击切换为助手模式'
+    case 'assistant': return '点击切换为游客模式'
+    case 'visitor': return '点击切换为用户模式'
+    default: return '点击切换角色'
+  }
+}
+
 // 修改发送消息方法，分离用户显示内容和发送给模型的内容
 const sendMessage = async () => {
-  if (!inputMessage.value.trim() || !currentChat.value?.modelId) return
+  if (!inputMessage.value.trim()) return
+  if (inputRole.value === 'user' && !currentChat.value?.modelId) return
 
   // 保存原始用户输入
-  const originalUserContent = inputMessage.value.trim()
+  const originalContent = inputMessage.value.trim()
   
-  const userMessage = {
+  const newMessage = {
     id: Date.now(),
-    role: 'user',
-    content: originalUserContent, // 保持原始内容用于显示
+    role: inputRole.value === 'user' ? 'user' : 
+          inputRole.value === 'assistant' ? 'assistant' : 
+          'user', // 游客模式下发送 user 角色消息
+    content: originalContent,
     timestamp: new Date()
   }
 
   let assistantMessage = null
-  let processedContent = originalUserContent // 用于发送给模型的处理后内容
+  let processedContent = originalContent
 
   try {
+    // 添加消息到聊天记录
+    currentChat.value.messages.push(newMessage)
+    inputMessage.value = ''
+    await nextTick()
+    scrollToBottom()
+
+    // 如果是助手消息或游客消息，直接保存并返回
+    if (inputRole.value === 'assistant' || inputRole.value === 'visitor') {
+      await saveSessions()
+      return
+    }
+
+    // 以下是用户消息处理逻辑
     // 获取完整的模型配置
     const model = props.models.find(m => m.id === currentChat.value.modelId)
     if (!model) {
       throw new Error('未找到选择的模型')
     }
-    const endpoint = model.apiUrl
-    if (!endpoint?.trim() && model.provider != 'gemini') {
-      throw new Error('请先在设置中配置模型的 API 地址')
-    }
-    
+
     // 构建模型配置
     const modelConfig = {
-      ...model, // 保留原始模型的所有属性
+      ...model,
       provider: model.provider,
-      endpoint: endpoint.trim(), // 确保设置正确的 endpoint
+      endpoint: model.apiUrl?.trim(),
       apiKey: model.apiKey,
       modelId: model.modelId,
       headers: {
@@ -598,6 +657,10 @@ const sendMessage = async () => {
         ...(model.parameters || {})
       }
     }
+
+    if (!modelConfig.endpoint && model.provider !== 'gemini') {
+      throw new Error('请先在设置中配置模型的 API 地址')
+    }
     
     // 获取提示词模板
     let promptTemplate = null
@@ -607,12 +670,6 @@ const sendMessage = async () => {
         promptTemplate = prompt.systemPrompt || prompt.template || prompt.userPrompt
       }
     }
-
-    // 添加用户消息到聊天记录 - 只添加原始消息
-    currentChat.value.messages.push(userMessage)
-    inputMessage.value = ''
-    await nextTick()
-    scrollToBottom()
 
     // 开始计时
     isRequesting.value = true
@@ -631,10 +688,10 @@ const sendMessage = async () => {
     }
     currentChat.value.messages.push(assistantMessage)
 
-    // 处理关键词检测 - 只修改发送给模型的内容，不影响显示
+    // 处理关键词检测
     if (currentChat.value.enableKeywords) {
       const keywords = allKeywords.value.filter(keyword => 
-        originalUserContent.toLowerCase().includes(keyword.name.toLowerCase())
+        originalContent.toLowerCase().includes(keyword.name.toLowerCase())
       )
 
       if (keywords.length > 0) {
@@ -646,17 +703,15 @@ const sendMessage = async () => {
           }
         }
         
-        // 处理提示词和消息内容，但不修改原始用户消息
         if (promptTemplate) {
           promptTemplate = promptTemplate.replace('{{content}}', keywordsContext + '\n\n用户问题:\n{{content}}')
         } else {
-          // 创建新的处理后内容，而不是修改原始消息
-          processedContent = keywordsContext + '\n\n用户问题:\n' + originalUserContent
+          processedContent = keywordsContext + '\n\n用户问题:\n' + originalContent
         }
       }
     }
 
-    // 发送请求 - 使用处理后的内容
+    // 发送请求
     const response = await chatService.sendStreamMessage(processedContent, {
       model: modelConfig,
       context: getMessageContext(),
@@ -665,8 +720,10 @@ const sendMessage = async () => {
       keywords: detectedKeywords.value,
       getKeywordContent,
       onChunk: (chunk) => {
-        assistantMessage.content += chunk
-        scrollToBottom()
+        if (assistantMessage) {
+          assistantMessage.content += chunk
+          scrollToBottom()
+        }
       }
     })
 
@@ -680,7 +737,6 @@ const sendMessage = async () => {
       assistantMessage.isStreaming = false
     }
 
-    chatService.saveChatSessions(chatSessions.value)
     await saveSessions()
 
   } catch (error) {
@@ -694,10 +750,11 @@ const sendMessage = async () => {
       }
     } else {
       // 其他错误则移除失败的消息
-      currentChat.value.messages = currentChat.value.messages.filter(msg => 
-        msg.id !== userMessage.id && 
-        (!assistantMessage || msg.id !== assistantMessage.id)
-      )
+      if (assistantMessage) {
+        currentChat.value.messages = currentChat.value.messages.filter(msg => 
+          msg.id !== assistantMessage.id
+        )
+      }
     }
     
     showToastMessage(
@@ -1020,6 +1077,8 @@ const mergeToPrevious = (index) => {
   
   // 从数组中移除当前部分
   splitSections.value.splice(index, 1)
+  
+  showToastMessage('段落已拆分主人~')
 }
 
 // 修改重新发送消息方法
@@ -1273,4 +1332,49 @@ const toggleKeywordsArea = () => {
 
 <style scoped>
 @import url("../styles/chatView.css");
-</style> 
+
+/* 在现有样式后添加 */
+.chat-input {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.role-selector {
+  display: flex;
+  align-items: center;
+}
+
+.role-toggle-btn {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.3s;
+  white-space: nowrap;
+}
+
+.role-toggle-btn:hover {
+  background: #f5f5f5;
+}
+
+.role-toggle-btn.assistant {
+  background: #e6f4ff;
+  border-color: #1890ff;
+  color: #1890ff;
+}
+
+.input-textarea {
+  flex: 1;
+  /* 保留原有样式 */
+}
+
+.role-toggle-btn.visitor {
+  background: #f6ffed;
+  border-color: #52c41a;
+  color: #52c41a;
+}
+</style>

@@ -70,6 +70,9 @@
           >
             <i class="fas fa-file-export"></i> 导出结果
           </button>
+          <button @click="exportAsText(currentScene)" class="export-btn">
+            导出为文本
+          </button>
         </div>
       </div>
 
@@ -930,7 +933,50 @@ const processWithAPI = async (card, prompt, scene) => {
   }
 }
 
-// 导出结果
+// 新增导出文本方法
+const exportAsText = (scene) => {
+  if (!scene || !scene.resultCards.length) {
+    showToast('没有可导出的结果主人~', 'warning');
+    return;
+  }
+
+  try {
+    // 获取选中的卡片，如果没有选中则导出全部
+    const cardsToExport = scene.resultCards.filter(card => card.selected).length > 0 
+      ? scene.resultCards.filter(card => card.selected)
+      : scene.resultCards;
+
+    if (cardsToExport.length === 0) {
+      showToast('没有选中的卡片可导出主人~', 'warning');
+      return;
+    }
+
+    // 生成文本内容 - 更简洁的格式
+    let textContent = cardsToExport
+      .map(card => {
+        return `【${card.title || `第${card.originalNumber}章`}】\n${card.content}\n`;
+      })
+      .join('\n\n'); // 卡片之间空两行
+
+    // 创建并下载文件
+    const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${scene.name || '未命名场景'}-卡片导出-${formatTime(new Date(), 'YYYYMMDD-HHmm')}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast(`成功导出${cardsToExport.length}张卡片为文本主人~`, 'success');
+  } catch (error) {
+    console.error('文本导出失败:', error);
+    showToast('文本导出失败主人~: ' + error.message, 'error');
+  }
+};
+
+// 保留原有的exportResults方法不变
 const exportResults = (scene) => {
   if (!scene || !scene.resultCards.length) {
     showToast('没有可导出的结果主人~', 'warning');

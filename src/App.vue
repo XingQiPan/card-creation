@@ -972,12 +972,23 @@ const {
 
 // 防抖的数据同步
 const syncData = createDebounce(async () => {
-  if (!dataLoaded.value) return;
+  if (!dataLoaded.value) return
 
   try {
-    isLoading.value = true;
+    isLoading.value = true
+    
+    // 验证场景数据的完整性
+    const validatedScenes = scenes.value.map(scene => ({
+      ...scene,
+      cards: (scene.cards || []).map(card => ({
+        ...card,
+        type: card.type || 'normal',
+        cards: card.type === 'group' ? (card.cards || []) : undefined
+      }))
+    }))
+
     const dataToSync = {
-      scenes: scenes.value,
+      scenes: validatedScenes,
       prompts: prompts.value,
       tags: tags.value,
       config: {
@@ -991,13 +1002,13 @@ const syncData = createDebounce(async () => {
         cardColumns: cardColumns.value,
         showKeywordDetectionModal: showKeywordDetectionModal.value,
       }
-    };
+    }
 
     // 使用 dataService 同步数据
-    await dataService.syncData(dataToSync);
+    await dataService.syncData(dataToSync)
   } catch (error) {
-    console.error('数据同步失败:', error);
-    showToast(`数据同步失败: ${error.message}`, 'error');
+    console.error('数据同步失败:', error)
+    showToast(`数据同步失败: ${error.message}`, 'error')
     
     // 保存到本地存储作为备份
     localStorage.setItem('allData', JSON.stringify({
@@ -1015,11 +1026,11 @@ const syncData = createDebounce(async () => {
         cardColumns: cardColumns.value,
         showKeywordDetectionModal: showKeywordDetectionModal.value,
       }
-    }));
+    }))
   } finally {
-    isLoading.value = false;
+    isLoading.value = false
   }
-}, 500);
+}, 500)
 
 // 统一的数据加载函数
 const loadAllData = async () => {
@@ -1058,7 +1069,10 @@ const loadAllData = async () => {
 // 初始化数据的辅助函数
 const initializeData = (data) => {
   // 更新场景
-  scenes.value = data.scenes || []
+  scenes.value = data.scenes.map(scene => ({
+    ...scene,
+    cards: processCards(scene.cards || [])
+  })) || []
   
   // 更新提示词
   prompts.value = data.prompts || []
@@ -2486,6 +2500,12 @@ onMounted(async () => {
 // 修改场景保存逻辑
 const saveScenes = async () => {
   try {
+    // 在保存之前处理场景数据
+    scenes.value = scenes.value.map(scene => ({
+      ...scene,
+      cards: processCards(scene.cards || [])
+    }))
+    
     // 使用 syncData 同步到后端
     await syncData()
     showToast('场景保存成功', 'success')
@@ -2533,7 +2553,10 @@ const saveImmediately = async () => {
     isLoading.value = true
     
     const dataToSync = {
-      scenes: scenes.value,
+      scenes: scenes.value.map(scene => ({
+        ...scene,
+        cards: processCards(scene.cards || [])
+      })),
       prompts: prompts.value,
       tags: tags.value,
       config: {
@@ -2570,11 +2593,17 @@ const switchScene = (scene) => {
       throw new Error('无效的场景')
     }
     
-    // 更新当前场景
-    currentScene.value = scene
+    // 创建深拷贝并确保卡片数据的完整性
+    const clonedScene = JSON.parse(JSON.stringify({
+      ...scene,
+      cards: processCards(scene.cards || [])
+    }))
     
-    // 保存当前场景ID到配置
-    syncData() // 使用 syncData 同步到后端
+    // 更新当前场景
+    currentScene.value = clonedScene
+    
+    // 同步数据
+    syncData()
     
     return true
   } catch (error) {
@@ -2761,6 +2790,57 @@ const confirmKeywordSelection = () => {
     const selectedMatches = keywordMatches.value.filter(match => match.selected)
     keywordModalResolve.value(selectedMatches)
   }
+}
+
+// 添加拖放相关的响应式变量
+const dragOverPromptId = ref(null)
+
+// 添加拖放相关的处理方法
+const handlePromptDragOver = (prompt, event) => {
+  event.preventDefault()
+  dragOverPromptId.value = prompt.id
+}
+
+const handlePromptDragLeave = () => {
+  dragOverPromptId.value = null
+}
+
+const handlePromptDrop = async (prompt, event) => {
+  event.preventDefault()
+  dragOverPromptId.value = null
+  // ...existing prompt drop handling code...
+}
+
+// 添加新的卡片处理函数
+const processCards = (cards) => {
+  return cards.map(card => {
+    // 如果是卡组类型
+    if (card.type === 'group') {
+      return {
+        ...card,
+        // 递归处理卡组内的卡片
+        cards: card.cards ? processCards(card.cards) : [],
+        // 确保卡组内的卡片ID不会出现在外层
+        containedCardIds: (card.cards || []).map(c => c.id)
+      }
+    }
+    // 普通卡片
+    return {
+      ...card,
+      type: 'normal'
+    }
+  }).filter((card, index, self) => {
+    // 过滤掉已经在卡组内的卡片
+    if (card.type === 'normal') {
+      const isContainedInGroup = self.some(c => 
+        c.type === 'group' && 
+        c.containedCardIds && 
+        c.containedCardIds.includes(card.id)
+      )
+      return !isContainedInGroup
+    }
+    return true
+  })
 }
 </script>
 

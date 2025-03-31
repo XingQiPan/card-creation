@@ -762,20 +762,91 @@
             v-for="(match, index) in keywordMatches" 
             :key="index" 
             class="keyword-match-item"
+            :class="{ 'is-group': match.type === 'group' }"
           >
-            <label>
-              <input 
-                type="checkbox"
-                v-model="match.selected"
-              >
-              <span class="keyword-title">{{ match.title }}</span>
-            </label>
+            <div class="match-header">
+              <div class="match-title-group">
+                <label>
+                  <input 
+                    type="checkbox"
+                    v-model="match.selected"
+                    @change="handleMatchSelection(match)"
+                  >
+                  <span class="keyword-title">{{ match.title }}</span>
+                </label>
+                <!-- 添加编辑按钮,仅卡组显示 -->
+                <button 
+                  v-if="match.type === 'group'"
+                  @click="editGroupCards(match)"
+                  class="edit-group-btn"
+                  :class="{ 'is-edited': match.selectedCards?.length > 0 }"
+                >
+                  <i class="fas fa-edit"></i>
+                  <span v-if="match.selectedCards?.length" class="selected-count">
+                    {{ match.selectedCards.length }}
+                  </span>
+                </button>
+              </div>
+            </div>
             <div class="keyword-preview">{{ truncateText(match.content, 100) }}</div>
           </div>
         </div>
         <div class="modal-footer">
           <button @click="closeKeywordModal" class="cancel-btn">取消</button>
           <button @click="confirmKeywordSelection" class="save-btn">确认</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加卡组卡片选择模态框 -->
+    <div v-if="showGroupCardsModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>选择卡组内的卡片</h3>
+          <button @click="closeGroupCardsModal" class="close-btn">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="select-all">
+            <label>
+              <input 
+                type="checkbox" 
+                :checked="isAllGroupCardsSelected"
+                @change="toggleAllGroupCards"
+              >
+              全选
+            </label>
+          </div>
+          <div class="group-cards-list">
+            <div 
+              v-for="card in currentEditingGroup.cards" 
+              :key="card.id"
+              class="group-card-item"
+            >
+              <div class="group-card-content">
+                <label>
+                  <input 
+                    type="checkbox"
+                    v-model="selectedGroupCards"
+                    :value="card"
+                  >
+                  <span>{{ card.title || '未命名卡片' }}</span>
+                  <button 
+                    @click="viewCardDetail(card)"
+                    class="edit-card-btn"
+                    title="编辑卡片"
+                  >
+                    <i class="fas fa-pencil-alt"></i>
+                  </button>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeGroupCardsModal" class="cancel-btn">取消</button>
+          <button @click="confirmGroupCardSelection" class="save-btn">确认</button>
         </div>
       </div>
     </div>
@@ -1201,7 +1272,11 @@ const processKeywords = async (text) => {
         matches.push({
           keyword: card.title,
           title: card.title,
-          content: content
+          content: content,
+          type: card.type || 'normal',
+          cards: card.type === 'group' ? card.cards : undefined,
+          selected: false,
+          selectedCards: []
         })
       }
     }
@@ -1227,35 +1302,40 @@ const processKeywords = async (text) => {
 
   // 如果找到关键词匹配，根据设置决定是否显示选择模态框
   if (matches.length > 0) {
+    // 判断是否显示选择模态框
     if (showKeywordDetectionModal.value) {
-      // 显示选择模态框的逻辑
-      keywordMatches.value = matches.map(match => ({
-        ...match,
-        selected: true
-      }))
-      
+      keywordMatches.value = matches
       showKeywordModal.value = true
-      const selectedMatches = await new Promise(resolve => {
+      const result = await new Promise(resolve => {
         keywordModalResolve.value = resolve
       })
       
-      if (!selectedMatches) {
-        return text
-      }
+      if (!result) return text
+
+      // 处理选中的内容
+      const selectedContents = result.map(match => {
+        if (match.type === 'group' && match.selectedCards?.length > 0) {
+          return match.selectedCards.map(card => card.content).join('\n\n')
+        } else {
+          return match.content
+        }
+      })
       
-      // 构建只包含选中项的上下文信息
-      const contextInfo = selectedMatches
-        .map(match => `关键词「${match.title}」相关内容：\n${match.content}`)
-        .join('\n\n')
-      
-      return `${contextInfo}\n\n---\n\n${text}`
+      const contextInfo = selectedContents.join('\n\n---\n\n')
+      return `有关内容：\n${contextInfo}\n\n---\n\n${text}`
     } else {
-      // 不显示选择模态框，直接使用所有匹配
-      const contextInfo = matches
-        .map(match => `关键词「${match.title}」相关内容：\n${match.content}`)
-        .join('\n\n')
+      // 如果关闭了选择模态框,直接处理所有匹配的内容
+      const allContents = matches.map(match => {
+        if (match.type === 'group') {
+          // 如果是卡组,使用卡组内所有卡片的内容
+          return match.cards?.map(card => card.content).join('\n\n') || match.content
+        } else {
+          return match.content
+        }
+      })
       
-      return `${contextInfo}\n\n---\n\n${text}`
+      const contextInfo = allContents.join('\n\n---\n\n')
+      return `有关内容：\n${contextInfo}\n\n---\n\n${text}`
     }
   }
 
@@ -1405,16 +1485,14 @@ const sendPromptRequest = async (prompt) => {
   try {
     let processedTemplate = prompt.userPrompt
 
-    showToast('发送成功！') 
-
     // 处理插入内容的替换
     if (prompt.insertedContents?.length > 0) {
       const insertedTexts = prompt.insertedContents.map(item => item.content).join('\n')
       processedTemplate = processedTemplate.replace(/{{text}}/g, insertedTexts)
     }
 
-    // 2. 再进行关键词检测和处理
-    if (prompt.detectKeywords !== false) {  // 默认为 true，除非明确设置为 false
+    // 只在启用了关键词检测时执行
+    if (prompt.detectKeywords) {
       processedTemplate = await processKeywords(processedTemplate)
     }
 
@@ -2167,23 +2245,19 @@ const selectPromptAndInsert = async (prompt) => {
   if (!cardToInsert.value) return
 
   try {
-    // 使用已存在的 getInsertCount 函数检查提示词中有多少个 {{text}} 占位符
-    const textPlaceholders = getInsertCount(prompt.userPrompt)
-    
-    // 确保 insertedContents 是数组
-    if (!prompt.insertedContents) {
+    // 检查提示词是否已有插入内容
+    if (prompt.insertedContents?.length > 0) {
+      // 显示确认替换的提示
+      if (!confirm('该提示词已有插入内容，是否替换？')) {
+        return
+      }
+      // 清空现有内容
       prompt.insertedContents = []
-    }
-    
-    // 检查是否已达到最大插入数量
-    if (prompt.insertedContents.length >= textPlaceholders) {
-      showToast(`该提示词最多只能插入 ${textPlaceholders} 个内容`, 'error')
-      return
     }
 
     // 收集卡片及其关联卡片的内容
     const allContent = []
-    const processedCards = new Set() // 避免循环引用
+    const processedCards = new Set()
 
     const collectCardContent = (card) => {
       if (processedCards.has(card.id)) return
@@ -2230,7 +2304,7 @@ const selectPromptAndInsert = async (prompt) => {
     showPromptSelectModal.value = false
     cardToInsert.value = null
     
-    showToast('内容已插入到提示词（包含关联内容）')
+    showToast('内容已插入到提示词')
   } catch (error) {
     console.error('插入内容错误:', error)
     showToast('插入失败: ' + error.message, 'error')
@@ -2842,6 +2916,58 @@ const processCards = (cards) => {
     return true
   })
 }
+
+// 添加新的响应式变量
+const showGroupCardsModal = ref(false)
+const currentEditingGroup = ref(null)
+const selectedGroupCards = ref([])
+
+// 处理卡片选择
+const handleMatchSelection = (match) => {
+  if (match.type === 'group' && match.selected) {
+    // 如果是选中卡组且没有编辑过，默认选中所有卡片
+    if (!match.selectedCards || match.selectedCards.length === 0) {
+      match.selectedCards = [...(match.cards || [])]
+    }
+  }
+}
+
+// 编辑卡组卡片
+const editGroupCards = (group) => {
+  currentEditingGroup.value = group
+  selectedGroupCards.value = group.selectedCards || []
+  showGroupCardsModal.value = true
+}
+
+// 计算卡组内是否全选
+const isAllGroupCardsSelected = computed(() => {
+  if (!currentEditingGroup.value?.cards) return false
+  return currentEditingGroup.value.cards.length === selectedGroupCards.value.length
+})
+
+// 切换卡组内全选状态
+const toggleAllGroupCards = (e) => {
+  if (e.target.checked) {
+    selectedGroupCards.value = [...(currentEditingGroup.value.cards || [])]
+  } else {
+    selectedGroupCards.value = []
+  }
+}
+
+// 确认卡组卡片选择
+const confirmGroupCardSelection = () => {
+  if (currentEditingGroup.value) {
+    currentEditingGroup.value.selectedCards = [...selectedGroupCards.value]
+  }
+  closeGroupCardsModal()
+}
+
+// 关闭卡组卡片选择模态框
+const closeGroupCardsModal = () => {
+  showGroupCardsModal.value = false
+  currentEditingGroup.value = null
+  selectedGroupCards.value = []
+}
 </script>
 
 <style scoped>
@@ -2937,5 +3063,141 @@ const processCards = (cards) => {
 }
 
 /* ...existing styles... */
+
+/* 添加卡组相关样式 */
+.keyword-match-item.is-group {
+  border-color: var(--primary-color);
+}
+
+.match-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.group-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.edit-group-btn {
+  position: relative;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.edit-group-btn.is-edited {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.selected-count {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: var(--primary-color);
+  color: white;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.group-cards-list {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.group-card-item {
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.group-card-item:last-child {
+  border-bottom: none;
+}
+
+.group-card-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.group-card-content label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 添加编辑按钮样式 */
+.match-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edit-card-btn {
+  padding: 2px 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary-color);
+  transition: color 0.2s ease;
+  font-size: 0.9em;
+}
+
+.edit-card-btn:hover {
+  color: var(--primary-color);
+}
+
+/* 修改卡片项样式以适应新布局 */
+.group-card-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.group-card-content label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 调整勾选框右侧的间距 */
+.group-card-item input[type="checkbox"],
+.keyword-match-item input[type="checkbox"] {
+  margin-right: 8px;
+}
+
+/* 为了保持一致的布局 */
+.keyword-match-item .match-header label,
+.group-card-item label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 调整关键词匹配模态框的z-index */
+.modal:has(.keyword-matches) {
+  z-index: 999;
+}
+
+/* 确保卡片详情模态框在最上层 */
+.modal:has(.detail-modal) {
+  z-index: 9999; /* 比关键词匹配模态框更高的层级 */
+}
 </style>
 

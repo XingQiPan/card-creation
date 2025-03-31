@@ -53,7 +53,8 @@
                class="card-group"
                :class="{ 
                  'is-dragging': drag,
-                 'is-dropping': isDropTarget === card.id
+                 'is-dropping': isDropTarget === card.id,
+                 'has-tags': card.tags?.length > 0
                }"
                draggable="false"
                @dragover.prevent="handleGroupDragOver($event, card)"
@@ -66,6 +67,16 @@
                      @input="$emit('update-card', card)" />
               <div class="group-actions">
                 <span class="card-count">{{ card.cards?.length || 0 }}</span>
+                <!-- 添加卡组标签按钮 -->
+                <button 
+                  @click.stop="showTagSelector(card)" 
+                  class="group-tag-btn"
+                  :class="{ 'has-tags': card.tags?.length }"
+                >
+                  <i class="fas fa-tag"></i>
+                  <span v-if="!card.tags?.length"></span>
+                  <span v-else>{{ card.tags.length > 1 ? `${card.tags.length}` : getTagNameById(card.tags[0]) }}</span>
+                </button>
                 <button @click.stop="showAddCardsToGroup(card)" title="添加卡片">
                   <i class="fas fa-plus"></i>
                 </button>
@@ -75,17 +86,27 @@
               </div>
             </div>
             
+            <!-- 修改卡组内卡片的渲染逻辑 -->
             <div class="group-cards">
               <div v-for="groupCard in card.cards" 
                    :key="groupCard.id" 
                    class="group-card-item"
                    @dblclick="viewCardDetail(groupCard)"
                    @click.alt="handleAltClick($event, groupCard)">
-                <span class="group-card-title">{{ groupCard.title || '未命名卡片' }}</span>
+                <div class="group-card-title">
+                  {{ groupCard.title || '未命名卡片' }}
+                </div>
+                
                 <div class="group-card-actions">
-                  <button @click.stop="showTagSelector(groupCard)" 
+                  <div v-if="groupCard.tags?.length" class="group-card-tags">
+                    <span v-for="tagId in groupCard.tags" :key="tagId" class="group-card-tag">
+                      {{ getTagNameById(tagId) }}
+                    </span>
+                  </div>
+                  
+                  <button @click.stop="showTagSelector(groupCard)"
                           class="group-card-tag-btn" 
-                          :class="{ 'has-tags': groupCard.tags?.length }">
+                          :class="{ 'has-tags': groupCard.tags?.length, 'disabled': card.tags?.length }">
                     <i class="fas fa-tag"></i>
                     <span v-if="groupCard.tags?.length" class="tag-count">
                       {{ groupCard.tags.length }}
@@ -227,21 +248,29 @@
     <!-- 标签选择弹窗 -->
     <div v-if="showTagModal" class="tag-selector-modal" @click="closeTagSelector">
       <div class="tag-selector-content" @click.stop>
-        <h3>选择标签</h3>
-        <div class="tag-list">
+        <div class="modal-header">
+          <h3>{{ currentCard?.title || '未命名卡片' }} - 选择标签</h3>
+          <button @click="closeTagSelector" class="close-btn">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="tags-list">
           <div 
             v-for="tag in tags" 
             :key="tag.id"
             class="tag-item"
-            :class="{ active: currentCard?.tags?.includes(tag.id) }"
+            :class="{ 'active': isTagSelected(currentCard, tag.id) }"
             @click="toggleCardTag(currentCard, tag.id)"
           >
-            <span>{{ tag.name }}</span>
-            <i class="fas fa-check" v-if="currentCard?.tags?.includes(tag.id)"></i>
+            <span class="tag-color" :style="{ backgroundColor: tag.color || '#666' }"></span>
+            <span class="tag-name">{{ tag.name }}</span>
+            <span v-if="isTagSelected(currentCard, tag.id)" class="tag-selected">
+              <i class="fas fa-check"></i>
+            </span>
           </div>
         </div>
-        <div class="modal-actions">
-          <button @click="closeTagSelector">完成</button>
+        <div class="modal-footer">
+          <button @click="closeTagSelector" class="save-btn">完成</button>
         </div>
       </div>
     </div>
@@ -318,7 +347,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted, reactive, onMounted } from 'vue'
+import { ref, computed, watch, onUnmounted, reactive, onMounted, nextTick } from 'vue'
 import draggable from 'vuedraggable'
 import { debugLog } from '../utils/debug'
 import { showToast } from '../utils/common'
@@ -628,45 +657,85 @@ const startCardResize = (e, card) => {
   window.addEventListener('mouseup', handleMouseUp)
 }
 
-// 标签相关方法
+// 修改标签切换方法
 const toggleCardTag = async (card, tagId) => {
-  if (!card.tags) {
-    card.tags = []
-  }
-  const index = card.tags.indexOf(tagId)
-  if (index === -1) {
-    card.tags.push(tagId)
-  } else {
-    card.tags.splice(index, 1)
-  }
+  if (!card) return;
   
-  // 更新卡片
-  emit('update-card', card)
-  
-  // 保存数据
   try {
-    // 获取所有场景
-    const allScenes = [...props.scenes]
-    // 找到当前场景的索引
-    const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
-    // 更新场景中的卡片
-    if (sceneIndex !== -1) {
-      const cardIndex = allScenes[sceneIndex].cards.findIndex(c => c.id === card.id)
-      if (cardIndex !== -1) {
-        allScenes[sceneIndex].cards[cardIndex] = card
-        // 保存到后端
-        await dataService.saveItem('scenes', allScenes)
+    // 创建标签数组的副本
+    let newTags = [...(card.tags || [])];
+    const index = newTags.indexOf(tagId);
+    
+    // 切换标签状态
+    if (index === -1) {
+      newTags.push(tagId);
+    } else {
+      newTags.splice(index, 1);
+    }
+    
+    // 立即在本地更新卡片，以便UI立即反映变化
+    currentCard.value = {
+      ...currentCard.value,
+      tags: newTags
+    };
+    
+    // 创建卡片的副本进行保存
+    const updatedCard = {
+      ...card,
+      tags: newTags
+    };
+    
+    // 更新卡片
+    emit('update-card', updatedCard);
+    
+    // 保存数据
+    try {
+      const allScenes = [...props.scenes];
+      const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id);
+      
+      if (sceneIndex !== -1) {
+        // 找到卡片索引
+        const cardIndex = allScenes[sceneIndex].cards.findIndex(c => c.id === card.id);
+        
+        if (cardIndex !== -1) {
+          // 更新场景中的卡片
+          allScenes[sceneIndex].cards[cardIndex] = updatedCard;
+          
+          // 保存到后端
+          await dataService.saveItem('scenes', allScenes);
+        }
       }
+    } catch (error) {
+      console.error('保存标签更新失败:', error);
+      showToast('保存标签更新失败，但已在本地更新', 'warning');
     }
   } catch (error) {
-    console.error('保存卡片标签失败:', error)
-    showToast('保存卡片标签失败，但已在本地更新', 'warning')
+    console.error('切换标签失败:', error);
+    showToast('标签操作失败: ' + error.message, 'error');
   }
-}
+};
+
+// 判断标签是否被选中
+const isTagSelected = (card, tagId) => {
+  if (!card || !card.tags) return false;
+  return card.tags.includes(tagId);
+};
 
 const showTagSelector = (card) => {
-  currentCard.value = card
-  showTagModal.value = true
+  currentCard.value = card;
+  
+  // 如果是卡组类型,且已有标签,则禁用组内卡片的标签
+  if (card.type === 'group' && card.tags?.length) {
+    // 清除组内所有卡片的标签
+    card.cards?.forEach(groupCard => {
+      if (groupCard.tags?.length) {
+        groupCard.tags = [];
+        emit('update-card', groupCard);
+      }
+    });
+  }
+  
+  showTagModal.value = true;
 }
 
 const closeTagSelector = () => {
@@ -1341,6 +1410,12 @@ onUnmounted(() => {
     }
   })
 })
+
+// 通过ID获取标签名称
+const getTagNameById = (tagId) => {
+  const tag = props.tags.find(t => t.id === tagId);
+  return tag ? tag.name : '未知标签';
+}
 </script>
 
 <style scoped>
@@ -1354,8 +1429,7 @@ onUnmounted(() => {
 
 .card-group {
   width: 80%;
-  height: 380px; /* 固定高度 */
-  min-height: unset; /* 移除最小高度限制 */
+  min-height: unset;
   background: var(--card-bg-color);
   border-radius: 8px;
   padding: 12px;
@@ -1366,11 +1440,22 @@ onUnmounted(() => {
   pointer-events: auto; /* 确保可以接收拖放事件 */
   display: flex;
   flex-direction: column; /* 确保内容垂直布局 */
+  grid-column: span 1;
+  height: var(--card-height, auto);
 }
 
 .card-group.is-dropping {
   background: var(--card-hover-bg-color);
   box-shadow: 0 0 0 2px var(--primary-color);
+}
+
+/* 当卡组有标签时的视觉提示 */
+.card-group.has-tags {
+  border: 1px solid var(--primary-color);
+}
+
+.card-group.has-tags .group-cards {
+  opacity: 0.9;
 }
 
 .group-header {
@@ -1379,11 +1464,11 @@ onUnmounted(() => {
   justify-content: flex-start; /* 改为靠左对齐 */
   align-items: center;
   margin-bottom: 8px;
-  gap: 8px; /* 添加间距 */
+  gap: 5px; /* 添加间距 */
 }
 
 .group-title {
-  width: 200px; /* 限制输入框宽度 */
+  width: 180px; /* 限制输入框宽度 */
   font-size: 1.1em;
   font-weight: bold;
   border: none;
@@ -1460,7 +1545,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px;
+  padding: 8px 12px;
   background: var(--card-item-bg-color);
   border-radius: 4px;
   cursor: pointer;
@@ -1476,21 +1561,188 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-right: auto;
+  padding-right: 8px;
+}
+
+/* 卡组卡片标签样式 */
+.group-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.group-card-tag {
+  background-color: var(--primary-color);
+  color: white;
+  font-size: 0.7em;
+  padding: 2px 6px;
+  border-radius: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+/* 卡组卡片操作按钮 */
+.group-card-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.group-card-item:hover .group-card-actions {
+  opacity: 1;
+}
+
+.group-card-tag-btn {
+  position: relative;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary-color);
+  transition: all 0.2s ease;
+}
+
+.group-card-tag-btn:hover {
+  color: var(--primary-color);
+}
+
+.group-card-tag-btn.has-tags {
+  color: var(--primary-color);
+}
+
+.group-card-tag-btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.group-card-tag-btn.disabled:hover {
+  color: var(--text-secondary-color);
+}
+
+.tag-count {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background: var(--primary-color);
+  color: white;
+  font-size: 0.7em;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
 }
 
 .remove-from-group {
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary-color);
+  transition: color 0.2s ease;
   opacity: 0;
   transition: opacity 0.2s ease;
+}
+
+.remove-from-group:hover {
+  color: var(--danger-color);
 }
 
 .group-card-item:hover .remove-from-group {
   opacity: 1;
 }
 
-/* 确保卡组和卡片具有相同的网格尺寸 */
-.card-group {
-  grid-column: span 1;
-  height: var(--card-height, auto);
+/* 卡片组标签样式 */
+.card-group-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 4px 0;
+}
+
+.card-tag {
+    background-color: #ccc;
+  color: white;
+  font-size: 0.8em;
+  padding: 2px 8px;
+  border-radius: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 卡组标签按钮样式 */
+.group-tag-btn {
+  position: relative;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary-color);
+  transition: all 0.2s ease;
+}
+
+.group-tag-btn:hover {
+  color: var(--primary-color);
+}
+
+.group-tag-btn.has-tags {
+  color: var(--primary-color);
+}
+
+/* 标签选择器样式 */
+.tags-list {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.tag-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.tag-item:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.tag-item.active {
+  background-color: var(--primary-light-color);
+}
+
+.tag-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.tag-name {
+  flex: 1;
+}
+
+.tag-selected {
+  color: var(--primary-color);
+}
+
+/* 确保卡组在网格中保持固定尺寸 */
+.cards-grid > .card-group {
+  width: 95%;
+  height: 360px !important; /* 强制固定高度 */
 }
 
 /* 添加新的样式 */
@@ -1561,12 +1813,6 @@ onUnmounted(() => {
   opacity: 1;
 }
 
-/* 确保卡组在网格中保持固定尺寸 */
-.cards-grid > .card-group {
-  width: 95%;
-  height: 360px !important; /* 强制固定高度 */
-}
-
 /* 添加快速删除提示样式 */
 .quick-delete-hint {
   position: fixed;
@@ -1598,79 +1844,6 @@ onUnmounted(() => {
   }
 }
 
-/* 添加卡组卡片标签按钮样式 */
-.group-card-actions {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.group-card-item:hover .group-card-actions {
-  opacity: 1;
-}
-
-.group-card-tag-btn {
-  position: relative;
-  padding: 4px 8px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: var(--text-secondary-color);
-  transition: all 0.2s ease;
-}
-
-.group-card-tag-btn:hover {
-  color: var(--primary-color);
-}
-
-.group-card-tag-btn.has-tags {
-  color: var(--primary-color);
-}
-
-.tag-count {
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  background: var(--primary-color);
-  color: white;
-  font-size: 0.7em;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-}
-
-.remove-from-group {
-  padding: 4px 8px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: var(--text-secondary-color);
-  transition: color 0.2s ease;
-}
-
-.remove-from-group:hover {
-  color: var(--danger-color);
-}
-
-/* 调整卡组卡片项布局 */
-.group-card-item {
-  padding: 8px 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.group-card-title {
-  margin-right: auto;
-  padding-right: 8px;
-}
-
 /* 当按住 Alt 键时，为卡片添加视觉提示 */
 .text-card:has(:root[data-alt-pressed="true"]:not(:has(button:hover))),
 .group-card-item:has(:root[data-alt-pressed="true"]:not(:has(button:hover))) {
@@ -1692,5 +1865,74 @@ onUnmounted(() => {
   font-size: 12px;
   pointer-events: none;
   z-index: 1000;
+}
+
+/* 标签选择器模态框样式 */
+.tag-selector-modal .modal-content {
+  background-color: var(--modal-bg-color, #fff);
+  max-width: 400px;
+  max-height: 80vh;
+}
+
+.tag-selector-modal .modal-header {
+  background-color: var(--modal-header-bg-color, #f5f5f5);
+  border-bottom: 1px solid var(--border-color, #eee);
+}
+
+.tag-selector-modal .modal-footer {
+  border-top: 1px solid var(--border-color, #eee);
+  padding: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tag-selector-modal .btn.primary-btn {
+  background-color: var(--primary-color);
+  color: white;
+  padding: 6px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* 改进标签项样式 */
+.tag-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  background-color: var(--card-bg-color, #f9f9f9);
+}
+
+.tag-item:hover {
+  background-color: var(--card-hover-bg-color, #f0f0f0);
+}
+
+.tag-item.active {
+  background-color: var(--primary-light-color, #e3f2fd);
+  border-left: 3px solid var(--primary-color);
+}
+
+.tag-name {
+  flex: 1;
+  color: var(--text-primary-color, #333);
+}
+
+.tag-selected {
+  color: var(--primary-color);
+}
+
+/* 卡组标签按钮文本样式 */
+.group-tag-btn span {
+  margin-left: 4px;
+  max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  vertical-align: middle;
 }
 </style>

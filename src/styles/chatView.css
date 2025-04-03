@@ -135,6 +135,10 @@
     border-bottom: 1px solid #e8e8e8;
     background: #fff;
   }
+
+  .chat-header select{
+    width: 100px;
+  }
   
   .header-controls {
     display: flex;

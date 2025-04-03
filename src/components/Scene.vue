@@ -169,7 +169,9 @@
               </button>
             </div>
             <div class="card-actions">
-              <button @click.stop="toggleLinkMode(card)" :class="{ active: isLinkMode }">
+              <button @click.stop="toggleLinkMode(card)" :class="{ active: isLinkMode }"
+              title="关联卡片"
+              >
                 <i class="fas fa-link"></i>
               </button>
               <button 
@@ -1178,33 +1180,25 @@ const toggleSelectAll = () => {
   }
 }
 
-// 确认添加到卡组
 const confirmAddToGroup = async () => {
   if (!currentGroup.value || selectedCards.value.length === 0) return
 
   try {
-    // 获取选中的卡片数据
     const cardsToAdd = props.scene.cards.filter(card => 
       selectedCards.value.includes(card.id)
     )
 
-    // 初始化卡组的cards数组
     if (!currentGroup.value.cards) {
       currentGroup.value.cards = []
     }
 
-    // 更新场景卡片列表，移除已添加到卡组的卡片
     props.scene.cards = props.scene.cards.filter(card => 
       !selectedCards.value.includes(card.id)
     )
 
-    // 添加卡片到卡组
     currentGroup.value.cards.push(...cardsToAdd)
-
-    // 更新场景
     emit('update:scene', {...props.scene})
 
-    // 保存数据
     try {
       const allScenes = [...props.scenes]
       const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
@@ -1259,7 +1253,6 @@ const removeFromGroup = async (group, card) => {
   }
 }
 
-// 添加监听卡组内卡片数量变化
 const updateGroupScroll = (group) => {
   if (group && group.cards) {
     const container = document.querySelector(`[data-group-id="${group.id}"] .group-cards`)
@@ -1269,7 +1262,6 @@ const updateGroupScroll = (group) => {
   }
 }
 
-// 在卡片添加/移除时更新滚动状态
 watch(() => currentGroup.value?.cards?.length, (newLength) => {
   if (currentGroup.value) {
     updateGroupScroll(currentGroup.value)
@@ -1302,19 +1294,15 @@ const handleDeleteCard = async (card) => {
         return
       }
     } else if (card.type === 'group' && card.cards?.length > 0) {
-      // ctrl快速删除卡组时,仍需要处理其中的卡片
       props.scene.cards.push(...card.cards)
     }
 
-    // 从场景中删除卡片/卡组
     props.scene.cards = props.scene.cards.filter(c => c.id !== card.id);
     
-    // 更新场景
     const updatedScene = {...props.scene};
     emit('delete-card', card.id);
     emit('update:scene', updatedScene);
     
-    // 保存数据
     try {
       const allScenes = [...props.scenes];
       const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id);
@@ -1416,6 +1404,26 @@ const getTagNameById = (tagId) => {
   const tag = props.tags.find(t => t.id === tagId);
   return tag ? tag.name : '未知标签';
 }
+
+const expandContent = () => {
+  // 实现扩写逻辑
+  // 例如，调用API获取扩写内容并插入到编辑器
+};
+
+const continueWriting = () => {
+  // 实现续写逻辑
+  // 例如，调用API获取续写内容并插入到编辑器
+};
+
+const quickReplace = () => {
+  // 实现快速替换逻辑
+  // 例如，调用API获取替换内容并插入到编辑器
+};
+
+const formatContent = () => {
+  // 实现一键排版逻辑
+  // 例如，调用API获取排版后的内容并插入到编辑器
+};
 </script>
 
 <style scoped>
@@ -1934,5 +1942,50 @@ const getTagNameById = (tagId) => {
   text-overflow: ellipsis;
   display: inline-block;
   vertical-align: middle;
+}
+
+.function-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: var(--modal-bg-color, #fff);
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--border-color, #eee);
+}
+
+.function-panel button {
+  background: var(--primary-color);
+  color: white;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.common-prompts {
+  margin-left: 20px;
+}
+
+.common-prompts h4 {
+  margin-bottom: 8px;
+}
+
+.common-prompts ul {
+  list-style: none;
+  padding: 0;
+}
+
+.common-prompts ul li {
+  padding: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.common-prompts ul li:hover {
+  background-color: var(--card-hover-bg-color, #f0f0f0);
 }
 </style>

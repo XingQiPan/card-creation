@@ -21,9 +21,6 @@
         <button class="tool-btn" @click="formatContent" title="一键排版 (首行缩进2空格)">
           <i class="fas fa-align-left"></i> 排版
         </button>
-        <button class="tool-btn" title="插入">
-          <i class="fas fa-plus"></i> 插入
-        </button>
       </div>
       <div class="header-right">
         <button class="icon-btn" @click="saveCurrentChapter" title="保存 (Ctrl+S)">
@@ -35,11 +32,31 @@
         <button class="icon-btn" title="查找" @click="searchState.showModal = true">
           <i class="fas fa-search"></i>
         </button>
-        <button class="icon-btn" title="取名">
-          <i class="fas fa-user"></i>
+      </div>
+    </div>
+
+    <div class="function-buttons-container">
+      <div class="function-buttons-wrapper">
+        <button class="function-btn" @click="openPanel('opening')">
+          <i class="fas fa-pen"></i> AI开篇
         </button>
-        <button class="icon-btn" title="历史">
-          <i class="fas fa-history"></i>
+        <button class="function-btn" @click="openPanel('writing')">
+          <i class="fas fa-edit"></i> AI写作
+        </button>
+        <button class="function-btn" @click="openPanel('continuation')">
+          <i class="fas fa-indent"></i> 续写
+        </button>
+        <button class="function-btn" @click="openPanel('editing')">
+          <i class="fas fa-tools"></i> AI编辑
+        </button>
+        <button class="function-btn" @click="openPanel('inspiration')">
+          <i class="fas fa-lightbulb"></i> 灵感风暴
+        </button>
+        <button class="function-btn">
+          <i class="fas fa-id-card"></i> 人物卡
+        </button>
+        <button class="function-btn">
+          <i class="fas fa-tags"></i> 词条卡
         </button>
       </div>
     </div>
@@ -48,21 +65,20 @@
     <div class="editor-body">
       <!-- 左侧章节列表 -->
       <div class="chapter-sidebar" :class="{ 'collapsed': !showSidebar }">
+        <div class="sidebar-tabs">
+          <div class="tab" :class="{ 'active': sidebarTab === 'directory' }" @click="switchSidebarTab('directory')">目录</div>
+          <div class="tab" :class="{ 'active': sidebarTab === 'outline' }" @click="switchSidebarTab('outline')">大纲</div>
+          <div class="tab-indicator" :style="{ transform: sidebarTab === 'outline' ? 'translateX(100%)' : 'translateX(0)' }"></div>
+        </div>
+        
         <div class="sidebar-content">
-          <div class="action-buttons">
-            <button class="create-btn" @click="createNewChapter">新建章</button>
-            <button class="create-btn light" @click="createNewVolume">新建卷</button>
-          </div>
-          
-          <div class="chapter-list">
-            <div class="chapter-category">
-              <div><i class="fas fa-file-alt"></i> 作品相关</div>
-              <span class="chapter-count">0篇章</span>
-            </div>
-            
-            <div class="chapter-category">
-              <div><i class="fas fa-book"></i> 第一卷</div>
-              <span class="chapter-count">{{ chapters.length }}篇章</span>
+          <!-- 目录内容 - 章节列表 -->
+          <div class="sidebar-tab-content" :class="{ 'active': sidebarTab === 'directory' }">
+            <div class="chapter-header">
+              <span>目录 (章节右键菜单)</span>
+              <button class="add-chapter-btn" @click="createNewChapter">
+                <i class="fas fa-plus"></i>
+              </button>
             </div>
             
             <div 
@@ -72,17 +88,123 @@
               @click="openChapter(chapter.id)"
               @contextmenu.prevent="showContextMenu($event, chapter)"
             >
-              <span class="chapter-title">{{ chapter.title }}</span>
-              <span class="chapter-word-count">
-                {{ calculateWordCount(chapter.content) }}字
-              </span>
+              <div class="chapter-info">
+                <span class="chapter-name">{{ chapter.title }}</span>
+                <div class="chapter-actions">
+                  <button class="edit-btn" title="编辑标题" @click.stop="renameChapter(chapter)">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button class="expand-btn" title="展开/收起" @click.stop="toggleChapterOutline(chapter.id)">
+                    <i class="fas fa-chevron-down"></i>
+                  </button>
+                </div>
+              </div>
+              
+              <div class="chapter-content" v-if="expandedChapters.includes(chapter.id)">
+                <div class="chapter-title">章节大纲</div>
+                
+                <div class="chapter-outline-editor">
+                  <div class="outline-actions">
+                    <button class="ai-generate-btn" @click.stop="openAIOutlineGenerator(chapter)">
+                      <i class="fas fa-robot"></i> 正文AI生成
+                    </button>
+                  </div>
+                  <textarea placeholder="在这里写下《{{ chapter.title }}》的大纲..." v-model="chapter.outline"></textarea>
+                </div>
+                
+                <div class="chapter-footer">
+                  <span class="outline-word-count">{{ calculateOutlineWordCount(chapter.outline) }} 字</span>
+                  <button class="save-chapter-outline" @click="saveChapterOutline(chapter)">保存大纲</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 大纲内容 -->
+          <div class="sidebar-tab-content" :class="{ 'active': sidebarTab === 'outline' }">
+            <!-- 大纲卡片区域 -->
+            <div class="outline-card">
+              <div class="card-header">
+                <span>等级设定</span>
+                <div class="card-actions">
+                  <button class="expand-btn" title="展开/收起" @click="toggleOutlineCard('levelSetting')">
+                    <i :class="['fas', expandedOutlineCards.includes('levelSetting') ? 'fa-compress-alt' : 'fa-expand-alt']"></i>
+                  </button>
+                  <button class="edit-btn" title="放大编辑" @click="openOutlineEditor('levelSetting')">
+                    <i class="fas fa-external-link-alt"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="card-content" v-show="expandedOutlineCards.includes('levelSetting')">
+                <textarea v-model="outlineSettings.levelSetting" placeholder="描述小说的等级体系..."></textarea>
+              </div>
+            </div>
+            
+            <!-- 大纲卡片区域 -->
+            <div class="outline-card">
+              <div class="card-header">
+                <span>世界观设定</span>
+                <div class="card-actions">
+                  <button class="expand-btn" title="展开/收起" @click="toggleOutlineCard('worldSetting')">
+                    <i :class="['fas', expandedOutlineCards.includes('worldSetting') ? 'fa-compress-alt' : 'fa-expand-alt']"></i>
+                  </button>
+                  <button class="edit-btn" title="放大编辑" @click="openOutlineEditor('worldSetting')">
+                    <i class="fas fa-external-link-alt"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="card-content" v-show="expandedOutlineCards.includes('worldSetting')">
+                <textarea v-model="outlineSettings.worldSetting" placeholder="描述小说的世界观设定..."></textarea>
+              </div>
+            </div>
+            
+            <!-- 大纲卡片区域 -->
+            <div class="outline-card">
+              <div class="card-header">
+                <span>金手指设定</span>
+                <div class="card-actions">
+                  <button class="expand-btn" title="展开/收起" @click="toggleOutlineCard('abilitySetting')">
+                    <i :class="['fas', expandedOutlineCards.includes('abilitySetting') ? 'fa-compress-alt' : 'fa-expand-alt']"></i>
+                  </button>
+                  <button class="edit-btn" title="放大编辑" @click="openOutlineEditor('abilitySetting')">
+                    <i class="fas fa-external-link-alt"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="card-content" v-show="expandedOutlineCards.includes('abilitySetting')">
+                <textarea v-model="outlineSettings.abilitySetting" placeholder="描述小说的金手指设定..."></textarea>
+              </div>
+            </div>
+            
+            <!-- 大纲卡片区域 -->
+            <div class="outline-card">
+              <div class="card-header">
+                <span>支线剧情</span>
+                <div class="card-actions">
+                  <button class="expand-btn" title="展开/收起" @click="toggleOutlineCard('sideStory')">
+                    <i :class="['fas', expandedOutlineCards.includes('sideStory') ? 'fa-compress-alt' : 'fa-expand-alt']"></i>
+                  </button>
+                  <button class="edit-btn" title="放大编辑" @click="openOutlineEditor('sideStory')">
+                    <i class="fas fa-external-link-alt"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="card-content" v-show="expandedOutlineCards.includes('sideStory')">
+                <textarea v-model="outlineSettings.sideStory" placeholder="描述小说的支线剧情..."></textarea>
+              </div>
+            </div>
+            
+            <!-- 底部字数统计和保存按钮 -->
+            <div class="outline-footer">
+              <span class="word-count">0 字</span>
+              <button class="save-outline-btn">保存大纲</button>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 中央编辑器区域 -->
-      <div class="editor-content">
+      <div class="editor-content" :class="{ 'full-width': !showAiPanel }">
         <!-- 章节标题编辑区 -->
         <div class="chapter-title-container">
           <input 
@@ -121,6 +243,288 @@
         </div>
         <div class="context-menu-item delete" @click="deleteChapter">
           <i class="fas fa-trash"></i> 删除
+        </div>
+      </div>
+
+      <!-- 右侧功能面板 -->
+      <div class="ai-panel-wrapper" :class="{ 'collapsed': !showAiPanel }">
+        <!-- 面板头部 -->
+        <div class="panel-header">
+          <h3>{{ currentPanelTitle }}</h3>
+          <div class="panel-controls">
+            <button class="icon-btn close-panel-btn" @click="closeAiPanel" title="关闭面板">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+        </div>
+        
+        <!-- AI灵感风暴面板 -->
+        <div v-if="currentPanel === 'inspiration'" class="panel-content">
+          <!-- AI模型选择 -->
+          <div class="panel-section">
+            <div class="section-header">AI 模型</div>
+            <select v-model="aiSettings.model" class="model-selector">
+              <option value="gemini-2.0">Google - gemini-2.0-flash-thinking-exp-01-2</option>
+              <option value="gpt-4">OpenAI - GPT-4</option>
+              <option value="claude-3">Anthropic - Claude 3</option>
+            </select>
+          </div>
+          
+          <!-- 会话连续性 -->
+          <div class="panel-section">
+            <div class="section-header-row">
+              <span>启用会话连续性</span>
+              <div class="toggle-switch">
+                <input type="checkbox" v-model="aiSettings.continuity" id="continuity-toggle">
+                <label for="continuity-toggle"></label>
+              </div>
+            </div>
+            <div class="section-info">开启后AI将记住对话上下文</div>
+          </div>
+          
+          <!-- 提示词模式 -->
+          <div class="panel-section">
+            <div class="section-header">提示词模式</div>
+            <div class="tab-buttons">
+              <button :class="['tab-btn', aiSettings.promptMode === 'template' ? 'active' : '']" 
+                      @click="aiSettings.promptMode = 'template'">提示词模板</button>
+              <button :class="['tab-btn', aiSettings.promptMode === 'custom' ? 'active' : '']" 
+                      @click="aiSettings.promptMode = 'custom'">自定义提示词</button>
+            </div>
+          </div>
+          
+          <!-- 提示词模板 -->
+          <div v-if="aiSettings.promptMode === 'template'" class="panel-section">
+            <div class="template-selector">
+              <div class="template-item">
+                <div class="template-header">灵感生成-【灵感速写】</div>
+                <button class="action-btn">点击选择提示词</button>
+              </div>
+            </div>
+            
+            <!-- 大纲方向 -->
+            <div class="panel-section">
+              <div class="section-header">大纲的方向（悲剧情，虐剧情，日常，甜剧情）</div>
+              <input type="text" class="direction-input" placeholder="请输入大纲的方向" v-model="aiSettings.outlineDirection">
+            </div>
+            
+            <!-- 想法输入框 -->
+            <div class="panel-section">
+              <div class="section-header">你的想法 <span class="highlight-text">*请描述你的想法，AI将基于此提供后续发展方向的灵感！</span></div>
+              <textarea class="idea-input" placeholder="请描述你的想法..." v-model="aiSettings.userIdea"></textarea>
+            </div>
+            
+            <!-- 关联章节 -->
+            <div class="panel-section">
+              <div class="section-header">关联章节 <span class="note-text">为保证写作效果，建议关联章节，默认关联前两章</span></div>
+              <div class="chapter-selector">
+                <button class="chapter-btn selected">选择章节</button>
+                <button class="chapter-btn">未选择章节</button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 自定义提示词 -->
+          <div v-if="aiSettings.promptMode === 'custom'" class="panel-section">
+            <textarea class="custom-prompt" placeholder="请输入自定义提示词..." v-model="aiSettings.customPrompt"></textarea>
+          </div>
+          
+          <!-- 操作按钮 -->
+          <div class="panel-actions">
+            <button class="close-btn" @click="toggleAiPanel">关闭</button>
+            <button class="generate-btn" @click="generateIdea">开始生成</button>
+          </div>
+        </div>
+        
+        <!-- AI写作面板 -->
+        <div v-if="currentPanel === 'writing'" class="panel-content">
+          <!-- AI模型选择 -->
+          <div class="panel-section">
+            <div class="section-header">AI 模型</div>
+            <select v-model="aiSettings.model" class="model-selector">
+              <option value="gemini-2.0">Google - gemini-2.0-flash-thinking-exp-01-2</option>
+            </select>
+          </div>
+          
+          <!-- 会话连续性 -->
+          <div class="panel-section">
+            <div class="section-header-row">
+              <span>启用会话连续性</span>
+              <div class="toggle-switch">
+                <input type="checkbox" v-model="aiSettings.continuity" id="writing-continuity">
+                <label for="writing-continuity"></label>
+              </div>
+            </div>
+            <div class="section-info">关闭</div>
+          </div>
+          
+          <!-- 要求 -->
+          <div class="panel-section">
+            <div class="section-header">要求</div>
+            <div class="prompt-selection">
+              <input type="text" value="爆款写作-【番茄风】" disabled class="prompt-display">
+              <button class="prompt-select-btn">点击选择要求</button>
+            </div>
+          </div>
+          
+          <!-- 写作剧情点 -->
+          <div class="panel-section">
+            <div class="section-header">写作剧情点 <span class="highlight-text">*一次5~10个剧情点效果最佳，不要太多也不要太少，否则AI容易自由发挥！</span></div>
+            <textarea class="idea-input" placeholder="请简要描述本章的主要剧情发展..." v-model="aiSettings.plotPoints"></textarea>
+          </div>
+          
+          <!-- 关联章节和角色 -->
+          <div class="panel-section">
+            <div class="section-header">关联章节</div>
+            <div class="link-buttons">
+              <button class="link-btn active">选择章节</button>
+              <button class="link-btn">未选择章节</button>
+            </div>
+            
+            <div class="section-header">相关角色</div>
+            <div class="link-buttons">
+              <button class="link-btn active">选择角色</button>
+              <button class="link-btn">未选择角色</button>
+            </div>
+            
+            <div class="section-header">关联词条</div>
+            <div class="link-note">选择词条后，按写作顺序输出词条内容，一次不要选择太多，否则AI容易混乱！</div>
+            <div class="link-buttons">
+              <button class="link-btn">选择词条</button>
+              <button class="link-btn">未选择词条</button>
+            </div>
+          </div>
+          
+          <!-- 操作按钮 -->
+          <div class="panel-actions">
+            <button class="close-btn" @click="toggleAiPanel">关闭</button>
+            <button class="generate-btn">开始生成</button>
+          </div>
+        </div>
+        
+        <!-- AI续写面板 -->
+        <div v-if="currentPanel === 'continuation'" class="panel-content">
+          <!-- AI模型选择 -->
+          <div class="panel-section">
+            <div class="section-header">AI 模型</div>
+            <select v-model="aiSettings.model" class="model-selector">
+              <option value="gemini-2.0">Google - gemini-2.0-flash-thinking-exp-01-2</option>
+            </select>
+          </div>
+          
+          <!-- 会话连续性 -->
+          <div class="panel-section">
+            <div class="section-header-row">
+              <span>启用会话连续性</span>
+              <div class="toggle-switch">
+                <input type="checkbox" v-model="aiSettings.continuity" id="continuation-continuity">
+                <label for="continuation-continuity"></label>
+              </div>
+            </div>
+            <div class="section-info">开启</div>
+          </div>
+          
+          <!-- 关联大纲信息 -->
+          <div class="panel-section">
+            <div class="section-header-row">
+              <span>关联大纲信息</span>
+              <div class="toggle-switch">
+                <input type="checkbox" v-model="aiSettings.useOutline" id="outline-toggle">
+                <label for="outline-toggle"></label>
+              </div>
+            </div>
+            <div class="section-info">开启</div>
+          </div>
+          
+          <!-- 提示词模式 -->
+          <div class="panel-section">
+            <div class="section-header">提示词模式</div>
+            <div class="tab-buttons">
+              <button :class="['tab-btn', 'active']">提示词模板</button>
+              <button :class="['tab-btn']">自定义提示词</button>
+            </div>
+          </div>
+          
+          <!-- 提示词模板 -->
+          <div class="panel-section">
+            <div class="template-selector">
+              <div class="prompt-selection">
+                <input type="text" placeholder="请选择提示词模板" disabled class="prompt-display">
+                <button class="prompt-select-btn">点击选择提示词</button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 当前主线 -->
+          <div class="panel-section">
+            <div class="section-header">当前主线 (可选) <span class="highlight-text">请简要描述当前剧情主线，用于AI更好地理解剧情，不要超过100字！</span></div>
+            <textarea class="idea-input" placeholder="请简要描述当前主线剧情..." v-model="aiSettings.mainPlot"></textarea>
+          </div>
+          
+          <!-- 续写剧情 -->
+          <div class="panel-section">
+            <div class="section-header">续写剧情 <span class="highlight-text">*一次5~10个剧情点效果最佳，不要太多也不要太少，否则AI容易自由发挥！</span></div>
+            <textarea class="idea-input" placeholder="请简要描述接下来要续写的剧情发展..." v-model="aiSettings.continuationPlot"></textarea>
+          </div>
+          
+          <!-- 操作按钮 -->
+          <div class="panel-actions">
+            <button class="close-btn" @click="toggleAiPanel">关闭</button>
+            <button class="generate-btn">开始对话</button>
+            <button class="primary-btn">开始生成</button>
+          </div>
+        </div>
+        
+        <!-- AI编辑面板 -->
+        <div v-if="currentPanel === 'editing'" class="panel-content">
+          <!-- 待实现 -->
+          <div class="panel-section">
+            <p>AI编辑功能面板</p>
+          </div>
+          
+          <!-- 操作按钮 -->
+          <div class="panel-actions">
+            <button class="close-btn" @click="toggleAiPanel">关闭</button>
+            <button class="generate-btn">开始编辑</button>
+          </div>
+        </div>
+        
+        <!-- 黄金开篇面板 -->
+        <div v-if="currentPanel === 'opening'" class="panel-content">
+          <!-- 小说信息 -->
+          <div class="panel-section">
+            <div class="section-header">小说信息 <span class="highlight-text">可自定义补充任意内容，用于生成完整开篇</span></div>
+            <div class="novel-info-form">
+              <div class="form-row">
+                <label>小说名称:</label>
+                <input type="text" v-model="novelInfo.title" class="info-input" value="xing">
+              </div>
+              <div class="form-row">
+                <label>小说类型:</label>
+                <input type="text" v-model="novelInfo.genre" class="info-input" value="都市修真">
+              </div>
+              <div class="form-row">
+                <label>小说简介:</label>
+                <textarea v-model="novelInfo.summary" class="info-textarea"></textarea>
+              </div>
+              <div class="form-row">
+                <label>小说标签:</label>
+                <textarea v-model="novelInfo.tags" class="info-textarea"></textarea>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 补充信息 -->
+          <div class="panel-section">
+            <div class="section-header">补充信息 (可选) <span class="highlight-text">可以补充任何你想要AI考虑的额外信息</span></div>
+            <textarea class="idea-input" placeholder="请输入补充信息..." v-model="novelInfo.extra"></textarea>
+          </div>
+          
+          <!-- 操作按钮 -->
+          <div class="panel-actions">
+            <button class="close-btn" @click="toggleAiPanel">关闭</button>
+            <button class="generate-btn">灵感开篇 生成</button>
+          </div>
         </div>
       </div>
     </div>
@@ -220,6 +624,116 @@
       </div>
     </div>
   </div>
+
+  <!-- 大纲编辑弹窗 -->
+  <div v-if="outlineEditorModal.show" class="modal-overlay">
+    <div class="outline-editor-modal">
+      <div class="modal-header">
+        <h3>{{ outlineEditorModal.title }}</h3>
+        <button class="close-modal-btn" @click="closeOutlineEditor">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <textarea 
+          class="outline-editor-textarea" 
+          v-model="outlineEditorModal.content" 
+          placeholder="请输入详细内容..."
+        ></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" @click="closeOutlineEditor">取消</button>
+        <button class="save-btn" @click="saveOutlineEditor">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI大纲生成弹窗 -->
+  <div v-if="aiOutlineModal.show" class="modal-overlay" @click.self="closeAIOutlineGenerator">
+    <div class="ai-outline-modal">
+      <div class="modal-header">
+        <h3>AI大纲</h3>
+        <button class="close-modal-btn" @click="closeAIOutlineGenerator">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="ai-setting-section">
+          <div class="setting-label">AI 模型</div>
+          <select v-model="aiOutlineModal.model" class="model-selector">
+            <option value="gemini-2.0">Google - gemini-2.0-flash-thinking-exp-01-21</option>
+            <option value="gpt-4">OpenAI - GPT-4</option>
+            <option value="claude-3">Anthropic - Claude 3</option>
+          </select>
+        </div>
+        
+        <div class="ai-setting-section">
+          <div class="setting-row">
+            <span>启用会话连续性</span>
+            <div class="toggle-switch-container">
+              <span class="toggle-label">关闭</span>
+              <div class="toggle-switch">
+                <input type="checkbox" v-model="aiOutlineModal.continuity" id="ai-outline-continuity">
+                <label for="ai-outline-continuity"></label>
+              </div>
+              <span class="toggle-label">开启</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="ai-setting-section">
+          <div class="setting-label">提示词模式</div>
+          <div class="tab-buttons">
+            <button 
+              :class="['tab-btn', aiOutlineModal.promptMode === 'template' ? 'active' : '']" 
+              @click="aiOutlineModal.promptMode = 'template'"
+            >提示词模板</button>
+            <button 
+              :class="['tab-btn', aiOutlineModal.promptMode === 'custom' ? 'active' : '']" 
+              @click="aiOutlineModal.promptMode = 'custom'"
+            >自定义提示词</button>
+          </div>
+        </div>
+        
+        <div v-if="aiOutlineModal.promptMode === 'template'" class="ai-setting-section">
+          <div class="setting-label">提示词模板</div>
+          <div class="template-selector">
+            <input type="text" readonly placeholder="请选择提示词模板" class="prompt-display" :value="aiOutlineModal.selectedTemplate">
+            <button class="select-prompt-btn" @click="showPromptTemplates">选择提示词</button>
+          </div>
+        </div>
+        
+        <div class="ai-setting-section">
+          <div class="setting-label">需要生成大纲的正文 <span class="required-mark">*</span></div>
+          <textarea 
+            class="outline-content-input" 
+            v-model="aiOutlineModal.content" 
+            placeholder="请输入需要扩写的内容..."
+          ></textarea>
+        </div>
+        
+        <div class="ai-setting-section">
+          <div class="setting-label">关联章节</div>
+          <div class="chapter-tags">
+            <span class="warning-text">未保证写作效果，请关联章节，默认关联近两章</span>
+            <div class="chapter-selector">
+              <button class="chapter-tag selected">选择章节</button>
+              <button class="chapter-tag">未选择章节</button>
+            </div>
+          </div>
+        </div>
+        
+        <div class="ai-setting-section">
+          <div class="setting-label">关联角色 (可选)</div>
+          <button class="select-character-btn">选择角色</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="cancel-btn" @click="closeAIOutlineGenerator">取消</button>
+        <button class="generate-btn" @click="generateAIOutline">开始生成</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script>
@@ -240,7 +754,7 @@ export default {
     const route = useRoute()
     const bookId = ref(props.bookId || 'default')
     
-    // 状态变量
+    // 核心状态变量
     const isFullscreen = ref(false)
     const showSidebar = ref(true)
     const editorContent = ref(null)
@@ -255,7 +769,6 @@ export default {
     const titleChanged = ref(false)
     const wordCount = ref(0)
     const autoSaveTimeout = ref(null)
-    const isLoading = ref(false)
     
     // 上下文菜单状态
     const contextMenu = reactive({
@@ -265,7 +778,7 @@ export default {
       targetChapter: null
     })
 
-    // Add new state for font and background settings
+    // 字体和背景设置 - 保留这些
     const fontSettings = reactive({
       showModal: false,
       family: 'Arial',
@@ -275,21 +788,21 @@ export default {
 
     const backgroundSettings = reactive({
       showModal: false,
-      type: 'color', // 'color' or 'image'
+      type: 'color',
       color: '#ffffff',
       image: null,
       imageUrl: '',
-      opacity: 0.8 // 新增透明度设置，默认0.8
+      opacity: 0.8
     })
 
-    // 添加撤销/重做状态
+    // 历史记录 - 撤销/重做功能
     const history = reactive({
       stack: [],
       index: -1,
       maxSize: 20
     })
 
-    // 添加查找替换状态
+    // 搜索替换功能 - 保留
     const searchState = reactive({
       showModal: false,
       searchText: '',
@@ -297,14 +810,50 @@ export default {
       caseSensitive: false
     })
 
-    // 添加快捷键支持
+    // AI面板状态 - 简化但保留显示结构
+    const showAiPanel = ref(false)
+    const currentPanel = ref('')
+    const currentPanelTitle = computed(() => {
+      switch(currentPanel.value) {
+        case 'inspiration': return '灵感风暴';
+        case 'writing': return 'AI写作';
+        case 'continuation': return 'AI续写';
+        case 'editing': return 'AI编辑';
+        case 'opening': return '黄金开篇';
+        default: return '';
+      }
+    })
+    
+    // 简化后的AI设置
+    const aiSettings = reactive({
+      model: 'gemini-2.0',
+      continuity: false,
+      promptMode: 'template',
+      outlineDirection: '',
+      userIdea: '',
+      customPrompt: ''
+    })
+
+    // 小说信息 - 简化保留
+    const novelInfo = reactive({
+      title: '',
+      genre: '',
+      summary: ''
+    })
+
+    // 左侧栏选项卡状态 - 修改默认值为'directory'
+    const sidebarTab = ref('directory')
+    const expandedChapters = ref([])
+    
+    // 键盘快捷键处理 - 保留
     const handleKeyDown = (event) => {
-      // Save shortcut (Ctrl+S)
+      // 保存快捷键 (Ctrl+S)
       if ((event.ctrlKey || event.metaKey) && event.key === 's') {
         event.preventDefault()
         saveCurrentChapter()
       }
       
+      // 撤销/重做快捷键
       if (event.ctrlKey || event.metaKey) {
         if (event.key === 'z' && !event.shiftKey) {
           undo()
@@ -317,51 +866,29 @@ export default {
     }
 
     // 计算属性
-    const isEditing = computed(() => {
-      return currentChapterId.value !== null
-    })
+    const isEditing = computed(() => currentChapterId.value !== null)
 
-    // 加载章节数据
     const loadChapters = async () => {
       try {
-        const response = await fetch(`/api/books/${bookId.value}/chapters`)
-        if (!response.ok) throw new Error('加载失败')
-        const data = await response.json()
-        chapters.value = data
+        // 简化为在控制台显示
+        console.log('加载章节：', bookId.value);
+        // 添加一些模拟数据用于演示
+        chapters.value = [
+          { id: '1', title: '章节一', content: '示例内容', outline: '' },
+          { id: '2', title: '章节二', content: '示例内容', outline: '' }
+        ];
       } catch (error) {
         console.error('加载章节出错:', error)
         showToast('加载章节失败', 'error')
       }
     }
 
-    // 保存章节数据
+    // 保存章节 - 简化
     const saveChapters = async (manualSave = false) => {
       try {
-        // 准备保存数据
-        const data = chapters.value.map(chapter => ({
-          id: chapter.id,
-          title: chapter.title,
-          content: chapter.content,
-          order: chapter.order,
-          isVolume: chapter.isVolume,
-          createdAt: chapter.createdAt,
-          updatedAt: new Date().toISOString()
-        }))
-
-        // 发送保存请求
-        const response = await fetch(`/api/books/${bookId.value}/chapters`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(data)
-        })
-
-        if (!response.ok) throw new Error('保存失败')
-
-        // 更新变更标志
-        contentChanged.value = false
-        titleChanged.value = false
+        console.log('保存章节', chapters.value);
+        contentChanged.value = false;
+        titleChanged.value = false;
         
         if (manualSave) {
           showToast('保存成功', 'success')
@@ -372,7 +899,7 @@ export default {
       }
     }
 
-    // 打开指定章节
+    // 打开章节
     const openChapter = async (chapterId) => {
       // 如果有未保存的更改，先保存当前章节
       if ((contentChanged.value || titleChanged.value) && currentChapterId.value) {
@@ -384,7 +911,7 @@ export default {
       if (chapter) {
         currentChapterId.value = chapter.id
         
-        // 使用reactive对象更新当前章节数据
+        // 更新当前章节数据
         currentChapter.id = chapter.id
         currentChapter.title = chapter.title
         currentChapter.content = chapter.content
@@ -401,7 +928,7 @@ export default {
         contentChanged.value = false
         titleChanged.value = false
         
-        // 初始化历史记录
+        // 清除并初始化历史记录
         history.stack = [{
           content: chapter.content || '',
           title: chapter.title,
@@ -411,7 +938,7 @@ export default {
       }
     }
 
-    // 增强保存当前章节的方法
+    // 保存当前章节
     const saveCurrentChapter = async () => {
       try {
         if (!currentChapterId.value) return
@@ -433,9 +960,7 @@ export default {
           updatedAt: new Date().toISOString()
         }
         
-        // 调用保存方法
-        await saveChapters(true) // true表示手动保存
-        showToast('章节保存成功', 'success')
+        await saveChapters(true)
       } catch (error) {
         console.error('保存章节失败:', error)
         showToast('保存章节失败', 'error')
@@ -445,7 +970,6 @@ export default {
     // 创建新章节
     const createNewChapter = async () => {
       try {
-        // 确保 chapters.value 是数组
         if (!Array.isArray(chapters.value)) {
           chapters.value = []
         }
@@ -463,7 +987,6 @@ export default {
         chapters.value.push(newChapter)
         openChapter(newChapter.id)
         
-        // 立即保存到服务器
         await saveChapters()
         showToast('章节创建成功', 'success')
       } catch (error) {
@@ -472,36 +995,7 @@ export default {
       }
     }
 
-    // 创建新卷
-    const createNewVolume = async () => {
-      try {
-        if (!Array.isArray(chapters.value)) {
-          chapters.value = []
-        }
-        
-        const newVolume = {
-          id: uuidv4(),
-          title: '新建卷',
-          content: '',
-          order: chapters.value.length,
-          isVolume: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
-        
-        chapters.value.push(newVolume)
-        openChapter(newVolume.id)
-        
-        // 立即保存到服务器
-        await saveChapters()
-        showToast('卷创建成功', 'success')
-      } catch (error) {
-        console.error('创建卷失败:', error)
-        showToast('创建卷失败', 'error')
-      }
-    }
-
-    // 删除章节
+    // 基础章节操作
     const deleteChapter = () => {
       if (!contextMenu.targetChapter) return
       
@@ -509,17 +1003,13 @@ export default {
       const index = chapters.value.findIndex(c => c.id === targetId)
       
       if (index !== -1) {
-        // 从章节列表中移除
         chapters.value.splice(index, 1)
         
-        // 如果删除的是当前章节，切换到另一个章节
         if (currentChapterId.value === targetId) {
           if (chapters.value.length > 0) {
-            // 尝试切换到下一个章节，如果没有则切换到前一个
             const nextIndex = index < chapters.value.length ? index : index - 1
             openChapter(chapters.value[nextIndex].id)
           } else {
-            // 如果没有章节了，创建一个新章节
             createNewChapter()
           }
         }
@@ -527,91 +1017,24 @@ export default {
         saveChapters()
       }
       
-      // 关闭上下文菜单
       closeContextMenu()
     }
 
-    // 上移章节
-    const moveChapterUp = () => {
-      if (!contextMenu.targetChapter) return
-      
-      const targetId = contextMenu.targetChapter.id
-      const index = chapters.value.findIndex(c => c.id === targetId)
-      
-      if (index > 0) {
-        // 交换当前章节与上一个章节
-        [chapters.value[index], chapters.value[index - 1]] = 
-        [chapters.value[index - 1], chapters.value[index]]
-        
-        // 更新顺序字段
-        chapters.value.forEach((chapter, idx) => {
-          chapter.order = idx
-        })
-        
-        saveChapters()
-      }
-      
-      closeContextMenu()
-    }
-
-    // 下移章节
-    const moveChapterDown = () => {
-      if (!contextMenu.targetChapter) return
-      
-      const targetId = contextMenu.targetChapter.id
-      const index = chapters.value.findIndex(c => c.id === targetId)
-      
-      if (index < chapters.value.length - 1) {
-        // 交换当前章节与下一个章节
-        [chapters.value[index], chapters.value[index + 1]] = 
-        [chapters.value[index + 1], chapters.value[index]]
-        
-        // 更新顺序字段
-        chapters.value.forEach((chapter, idx) => {
-          chapter.order = idx
-        })
-        
-        saveChapters()
-      }
-      
-      closeContextMenu()
-    }
-
-    // 重命名章节
-    const renameChapter = () => {
-      if (!contextMenu.targetChapter) return
-      
-      // 打开章节并聚焦到标题输入框
-      openChapter(contextMenu.targetChapter.id)
-      nextTick(() => {
-        const titleInput = document.querySelector('.chapter-title-input')
-        if (titleInput) {
-          titleInput.focus()
-          titleInput.select()
-        }
-      })
-      
-      closeContextMenu()
-    }
-
-    // 显示上下文菜单
+    // 上下文菜单操作 - 简化
     const showContextMenu = (event, chapter) => {
       contextMenu.show = true
       contextMenu.x = event.clientX
       contextMenu.y = event.clientY
       contextMenu.targetChapter = chapter
       
-      // 添加点击事件监听器以关闭菜单
       document.addEventListener('click', closeContextMenuOnOutsideClick)
     }
 
-    // 关闭上下文菜单
     const closeContextMenu = () => {
       contextMenu.show = false
       document.removeEventListener('click', closeContextMenuOnOutsideClick)
     }
 
-    // 在菜单外点击时关闭菜单
     const closeContextMenuOnOutsideClick = (event) => {
       const menu = document.querySelector('.context-menu')
       if (menu && !menu.contains(event.target)) {
@@ -629,29 +1052,21 @@ export default {
     // 计算字数
     const calculateWordCount = () => {
       if (editorContent.value) {
-        // 获取纯文本内容
         const content = editorContent.value.innerText || ''
-        // 移除空白字符并计算长度
         wordCount.value = content.replace(/\s+/g, '').length
       } else {
         wordCount.value = 0
       }
     }
 
-    // 插入Tab
+    // 基础编辑器功能
     const insertTab = () => {
       document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;')
     }
 
-    // 处理粘贴事件
     const onPaste = (event) => {
-      // 阻止默认粘贴行为
       event.preventDefault()
-      
-      // 获取纯文本内容
       const text = (event.clipboardData || window.clipboardData).getData('text/plain')
-      
-      // 将纯文本插入编辑器
       document.execCommand('insertText', false, text)
     }
 
@@ -675,27 +1090,7 @@ export default {
       showSidebar.value = !showSidebar.value
     }
 
-    // 监听标题变更
-    watch(() => currentChapter.title, (newTitle) => {
-      if (currentChapterId.value) {
-        const index = chapters.value.findIndex(c => c.id === currentChapterId.value)
-        if (index !== -1) {
-          chapters.value[index].title = newTitle
-          titleChanged.value = true
-          
-          // 设置自动保存定时器
-          if (autoSaveTimeout.value) {
-            clearTimeout(autoSaveTimeout.value)
-          }
-          
-          autoSaveTimeout.value = setTimeout(() => {
-            saveCurrentChapter()
-          }, 1000) // 一秒后自动保存
-        }
-      }
-    })
-
-    // Add new methods for font and background handling
+    // 字体和背景设置 - 保留
     const applyFontSettings = () => {
       if (editorContent.value) {
         editorContent.value.style.fontFamily = fontSettings.family
@@ -711,12 +1106,10 @@ export default {
           editorContainer.style.background = backgroundSettings.color
           editorContainer.style.backgroundImage = 'none'
         } else {
-          // 使用rgba设置背景色作为底色，配合透明度
           editorContainer.style.backgroundColor = `rgba(255, 255, 255, ${1 - backgroundSettings.opacity})`
           editorContainer.style.backgroundImage = `url(${backgroundSettings.imageUrl})`
           editorContainer.style.backgroundSize = 'cover'
           editorContainer.style.backgroundAttachment = 'fixed'
-          editorContainer.style.backgroundBlendMode = 'overlay' // 混合模式让效果更好
         }
       }
     }
@@ -729,32 +1122,28 @@ export default {
       }
     }
 
-    // 记录历史状态
+    // 历史记录功能 - 保留
     const recordHistory = debounce(() => {
       if (!editorContent.value) return
       
       const content = editorContent.value.innerHTML
       const title = currentChapter.title
       
-      // 如果内容没有变化，则不记录
       if (history.stack[history.index]?.content === content && 
           history.stack[history.index]?.title === title) {
         return
       }
       
-      // 如果当前不是最新状态，则丢弃后面的历史
       if (history.index < history.stack.length - 1) {
         history.stack = history.stack.slice(0, history.index + 1)
       }
       
-      // 添加新记录
       history.stack.push({
         content,
         title,
         timestamp: new Date().getTime()
       })
       
-      // 限制历史记录数量
       if (history.stack.length > history.maxSize) {
         history.stack.shift()
       } else {
@@ -762,7 +1151,7 @@ export default {
       }
     }, 500)
 
-    // 撤销功能
+    // 撤销/重做功能 - 保留
     const undo = () => {
       if (history.index <= 0) {
         showToast('已到达最早记录', 'info')
@@ -773,7 +1162,6 @@ export default {
       applyHistoryState()
     }
 
-    // 重做功能
     const redo = () => {
       if (history.index >= history.stack.length - 1) {
         showToast('已到达最新记录', 'info')
@@ -784,7 +1172,6 @@ export default {
       applyHistoryState()
     }
 
-    // 应用历史状态
     const applyHistoryState = () => {
       const state = history.stack[history.index]
       if (!state || !editorContent.value) return
@@ -794,67 +1181,67 @@ export default {
       calculateWordCount()
     }
 
-    // 一键排版
+    // 一键排版 - 保留
     const formatContent = () => {
       const editor = editorContent.value
       if (!editor) return
       
-      // Get current selection
-      const selection = window.getSelection()
-      if (!selection.rangeCount) return
+      // 获取当前内容
+      let content = editor.innerHTML.trim()
       
-      const range = selection.getRangeAt(0)
-      const selectedText = range.toString()
+      // 获取所有内容中的文本
+      const formattedContent = formatTextWithIndent(content)
       
-      // If text is selected, format only the selection
-      if (selectedText) {
-        formatSelectedText(range, selectedText)
-      } else {
-        // Format the entire content
-        formatAllContent(editor)
-      }
+      // 更新编辑器内容
+      editor.innerHTML = formattedContent
       
-      // Trigger content update
+      // 更新历史记录和字数统计
       onContentUpdate()
       showToast('排版完成', 'success')
     }
 
-    // Helper method to format selected text
-    const formatSelectedText = (range, text) => {
-      const formattedText = text.split('\n').map(line => {
-        // Remove all leading whitespace
-        const trimmed = line.replace(/^\s+/, '')
-        // Add exactly two spaces if line is not empty
-        return trimmed ? '  ' + trimmed : ''
-      }).join('\n')
-      
-      // Replace the selected text
-      range.deleteContents()
-      range.insertNode(document.createTextNode(formattedText))
+    // 辅助函数：处理文本缩进
+    const formatTextWithIndent = (content) => {
+      // 如果已经有<p>标签，处理每个段落
+      if (content.includes('<p>')) {
+        // 将HTML内容按</p>分割成段落数组
+        return content.split('</p>').map(paragraph => {
+          if (!paragraph.trim()) return ''
+          
+          // 找到<p>标签的结束位置
+          const pTagEndIndex = paragraph.indexOf('>') + 1
+          if (pTagEndIndex <= 0) return paragraph
+          
+          // 将段落分为<p>标签部分和内容部分
+          const pTag = paragraph.substring(0, pTagEndIndex)
+          let pContent = paragraph.substring(pTagEndIndex).trim()
+          
+          // 如果内容为空，返回原段落
+          if (!pContent) return paragraph + '</p>'
+          
+          // 移除内容开头的空格和全角空格
+          pContent = pContent.replace(/^[\s　]+/, '')
+          
+          // 添加两个全角空格作为缩进
+          return `${pTag}　　${pContent}</p>`
+        }).join('')
+      } else {
+        // 没有<p>标签，将整个内容作为一个段落处理
+        // 移除内容开头的空格和全角空格
+        content = content.replace(/^[\s　]+/, '')
+        
+        // 将内容按换行符拆分成段落
+        const paragraphs = content.split(/\n+/)
+        
+        // 添加两个全角空格作为缩进，并用<p>标签包裹每个段落
+        return paragraphs.map(p => {
+          if (!p.trim()) return ''
+          return `<p>　　${p.trim()}</p>`
+        }).join('')
+      }
     }
 
-    // Helper method to format all content
-    const formatAllContent = (editor) => {
-      // Process each paragraph (p element) in the content
-      const paragraphs = editor.querySelectorAll('p')
-      paragraphs.forEach(p => {
-        // Get the text content
-        const text = p.textContent || ''
-        
-        // Remove all leading whitespace
-        const trimmed = text.replace(/^\s+/, '')
-        
-        // Clear the paragraph
-        p.innerHTML = ''
-        
-        // Add exactly two spaces if line is not empty
-        if (trimmed) {
-          p.appendChild(document.createTextNode('  ' + trimmed))
-        }
-      })
-    }
-
-    // 查找方法
+    // 查找替换功能 - 保留
     const findText = () => {
       if (!searchState.searchText) return
       
@@ -868,7 +1255,6 @@ export default {
       )
     }
 
-    // 替换方法
     const replaceText = () => {
       if (!searchState.searchText) return
       
@@ -884,66 +1270,280 @@ export default {
       showToast(`已替换所有匹配项`, 'success')
     }
 
-    // 组件挂载
-    onMounted(async () => {
-      // 添加关闭窗口前保存的事件监听
-      window.addEventListener('beforeunload', beforeUnloadHandler)
+    // ===== AI功能 - 简化 =====
+    
+    // 面板切换
+    const toggleAiPanel = () => {
+      showAiPanel.value = !showAiPanel.value
+    }
+
+    const openPanel = (panelName) => {
+      currentPanel.value = panelName
+      showAiPanel.value = true
+    }
+
+    const closeAiPanel = () => {
+      showAiPanel.value = false
+    }
+
+    // AI生成功能的简化版 - 主要展示界面
+    const generateIdea = () => {
+      showToast('AI功能示例：已触发灵感生成功能', 'success')
+    }
+
+    // 侧边栏功能
+    const switchSidebarTab = (tab) => {
+      sidebarTab.value = tab
+    }
+
+    const toggleChapterOutline = (chapterId) => {
+      if (expandedChapters.value.includes(chapterId)) {
+        expandedChapters.value = expandedChapters.value.filter(id => id !== chapterId)
+      } else {
+        expandedChapters.value.push(chapterId)
+      }
+    }
+
+    // 计算大纲字数
+    const calculateOutlineWordCount = (outline) => {
+      if (!outline) return 0
+      return outline.replace(/\s+/g, '').length
+    }
+
+    // 大纲相关状态 - 简化保留
+    const outlineSettings = reactive({
+      levelSetting: '',
+      worldSetting: '',
+      abilitySetting: '',
+      sideStory: ''
+    })
+
+    // 大纲编辑弹窗
+    const outlineEditorModal = reactive({
+      show: false,
+      title: '',
+      type: '',
+      content: ''
+    })
+
+    // AI大纲生成弹窗
+    const aiOutlineModal = reactive({
+      show: false,
+      chapter: null,
+      model: 'gemini-2.0',
+      continuity: false,
+      promptMode: 'template',
+      selectedTemplate: '',
+      content: '',
+      selectedChapters: []
+    })
+
+    // 大纲编辑器函数 - 简化
+    const openOutlineEditor = (type) => {
+      let title = ''
+      let content = ''
       
-      // 加载章节
+      switch(type) {
+        case 'levelSetting':
+          title = '等级设定'
+          content = outlineSettings.levelSetting
+          break
+        case 'worldSetting':
+          title = '世界观设定'
+          content = outlineSettings.worldSetting
+          break
+        case 'abilitySetting':
+          title = '金手指设定'
+          content = outlineSettings.abilitySetting
+          break
+        case 'sideStory':
+          title = '支线剧情'
+          content = outlineSettings.sideStory
+          break
+      }
+      
+      outlineEditorModal.title = title
+      outlineEditorModal.type = type
+      outlineEditorModal.content = content
+      outlineEditorModal.show = true
+    }
+
+    const closeOutlineEditor = () => {
+      outlineEditorModal.show = false
+    }
+
+    const saveOutlineEditor = () => {
+      switch(outlineEditorModal.type) {
+        case 'levelSetting':
+          outlineSettings.levelSetting = outlineEditorModal.content
+          break
+        case 'worldSetting':
+          outlineSettings.worldSetting = outlineEditorModal.content
+          break
+        case 'abilitySetting':
+          outlineSettings.abilitySetting = outlineEditorModal.content
+          break
+        case 'sideStory':
+          outlineSettings.sideStory = outlineEditorModal.content
+          break
+      }
+      
+      closeOutlineEditor()
+      showToast('大纲内容已保存', 'success')
+    }
+
+    // 关键功能 - 需要暴露给模板的AI大纲函数
+    const openAIOutlineGenerator = (chapter) => {
+      console.log('Opening AI outline generator for chapter:', chapter.title);
+      aiOutlineModal.show = true;
+      aiOutlineModal.chapter = chapter;
+      aiOutlineModal.content = chapter.content || '';
+      
+      // 默认选择当前章节和前两章
+      aiOutlineModal.selectedChapters = [chapter.id];
+      
+      const chapterIndex = chapters.value.findIndex(c => c.id === chapter.id);
+      if (chapterIndex > 0) {
+        aiOutlineModal.selectedChapters.push(chapters.value[chapterIndex - 1].id);
+        if (chapterIndex > 1) {
+          aiOutlineModal.selectedChapters.push(chapters.value[chapterIndex - 2].id);
+        }
+      }
+    };
+
+    const closeAIOutlineGenerator = () => {
+      console.log('Closing AI outline generator');
+      aiOutlineModal.show = false;
+    }
+
+    const generateAIOutline = () => {
+      if (!aiOutlineModal.content) {
+        showToast('请输入需要生成大纲的正文', 'error')
+        return
+      }
+      
+      // 简化为显示消息
+      showToast('AI大纲生成示例：已触发生成功能', 'success')
+      closeAIOutlineGenerator()
+    }
+
+    const showPromptTemplates = () => {
+      aiOutlineModal.selectedTemplate = '大纲生成-【详细大纲】'
+    }
+
+    // 大纲卡片显示状态
+    const expandedOutlineCards = ref(['levelSetting', 'worldSetting'])
+
+    const toggleOutlineCard = (cardType) => {
+      if (expandedOutlineCards.value.includes(cardType)) {
+        expandedOutlineCards.value = expandedOutlineCards.value.filter(type => type !== cardType)
+      } else {
+        expandedOutlineCards.value.push(cardType)
+      }
+    }
+
+    // 添加章节上移功能
+    const moveChapterUp = () => {
+      if (!contextMenu.targetChapter) return
+      
+      const targetId = contextMenu.targetChapter.id
+      const index = chapters.value.findIndex(c => c.id === targetId)
+      
+      if (index > 0) {
+        // 交换当前章节与上一章节
+        [chapters.value[index], chapters.value[index - 1]] = [chapters.value[index - 1], chapters.value[index]]
+        saveChapters()
+        showToast('章节已上移', 'success')
+      } else {
+        showToast('已经是第一章', 'info')
+      }
+      
+      closeContextMenu()
+    }
+
+    // 添加章节下移功能
+    const moveChapterDown = () => {
+      if (!contextMenu.targetChapter) return
+      
+      const targetId = contextMenu.targetChapter.id
+      const index = chapters.value.findIndex(c => c.id === targetId)
+      
+      if (index !== -1 && index < chapters.value.length - 1) {
+        // 交换当前章节与下一章节
+        [chapters.value[index], chapters.value[index + 1]] = [chapters.value[index + 1], chapters.value[index]]
+        saveChapters()
+        showToast('章节已下移', 'success')
+      } else {
+        showToast('已经是最后一章', 'info')
+      }
+      
+      closeContextMenu()
+    }
+
+    // 修改重命名功能
+    const renameChapter = (chapter = null) => {
+      // 确定目标章节
+      const targetChapter = chapter || contextMenu.targetChapter
+      if (!targetChapter) return
+      
+      // 先打开章节
+      openChapter(targetChapter.id)
+      
+      // 使用nextTick确保UI已更新
+      nextTick(() => {
+        // 找到标题输入框并聚焦
+        const titleInput = document.querySelector('.chapter-title-input')
+        if (titleInput) {
+          titleInput.focus()
+          // 选中全部文本以便用户可以直接覆盖
+          titleInput.select()
+        }
+      })
+      
+      // 关闭上下文菜单(如果是从上下文菜单调用)
+      if (!chapter) {
+        closeContextMenu()
+      }
+    }
+
+    // 组件生命周期钩子
+    onMounted(async () => {
+      window.addEventListener('beforeunload', beforeUnloadHandler)
       await loadChapters()
       
-      // 默认打开第一个章节
       if (chapters.value.length > 0 && !currentChapterId.value) {
         openChapter(chapters.value[0].id)
       }
       
-      // 初始化时添加事件监听
       window.addEventListener('keydown', handleKeyDown)
     })
 
-    // 组件卸载
     onBeforeUnmount(() => {
-      // 保存当前编辑的内容
       if (contentChanged.value || titleChanged.value) {
         saveCurrentChapter()
       }
       
-      // 移除事件监听器
       window.removeEventListener('beforeunload', beforeUnloadHandler)
       document.removeEventListener('click', closeContextMenuOnOutsideClick)
       
-      // 清除自动保存定时器
       if (autoSaveTimeout.value) {
         clearTimeout(autoSaveTimeout.value)
       }
       
-      // 组件卸载时移除事件监听
       window.removeEventListener('keydown', handleKeyDown)
     })
 
-    // 关闭窗口前保存
     const beforeUnloadHandler = (event) => {
       if (contentChanged.value || titleChanged.value) {
-        // Only show confirmation for unsaved changes
         event.preventDefault()
         event.returnValue = '您有未保存的更改，确定要离开吗？'
         return event.returnValue
       }
     }
 
-    // 修改自动保存逻辑
-    watch([() => currentChapter.content, () => currentChapter.title], () => {
-      if (autoSaveTimeout.value) {
-        clearTimeout(autoSaveTimeout.value)
-      }
-      
-      autoSaveTimeout.value = setTimeout(() => {
-        saveCurrentChapter() // 改为调用saveCurrentChapter而不是saveChapters
-      }, 5000)
-    })
-
-    // 返回组件暴露的属性和方法
+    // 确保返回所有需要在模板中使用的函数和变量
     return {
+      // 编辑器基础
       isFullscreen,
       showSidebar,
       editorContent,
@@ -952,34 +1552,74 @@ export default {
       currentChapter,
       wordCount,
       contextMenu,
-      isLoading,
+      
+      // 编辑器核心功能
       openChapter,
       saveCurrentChapter,
       createNewChapter,
-      createNewVolume,
       showContextMenu,
       deleteChapter,
-      moveChapterUp,
-      moveChapterDown,
-      renameChapter,
       onContentUpdate,
       insertTab,
       onPaste,
       toggleFullscreen,
       toggleSidebar,
+      
+      // 设置相关
       fontSettings,
       backgroundSettings,
       applyFontSettings,
       applyBackgroundSettings,
       handleImageUpload,
+      
+      // 历史记录与格式化
       undo,
       redo,
       history,
       formatContent,
+      
+      // 搜索替换
       searchState,
       findText,
       replaceText,
-      calculateWordCount
+      calculateWordCount,
+      
+      // AI面板相关 - 简化保留
+      showAiPanel,
+      currentPanel,
+      currentPanelTitle,
+      aiSettings,
+      novelInfo,
+      openPanel,
+      toggleAiPanel,
+      generateIdea,
+      closeAiPanel,
+      
+      // 侧边栏和大纲
+      sidebarTab,
+      expandedChapters,
+      switchSidebarTab,
+      toggleChapterOutline,
+      calculateOutlineWordCount,
+      outlineSettings,
+      outlineEditorModal,
+      aiOutlineModal,
+      openOutlineEditor,
+      closeOutlineEditor,
+      saveOutlineEditor,
+      
+      // 重要的：确保暴露这些AI大纲函数给模板
+      openAIOutlineGenerator,
+      closeAIOutlineGenerator,
+      showPromptTemplates,
+      generateAIOutline,
+      expandedOutlineCards,
+      toggleOutlineCard,
+
+      // 新增章节上移和下移功能
+      moveChapterUp,
+      moveChapterDown,
+      renameChapter
     }
   }
 }

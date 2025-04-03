@@ -1145,6 +1145,18 @@ app.get('/api/books', (req, res) => {
   }
 })
 
+// 添加获取按分类筛选的提示词的路由
+app.get('/api/prompts/category/:category', (req, res) => {
+  try {
+    const category = req.params.category;
+    const prompts = FileUtils.loadData(PROMPTS_FILE, []);
+    const filteredPrompts = prompts.filter(prompt => prompt.category === category);
+    ResponseHandler.success(res, filteredPrompts);
+  } catch (error) {
+    ResponseHandler.error(res, error);
+  }
+});
+
 // 启动服务器
 const PORT = process.env.PORT || 3000
 app.listen(PORT, async () => {

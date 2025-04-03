@@ -7,20 +7,24 @@
         <!-- 左侧提示词模板区 -->
         <div class="prompt-panel" :style="{ width: promptPanelWidth + 'px' }">
           <div class="panel-header">
-            <h2>提示词模板(v{{ version }})</h2>
-            <div class="header-actions">
-              <button @click="showTagModal = true">
-                <i class="fas fa-tags"></i> 管理标签
+            <h2>(v{{ version }})</h2>
+            <div class="header-actions" >
+              <button @click="showTagModal = true" title="管理标签">
+                <i class="fas fa-tags"></i> 
               </button>
-              <button @click="createNewPrompt">
-                <i class="fas fa-plus"></i> 新建模板
+              <button @click="createNewPrompt" title="新建提示词">
+                <i class="fas fa-plus"></i> 
               </button>
-              <button @click="showSettings = true">
+              <button @click="showSettings = true" title="设置">
                 <i class="fas fa-cog"></i>
               </button>
-              <button @click="showBuiltInPrompts = true">
+              <button @click="showBuiltInPrompts = true" title="导入提示词">
                 <i class="fas fa-cloud-download-alt"></i>
               </button>
+              <select class="category-select" v-model="selectedCategory" @change="filterPrompts">
+                <option value="">所有分类</option>
+                <option v-for="category in categories" :key="category" :value="category">{{ category }}</option>
+              </select>
             </div>
           </div>
           <div class="prompt-panel-header">
@@ -42,7 +46,7 @@
           </div>
           <div class="prompt-list">
             <div 
-              v-for="prompt in prompts" 
+              v-for="prompt in filteredPrompts" 
               :key="prompt.id"
               class="prompt-item"
               :class="{ 
@@ -56,6 +60,10 @@
             >
               <div class="prompt-content">
                 <h3>{{ prompt.title }}</h3>
+                <div class="prompt-tags">
+                  <span v-for="tag in prompt.tags" :key="tag" class="tag">{{ tag }}</span>
+                </div>
+                <div class="prompt-category">分类: {{ prompt.category }}</div>
                 <div class="prompt-info">
                   <template v-if="canInsertText(prompt)">
                     <span>可插入数量: {{ getInsertCount(prompt.userPrompt) }}</span>
@@ -334,6 +342,13 @@
             <label>标题</label>
             <input v-model="promptForm.title" placeholder="输入提示词标题">
           </div>
+          <div class="form-group">
+            <label>分类</label>
+            <select v-model="promptForm.category">
+              <option value="">选择分类</option>
+              <option v-for="category in categories" :key="category" :value="category">{{ category }}</option>
+            </select>
+          </div>
           <div class="prompt-inputs">
             <div class="prompt-input-group">
               <label>
@@ -498,7 +513,14 @@
                     <option value="custom">自定义</option>
                   </select>
                 </div>
-                <div class="form-group" v-if="model.provider !== 'gemini'">
+                <div class="form-group" v-if="model.provider === 'openai'">
+                  <label>选择输入方式</label>
+                  <select v-model="model.inputMethod">
+                    <option value="input">拉取模型</option>
+                    <option value="fetch">输入模型</option>
+                  </select>
+                </div>
+                <div class="form-group">
                   <label>API 地址</label>
                   <input v-model="model.apiUrl" placeholder="API 地址"/>
                 </div>
@@ -514,15 +536,15 @@
                 <div class="form-group">
                   <label>模型选择</label>
                   <div class="model-actions">
-                    <!-- 自定义类型、Gemini 时显示输入框 -->
-                    <template v-if="model.provider === 'custom' || model.provider === 'gemini' || model.provider === 'embedding'">
+                    <template v-if="
+                      model.provider === 'custom' || model.provider === 'gemini' || model.provider === 'embedding' || model.provider === 'openai' && model.inputMethod === 'fetch'
+                      ">
                       <input 
                         v-model="model.modelId"
                         :placeholder="model.provider === 'gemini' ? 'gemini-pro' : '输入模型ID'"
                         class="model-input"
                       />
                     </template>
-                    <!-- Ollama 和其他类型显示下拉选择 -->
                     <template v-else>
                       <select v-model="model.modelId" class="model-select">
                         <option value="">选择模型</option>
@@ -919,7 +941,8 @@ const promptForm = ref({
   systemPrompt: '',
   userPrompt: '',
   defaultModel: '',
-  detectKeywords: true
+  detectKeywords: true,
+  category: '' // 新增分类字段
 })
 const showSettings = ref(false)
 const models = ref([
@@ -1397,7 +1420,8 @@ const createNewPrompt = () => {
     systemPrompt: '', // 初始化系统提示词
     userPrompt: '', 
     defaultModel: '',
-    detectKeywords: true  // 默认启用关键词检测
+    detectKeywords: true,  // 默认启用关键词检测
+    category: '' // 新增分类字段
   }
 }
 
@@ -1417,7 +1441,8 @@ const closePromptModal = () => {
     systemPrompt: '',
     userPrompt: '{{text}}',
     defaultModel: '',
-    detectKeywords: true
+    detectKeywords: true,
+    category: '' // 新增分类字段
   }
 }
 
@@ -1437,7 +1462,8 @@ const savePrompt = async () => {
       defaultModel: promptForm.value.defaultModel || '',
       insertedContents: editingPrompt.value?.insertedContents || [],
       selectedModel: promptForm.value.defaultModel || '',
-      detectKeywords: promptForm.value.detectKeywords
+      detectKeywords: promptForm.value.detectKeywords,
+      category: promptForm.value.category // 新增分类字段
     }
 
     if (editingPrompt.value) {
@@ -2968,6 +2994,14 @@ const closeGroupCardsModal = () => {
   currentEditingGroup.value = null
   selectedGroupCards.value = []
 }
+
+const categories = ref(['扩写', '润色', '续写', '改写', '大纲相关', '细纲生成', '概要生成', '优化建议', '灵感迸发', '拆书', '金手指生成', '黄金开篇生成', '写作要求', '简介生成', '书名生成', '取名生成', '人设生成', '审稿']);
+const selectedCategory = ref('');
+const filteredPrompts = computed(() => {
+  return prompts.value.filter(prompt => {
+    return selectedCategory.value ? prompt.category === selectedCategory.value : true;
+  });
+});
 </script>
 
 <style scoped>
@@ -3062,9 +3096,6 @@ const closeGroupCardsModal = () => {
   margin-left: 4px;
 }
 
-/* ...existing styles... */
-
-/* 添加卡组相关样式 */
 .keyword-match-item.is-group {
   border-color: var(--primary-color);
 }
@@ -3190,14 +3221,45 @@ const closeGroupCardsModal = () => {
   gap: 8px;
 }
 
-/* 调整关键词匹配模态框的z-index */
 .modal:has(.keyword-matches) {
   z-index: 999;
 }
 
-/* 确保卡片详情模态框在最上层 */
 .modal:has(.detail-modal) {
   z-index: 9999; /* 比关键词匹配模态框更高的层级 */
+}
+
+.prompt-tags {
+  margin-top: 5px;
+}
+
+.tag {
+  display: inline-block;
+  background-color: #e0e0e0;
+  border-radius: 3px;
+  padding: 2px 5px;
+  margin-right: 5px;
+  font-size: 0.9em;
+}
+
+.category-select {
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1f2937;
+  background: #f9fafb;
+  transition: all 0.2s ease;
+}
+
+.category-select {
+  border-color: #d1d5db;
+}
+
+.category-select {
+  outline: none;
+  border-color: #646cff;
+  box-shadow: 0 0 0 3px rgba(100, 108, 255, 0.1);
 }
 </style>
 

@@ -313,7 +313,7 @@
               v-for="prompt in prompts" 
               :key="prompt.id"
               class="prompt-item"
-              @click="selectPromptAndInsert(prompt)"
+              @click="selectPromptAndCheck(prompt)"
             >
               <h4>{{ prompt.title || '未命名提示词' }}</h4>
               <p class="prompt-template">
@@ -869,6 +869,31 @@
         <div class="modal-footer">
           <button @click="closeGroupCardsModal" class="cancel-btn">取消</button>
           <button @click="confirmGroupCardSelection" class="save-btn">确认</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加占位符选择模态框 -->
+    <div v-if="showPlaceholderModal" class="modal" @click="closePlaceholderModal">
+      <div class="modal-content" @click.stop>
+        <h3>选择要插入的位置</h3>
+        <div class="placeholder-list">
+          <div 
+            v-for="(placeholder, index) in currentPlaceholders" 
+            :key="index"
+            class="placeholder-item"
+            @click="handlePlaceholderSelect(index)"
+          >
+            <h4>占位符 {{index + 1}}</h4>
+            <div class="placeholder-content">
+              <div v-if="placeholder.hasContent" class="existing-content">
+                当前内容: {{ truncateText(placeholder.content, 50) }}
+              </div>
+              <div class="placeholder-preview">
+                位置预览: {{ getPlaceholderPreview(selectedPrompt.userPrompt, index) }}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -3002,6 +3027,128 @@ const filteredPrompts = computed(() => {
     return selectedCategory.value ? prompt.category === selectedCategory.value : true;
   });
 });
+
+// 添加新的响应式变量
+const showPlaceholderModal = ref(false)
+const currentPlaceholders = ref([])
+
+// 修改选择提示词的处理方法
+const selectPromptAndCheck = async (prompt) => {
+  selectedPrompt.value = prompt
+  const placeholders = findPlaceholders(prompt.userPrompt)
+  
+  if (placeholders.length === 0) {
+    showToast('该提示词模板中没有可插入的占位符', 'error')
+    return
+  }
+  
+  if (placeholders.length === 1) {
+    // 单个占位符的情况
+    const existingContent = prompt.insertedContents?.[0]
+    if (existingContent) {
+      if (await confirmReplace()) {
+        handleInsertContent(prompt, 0)
+      }
+    } else {
+      handleInsertContent(prompt, 0)
+    }
+  } else {
+    // 多个占位符的情况
+    currentPlaceholders.value = placeholders.map((_, index) => ({
+      hasContent: !!prompt.insertedContents?.[index],
+      content: prompt.insertedContents?.[index]?.content || ''
+    }))
+    showPlaceholderModal.value = true
+  }
+}
+
+// 处理占位符选择
+const handlePlaceholderSelect = async (index) => {
+  if (currentPlaceholders.value[index].hasContent) {
+    if (await confirmReplace()) {
+      handleInsertContent(selectedPrompt.value, index)
+    }
+  } else {
+    handleInsertContent(selectedPrompt.value, index)
+  }
+  closePlaceholderModal()
+}
+
+// 确认替换内容
+const confirmReplace = () => {
+  return new Promise(resolve => {
+    if (confirm('该提示词已有插入内容，是否替换？')) {
+      resolve(true)
+    } else {
+      resolve(false)
+    }
+  })
+}
+
+// 关闭占位符选择模态框
+const closePlaceholderModal = () => {
+  showPlaceholderModal.value = false
+  currentPlaceholders.value = []
+}
+
+// 查找提示词中的所有占位符
+const findPlaceholders = (template) => {
+  if (!template) return []
+  const matches = template.match(/{{text}}/g) || []
+  return matches
+}
+
+// 获取占位符预览
+const getPlaceholderPreview = (template, index) => {
+  if (!template) return ''
+  const parts = template.split(/{{text}}/)
+  let preview = ''
+  for (let i = 0; i <= index + 1 && i < parts.length; i++) {
+    preview += parts[i]
+    if (i === index) {
+      preview += '【插入位置】'
+    } else if (i < index) {
+      preview += '...'
+    }
+  }
+  return truncateText(preview, 100)
+}
+
+// 处理内容插入
+const handleInsertContent = (prompt, index) => {
+  if (!cardToInsert.value) return
+  
+  // 初始化插入内容数组
+  if (!prompt.insertedContents) {
+    prompt.insertedContents = []
+  }
+  
+  // 设置或更新指定索引位置的内容
+  prompt.insertedContents[index] = {
+    id: Date.now(),
+    content: cardToInsert.value.content,
+    cardId: cardToInsert.value.id
+  }
+  
+  // 更新提示词
+  const promptIndex = prompts.value.findIndex(p => p.id === prompt.id)
+  if (promptIndex !== -1) {
+    prompts.value[promptIndex] = { ...prompt }
+  }
+  
+  // 关闭所有模态框
+  showPromptSelectModal.value = false
+  showPlaceholderModal.value = false
+  
+  // 清除临时数据
+  cardToInsert.value = null
+  
+  // 显示成功提示
+  showToast('内容已插入到提示词')
+  
+  // 同步数据
+  syncData()
+}
 </script>
 
 <style scoped>
@@ -3229,6 +3376,23 @@ const filteredPrompts = computed(() => {
   z-index: 9999; /* 比关键词匹配模态框更高的层级 */
 }
 
+/* 修改模态框层级顺序 */
+.modal:has(.placeholder-list) {
+  z-index: 9999; /* 占位符选择模态框最高 */
+}
+
+.modal:has(.prompt-list) {
+  z-index: 9998; /* 提示词选择模态框次之 */
+}
+
+.modal:has(.keyword-matches) {
+  z-index: 9997; /* 关键词匹配模态框 */
+}
+
+.modal:has(.detail-modal) {
+  z-index: 9996; /* 详情模态框 */
+}
+
 .prompt-tags {
   margin-top: 5px;
 }
@@ -3260,6 +3424,40 @@ const filteredPrompts = computed(() => {
   outline: none;
   border-color: #646cff;
   box-shadow: 0 0 0 3px rgba(100, 108, 255, 0.1);
+}
+
+/* 添加占位符选择模态框样式 */
+.placeholder-list {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.placeholder-item {
+  padding: 15px;
+  margin: 10px 0;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.placeholder-item:hover {
+  border-color: var(--primary-color);
+  background: rgba(100, 108, 255, 0.05);
+}
+
+.placeholder-content {
+  margin-top: 8px;
+  font-size: 0.9em;
+}
+
+.existing-content {
+  color: #ff4d4f;
+  margin-bottom: 5px;
+}
+
+.placeholder-preview {
+  color: #666;
 }
 </style>
 

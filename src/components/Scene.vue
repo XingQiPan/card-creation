@@ -6,6 +6,16 @@
       点击删除按钮直接删除卡片、卡组
     </div>
     
+    <!-- 添加卡片内容预览弹窗 -->
+    <div v-if="previewCard" class="card-preview-popup" :style="previewPosition">
+      <div class="preview-header">
+        <h3>{{ previewCard.title }}</h3>
+      </div>
+      <div class="preview-content">
+        {{ previewCard.content }}
+      </div>
+    </div>
+    
     <div 
       class="content-panel"
       @dragover="handleDragOver"
@@ -126,7 +136,9 @@
             :class="{ 
               'is-dragging': drag,
               'is-linked': hasLinks(card),
-              'is-selected': selectedForLink.includes(card.id)
+              'is-selected': selectedForLink.includes(card.id),
+              'is-keyword-card': hasKeywordTag(card),
+              'is-referenced': isCardReferenced(card)
             }"
             draggable="true"
             @dragstart="handleDragStart($event, card)"
@@ -143,13 +155,45 @@
             </div>
             <div class="card-content">
               <textarea 
+                v-if="isEditingCard === card.id"
                 v-model="card.content"
                 @input="$emit('update-card', card)"
+                @blur="finishEditing"
                 placeholder="输入文本内容..."
                 :style="{ height: card.height || '120px' }"
+                ref="activeTextarea"
               ></textarea>
+              
+              <!-- 使用修改后的组件处理高亮显示 -->
+              <div 
+                v-else
+                class="rendered-content"
+                @click="startEditing(card)"
+              >
+                <!-- 解析并处理内容中的关键词 -->
+                <template v-for="(part, index) in parseContent(card.content, card)" :key="index">
+                  <span 
+                    v-if="part.isKeyword" 
+                    class="keyword-highlight"
+                    @mouseover="showCardPreview($event, part.cardId)"
+                    @mouseout="hideCardPreview"
+                    @click.stop="handleKeywordClick($event, part.cardId)"
+                  >
+                    {{ part.text }}
+                  </span>
+                  <span v-else>{{ part.text }}</span>
+                </template>
+              </div>
+              
               <div class="resize-handle" @mousedown="startCardResize($event, card)"></div>
             </div>
+
+            <!-- 添加被引用指示器 -->
+            <div v-if="hasKeywordTag(card) && isCardReferenced(card)" class="reference-indicator">
+              <i class="fas fa-quote-right"></i>
+              <span>引用于 {{ getReferencedByCards(card).length }} 张卡片</span>
+            </div>
+
             <div class="card-tags">
               <div 
                 v-for="tag in tags" 
@@ -421,6 +465,137 @@ const isDropTarget = ref(null)
 const showAddToGroupModal = ref(false)
 const selectedCards = ref([])
 const currentGroup = ref(null)
+
+// 添加关键词卡片预览相关状态
+const previewCard = ref(null)
+const previewPosition = ref({ top: '0px', left: '0px' })
+const isHighlightHovering = ref(false)
+const highlightTimeout = ref(null)
+
+// 获取所有拥有关键词标签的卡片
+const keywordCards = computed(() => {
+  // 查找所有带有关键词标签的卡片
+  return props.scene.cards.filter(card => {
+    if (!card.tags || card.type === 'group') return false
+    
+    return card.tags.some(tagId => {
+      const tag = props.tags.find(t => t.id === tagId)
+      return tag && tag.isKeyword
+    })
+  })
+})
+
+// 检查卡片是否具有关键词标签
+const hasKeywordTag = (card) => {
+  if (!card || !card.tags) return false
+  return card.tags.some(tagId => {
+    const tag = props.tags.find(t => t.id === tagId)
+    return tag && tag.isKeyword
+  })
+}
+
+
+
+// 处理卡片内容的高亮显示
+const highlightKeywords = (content) => {
+  if (!content || !keywordCards.value.length) return content
+  
+  let highlightedContent = content
+  
+  // 为每个关键词卡片创建正则表达式并替换
+  keywordCards.value.forEach(keywordCard => {
+    if (!keywordCard.title || keywordCard.title.trim() === '') return
+    
+    // 使用正则表达式匹配标题，避免匹配部分单词
+    const escapedTitle = keywordCard.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regex = new RegExp(`(${escapedTitle})`, 'g')
+    
+    // 用带有特殊数据属性的span替换匹配项
+    highlightedContent = highlightedContent.replace(
+      regex, 
+      `<span class="keyword-highlight" 
+             data-card-id="${keywordCard.id}"
+             @mouseover="showCardPreview($event, '${keywordCard.id}')"
+             @mouseout="hideCardPreview()"
+             @click="handleHighlightClick($event, '${keywordCard.id}')">$1</span>`
+    )
+  })
+  
+  return highlightedContent
+}
+
+// 显示卡片预览
+const showCardPreview = (event, cardId) => {
+  // 清除任何现有的超时
+  if (highlightTimeout.value) {
+    clearTimeout(highlightTimeout.value)
+  }
+  
+  // 设置一个小延迟，避免鼠标快速划过时的闪烁
+  highlightTimeout.value = setTimeout(() => {
+    const card = props.scene.cards.find(c => c.id === cardId)
+    if (!card) return
+    
+    previewCard.value = card
+    
+    // 计算弹窗位置
+    const rect = event.target.getBoundingClientRect()
+    previewPosition.value = {
+      top: `${rect.bottom + window.scrollY + 10}px`,
+      left: `${rect.left + window.scrollX}px`
+    }
+    
+    isHighlightHovering.value = true
+  }, 300) // 300ms延迟
+}
+
+// 隐藏卡片预览
+const hideCardPreview = () => {
+  // 清除任何现有的超时
+  if (highlightTimeout.value) {
+    clearTimeout(highlightTimeout.value)
+  }
+  
+  // 设置一个小延迟，避免鼠标快速划过时的闪烁
+  highlightTimeout.value = setTimeout(() => {
+    if (!isHighlightHovering.value) {
+      previewCard.value = null
+    }
+  }, 300) // 300ms延迟
+}
+
+// 处理高亮文本点击
+const handleHighlightClick = (event, cardId) => {
+  // 检查是否按下了Ctrl键
+  if (event.ctrlKey) {
+    const card = props.scene.cards.find(c => c.id === cardId)
+    if (card) {
+      viewCardDetail(card)
+    }
+  }
+}
+
+// 监听文档点击事件，关闭预览
+onMounted(() => {
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.keyword-highlight') && !event.target.closest('.card-preview-popup')) {
+      previewCard.value = null
+    }
+  })
+})
+
+// 组件卸载时清理
+onUnmounted(() => {
+  if (highlightTimeout.value) {
+    clearTimeout(highlightTimeout.value)
+  }
+})
+
+// 创建安全的HTML渲染函数
+const renderHighlightedContent = (content) => {
+  if (!content) return ''
+  return highlightKeywords(content)
+}
 
 // 添加 UUID 生成函数
 const generateUUID = () => {
@@ -1424,6 +1599,161 @@ const formatContent = () => {
   // 实现一键排版逻辑
   // 例如，调用API获取排版后的内容并插入到编辑器
 };
+
+// 添加内容编辑状态管理
+const isEditingCard = ref(null)
+const activeTextarea = ref(null)
+
+// 修改关键词卡片计算属性，排除当前处理的卡片
+const getKeywordCardsFor = (currentCard) => {
+  return props.scene.cards.filter(card => {
+    if (!card.tags || card.type === 'group' || card.id === currentCard?.id) return false
+    
+    return card.tags.some(tagId => {
+      const tag = props.tags.find(t => t.id === tagId)
+      return tag && tag.isKeyword
+    })
+  })
+}
+
+// 更新检查卡片是否被引用的函数
+const isCardReferenced = (card) => {
+  if (!card || !card.title || card.type === 'group' || !hasKeywordTag(card)) return false
+  
+  return props.scene.cards.some(otherCard => {
+    if (otherCard.id === card.id || !otherCard.content || otherCard.type === 'group') return false
+    return otherCard.content.includes(card.title)
+  })
+}
+
+// 完全重写解析内容函数，使用最长匹配优先原则并支持关键词卡片中高亮其他关键词
+const parseContent = (content, card) => {
+  if (!content) return [{ text: '', isKeyword: false }]
+  
+  // 获取适用于当前卡片的关键词卡片（排除自身）
+  const relevantKeywordCards = props.scene.cards.filter(kCard => {
+    // 排除非关键词卡片
+    if (!kCard.tags || kCard.type === 'group') return false
+    
+    // 检查是否有关键词标签
+    const hasKeyword = kCard.tags.some(tagId => {
+      const tag = props.tags.find(t => t.id === tagId)
+      return tag && tag.isKeyword
+    })
+    
+    // 当前卡片是关键词卡片时，排除自身标题
+    if (card.id === kCard.id) return false
+    
+    return hasKeyword
+  })
+  
+  if (relevantKeywordCards.length === 0) {
+    return [{ text: content, isKeyword: false }]
+  }
+  
+  // 按标题长度降序排序关键词卡片，优先匹配最长的标题
+  const sortedKeywordCards = [...relevantKeywordCards].sort((a, b) => 
+    (b.title?.length || 0) - (a.title?.length || 0)
+  )
+  
+  // 将内容拆分为段落数组，便于处理
+  let result = [{ text: content, isKeyword: false }]
+  
+  // 对每个关键词卡片尝试进行匹配
+  sortedKeywordCards.forEach(keywordCard => {
+    if (!keywordCard.title || keywordCard.title.trim() === '') return
+    
+    // 创建用于保存新结果的数组
+    const newResult = []
+    
+    // 处理每个现有段落
+    result.forEach(part => {
+      if (part.isKeyword) {
+        // 如果已经是关键词，直接保留
+        newResult.push(part)
+        return
+      }
+      
+      // 分割并处理非关键词段落
+      let text = part.text
+      let lastIndex = 0
+      let titleIndex
+      
+      // 寻找标题的所有出现位置
+      while ((titleIndex = text.indexOf(keywordCard.title, lastIndex)) !== -1) {
+        // 添加前部分（如果有）
+        if (titleIndex > lastIndex) {
+          newResult.push({
+            text: text.substring(lastIndex, titleIndex),
+            isKeyword: false
+          })
+        }
+        
+        // 添加关键词部分
+        newResult.push({
+          text: keywordCard.title,
+          isKeyword: true,
+          cardId: keywordCard.id
+        })
+        
+        lastIndex = titleIndex + keywordCard.title.length
+      }
+      
+      // 添加剩余部分（如果有）
+      if (lastIndex < text.length) {
+        newResult.push({
+          text: text.substring(lastIndex),
+          isKeyword: false
+        })
+      }
+    })
+    
+    // 更新结果
+    result = newResult
+  })
+  
+  return result
+}
+
+// 增加一个关键词卡片引用指示器
+const getReferencedByCards = (card) => {
+  if (!card || !card.title || card.type === 'group' || !hasKeywordTag(card)) return []
+  
+  return props.scene.cards.filter(otherCard => {
+    if (otherCard.id === card.id || !otherCard.content || otherCard.type === 'group') return false
+    return otherCard.content.includes(card.title)
+  })
+}
+
+// 修改开始编辑函数，确保编辑状态下看不到高亮内容
+const startEditing = (card) => {
+  isEditingCard.value = card.id
+  
+  // 在DOM更新后聚焦文本区域
+  nextTick(() => {
+    if (activeTextarea.value) {
+      activeTextarea.value.focus()
+    }
+  })
+}
+
+// 完成编辑
+const finishEditing = () => {
+  isEditingCard.value = null
+}
+
+// 处理关键词点击
+const handleKeywordClick = (event, cardId) => {
+  event.stopPropagation() // 防止触发卡片的点击事件
+  
+  // 检查是否按下了Ctrl键
+  if (event.ctrlKey) {
+    const card = props.scene.cards.find(c => c.id === cardId)
+    if (card) {
+      viewCardDetail(card)
+    }
+  }
+}
 </script>
 
 <style scoped>
@@ -1987,5 +2317,213 @@ const formatContent = () => {
 
 .common-prompts ul li:hover {
   background-color: var(--card-hover-bg-color, #f0f0f0);
+}
+
+/* 添加关键词高亮和预览弹窗样式 */
+:deep(.keyword-highlight) {
+  background-color: rgba(var(--primary-color-rgb), 0.2);
+  border-bottom: 1px dashed var(--primary-color);
+  cursor: pointer;
+  position: relative;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+:deep(.keyword-highlight:hover) {
+  background-color: rgba(var(--primary-color-rgb), 0.4);
+}
+
+.card-preview-popup {
+  position: fixed;
+  z-index: 1000;
+  background: var(--card-bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 0;
+  max-width: 320px;
+  max-height: 240px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-header {
+  padding: 8px 12px;
+  background: var(--secondary-bg-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.preview-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary-color);
+}
+
+.preview-content {
+  padding: 12px;
+  overflow-y: auto;
+  font-size: 13px;
+  flex: 1;
+  color: var(--text-secondary-color);
+  line-height: 1.5;
+  max-height: 200px;
+}
+
+/* 带有关键词标签且被引用的卡片特殊标记 */
+.text-card.is-keyword-card.is-referenced {
+  box-shadow: 0 0 0 2px var(--primary-color);
+  border: none;
+  position: relative;
+}
+
+.text-card.is-keyword-card.is-referenced::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 16px;
+  height: 16px;
+  background: var(--primary-color);
+  border-radius: 50%;
+  border: 2px solid white;
+}
+
+/* 添加渲染内容的样式 */
+.rendered-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary-color);
+  font-size: 14px;
+  line-height: 1.6;
+  background: transparent;
+  cursor: text;
+}
+
+.rendered-content:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.keyword-highlight {
+  background-color: rgba(var(--primary-color-rgb), 0.2);
+  border-bottom: 1px dashed var(--primary-color);
+  cursor: pointer;
+  position: relative;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.keyword-highlight:hover {
+  background-color: rgba(var(--primary-color-rgb), 0.4);
+}
+
+/* 当按下Ctrl键时显示提示 */
+.keyword-highlight:has(:root[data-ctrl-pressed="true"]:not(:has(button:hover)))::after {
+  content: '点击跳转至卡片';
+  position: absolute;
+  top: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  z-index: 10;
+  white-space: nowrap;
+}
+
+/* 卡片内容区域样式调整 */
+.card-content {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 隐藏编辑模式下的渲染内容 */
+.card-content:has(textarea:focus) .rendered-content {
+  display: none;
+}
+
+/* 添加被引用指示器 */
+.reference-indicator {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background-color: rgba(255, 255, 255, 0.8);
+  color: var(--text-secondary-color);
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin: 8px;
+  font-size: 0.8em;
+}
+
+/* 修改卡片特殊状态的样式 */
+.text-card.is-keyword-card {
+  border-left: 3px solid var(--primary-color);
+}
+
+.text-card.is-keyword-card.is-referenced {
+  box-shadow: 0 0 0 2px var(--primary-color);
+  position: relative;
+}
+
+.text-card.is-keyword-card.is-referenced::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 16px;
+  height: 16px;
+  background: var(--primary-color);
+  border-radius: 50%;
+  border: 2px solid white;
+  z-index: 2;
+}
+
+/* 添加引用指示器样式 */
+.reference-indicator {
+  background: rgba(var(--primary-color-rgb), 0.1);
+  color: var(--primary-color);
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 0 0 4px 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.reference-indicator i {
+  font-size: 10px;
+}
+
+/* 优化关键词高亮样式 */
+.keyword-highlight {
+  background-color: rgba(var(--primary-color-rgb), 0.2);
+  border-bottom: 1px dashed var(--primary-color);
+  cursor: pointer;
+  position: relative;
+  padding: 0 2px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.keyword-highlight:hover {
+  background-color: rgba(var(--primary-color-rgb), 0.4);
+}
+
+/* 确保编辑文本区域覆盖渲染内容 */
+.card-content textarea {
+  position: relative;
+  z-index: 3;
+  background: var(--card-bg-color);
 }
 </style>

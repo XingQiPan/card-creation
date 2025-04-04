@@ -79,67 +79,6 @@
             <label for="keywordToggle">启用关键词检测</label>
           </div>
         </div>
-
-        <!-- 修改关键词显示区域，使整个区域可折叠 -->
-        <div v-if="currentChat.enableKeywords && detectedKeywords.length" class="keywords-area">
-          <div class="keywords-header" @click="toggleKeywordsArea">
-            <div class="header-left">
-              <i class="fas fa-link"></i> 检测到相关卡片 ({{ detectedKeywords.length }})
-            </div>
-            <div class="keywords-toggle">
-              <i :class="['fas', keywordsAreaCollapsed ? 'fa-chevron-down' : 'fa-chevron-up']"></i>
-            </div>
-          </div>
-          
-          <!-- 根据折叠状态显示或隐藏整个内容区域 -->
-          <div v-if="!keywordsAreaCollapsed" class="keywords-content">
-            <div class="keywords-list">
-              <!-- 主卡片 -->
-              <div 
-                v-for="keyword in detectedKeywords" 
-                :key="keyword.id"
-                class="keyword-card"
-              >
-                <div class="keyword-title" @click="toggleKeywordContent(keyword)">
-                  <span>{{ keyword.name }}</span>
-                  <i :class="['fas', expandedKeywords.includes(keyword.id) ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
-                </div>
-                <div 
-                  v-if="expandedKeywords.includes(keyword.id)"
-                  class="keyword-content"
-                >
-                  {{ getKeywordContent(keyword) }}
-                </div>
-                
-                <!-- 关联卡片 -->
-                <div v-if="keyword.linkedCards && keyword.linkedCards.length" class="linked-cards-container">
-                  <div class="linked-cards-header" @click="toggleLinkedCardsArea(keyword.id)">
-                    <i class="fas fa-sitemap"></i> 关联卡片 ({{ keyword.linkedCards.length }})
-                    <i :class="['fas', isLinkedCardsCollapsed(keyword.id) ? 'fa-chevron-down' : 'fa-chevron-up']" class="collapse-icon"></i>
-                  </div>
-                  <div class="linked-cards-list" v-show="!isLinkedCardsCollapsed(keyword.id)">
-                    <div 
-                      v-for="linkedCard in keyword.linkedCards"
-                      :key="linkedCard.id"
-                      class="linked-card"
-                    >
-                      <div class="linked-card-title" @click="toggleLinkedCardContent(keyword.id, linkedCard.id)">
-                        <span>{{ linkedCard.title }}</span>
-                        <i :class="['fas', isLinkedCardExpanded(keyword.id, linkedCard.id) ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
-                      </div>
-                      <div 
-                        v-if="isLinkedCardExpanded(keyword.id, linkedCard.id)"
-                        class="linked-card-content"
-                      >
-                        {{ getLinkedCardContent(linkedCard) }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
       
       <div class="messages" ref="messagesContainer">
@@ -192,52 +131,155 @@
             <button class="small-btn" @click="saveMessageEdit(msg)">保存</button>
             <button class="small-btn" @click="cancelMessageEdit(msg)">取消</button>
           </div>
+          
+          <!-- 修改引用卡片标签部分 -->
+          <div 
+            v-if="msg.role === 'assistant' && getMessageKeywords(msg).length > 0" 
+            class="reference-tag" 
+            @click.stop="toggleReferencePopup($event, msg.id)"
+            :key="'ref-tag-' + msg.id"
+          >
+            <i class="fas fa-link"></i> 引用了相关卡片 ({{ getMessageKeywords(msg).length }})
+          </div>
+          
+          <!-- 修改引用卡片弹窗，使用动态定位 -->
+          <div 
+            v-if="msg.role === 'assistant' && activeReferencePopup === msg.id" 
+            class="reference-popup"
+            :style="popupStyle"
+            @click.stop
+          >
+            <div class="reference-popup-header">
+              <span>引用卡片</span>
+              <button @click.stop="closeReferencePopup" class="close-btn">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+            <div class="reference-popup-content">
+              <div 
+                v-for="keyword in getMessageKeywords(msg)"
+                :key="keyword.id"
+                class="reference-card"
+              >
+                <div class="reference-card-header" @click.stop="toggleReferenceCard(keyword.id)">
+                  <span>{{ keyword.name }}</span>
+                  <i :class="['fas', expandedReferenceCards.includes(keyword.id) ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
+                </div>
+                <div class="reference-card-content" v-if="expandedReferenceCards.includes(keyword.id)">
+                  {{ getKeywordContent(keyword) }}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="chat-input">
-        <div class="role-selector">
-          <button 
-            class="role-toggle-btn"
-            :class="{
-              'assistant': inputRole === 'assistant',
-              'visitor': inputRole === 'visitor'
-            }"
-            @click="toggleInputRole"
-            :title="getRoleTitle()"
-          >
-            {{ getRoleText() }}
-          </button>
-        </div>
-        <textarea 
-          v-model="inputMessage"
-          @keydown.enter.exact.prevent="sendMessage"
-          placeholder="输入消息，Enter 发送，Shift + Enter 换行"
-          rows="3"
-          class="input-textarea"
-          :disabled="isRequesting"
-        ></textarea>
-        <div class="input-actions">
-          <div v-if="isRequesting" class="elapsed-time">
-            {{ formatElapsedTime(elapsedTime) }}
+      <!-- 在聊天输入区域上方添加关键词检测结果 -->
+      <div class="chat-input-container">
+        <div v-if="currentChat?.enableKeywords && inputDetectedKeywords.length" class="keywords-area input-keywords-area">
+          <div class="keywords-header" @click="toggleInputKeywordsArea">
+            <div class="header-left">
+              <i class="fas fa-link"></i> 检测到相关卡片 ({{ inputDetectedKeywords.length }})
+            </div>
+            <div class="keywords-toggle">
+              <i :class="['fas', inputKeywordsAreaCollapsed ? 'fa-chevron-down' : 'fa-chevron-up']"></i>
+            </div>
           </div>
-          <button 
-            v-if="!isRequesting"
-            @click="sendMessage"
-            :disabled="!currentChat.modelId || !inputMessage.trim()"
-            class="send-btn"
-          >
-            <i class="fas fa-paper-plane"></i>
-            发送
-          </button>
-          <button 
-            v-else
-            @click="abortRequest"
-            class="abort-btn"
-          >
-            <i class="fas fa-stop"></i>
-            终止
-          </button>
+          
+          <!-- 根据折叠状态显示或隐藏整个内容区域 -->
+          <div v-if="!inputKeywordsAreaCollapsed" class="keywords-content">
+            <div class="keywords-list">
+              <!-- 主卡片 -->
+              <div 
+                v-for="keyword in inputDetectedKeywords" 
+                :key="keyword.id"
+                class="keyword-card"
+              >
+                <div class="keyword-title" @click="toggleKeywordContent(keyword)">
+                  <span>{{ keyword.name }}</span>
+                  <i :class="['fas', expandedKeywords.includes(keyword.id) ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
+                </div>
+                <div 
+                  v-if="expandedKeywords.includes(keyword.id)"
+                  class="keyword-content"
+                >
+                  {{ getKeywordContent(keyword) }}
+                </div>
+                
+                <!-- 关联卡片 -->
+                <div v-if="keyword.linkedCards && keyword.linkedCards.length" class="linked-cards-container">
+                  <div class="linked-cards-header" @click="toggleLinkedCardsArea(keyword.id)">
+                    <i class="fas fa-sitemap"></i> 关联卡片 ({{ keyword.linkedCards.length }})
+                    <i :class="['fas', isLinkedCardsCollapsed(keyword.id) ? 'fa-chevron-down' : 'fa-chevron-up']" class="collapse-icon"></i>
+                  </div>
+                  <div class="linked-cards-list" v-show="!isLinkedCardsCollapsed(keyword.id)">
+                    <div 
+                      v-for="linkedCard in keyword.linkedCards"
+                      :key="linkedCard.id"
+                      class="linked-card"
+                    >
+                      <div class="linked-card-title" @click="toggleLinkedCardContent(keyword.id, linkedCard.id)">
+                        <span>{{ linkedCard.title }}</span>
+                        <i :class="['fas', isLinkedCardExpanded(keyword.id, linkedCard.id) ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
+                      </div>
+                      <div 
+                        v-if="isLinkedCardExpanded(keyword.id, linkedCard.id)"
+                        class="linked-card-content"
+                      >
+                        {{ getLinkedCardContent(linkedCard) }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="chat-input">
+          <div class="role-selector">
+            <button 
+              class="role-toggle-btn"
+              :class="{
+                'assistant': inputRole === 'assistant',
+                'visitor': inputRole === 'visitor'
+              }"
+              @click="toggleInputRole"
+              :title="getRoleTitle()"
+            >
+              {{ getRoleText() }}
+            </button>
+          </div>
+          <textarea 
+            v-model="inputMessage"
+            @keydown.enter.exact.prevent="sendMessage"
+            placeholder="输入消息，Enter 发送，Shift + Enter 换行"
+            rows="3"
+            class="input-textarea"
+            :disabled="isRequesting"
+          ></textarea>
+          <div class="input-actions">
+            <div v-if="isRequesting" class="elapsed-time">
+              {{ formatElapsedTime(elapsedTime) }}
+            </div>
+            <button 
+              v-if="!isRequesting"
+              @click="sendMessage"
+              :disabled="!currentChat.modelId || !inputMessage.trim()"
+              class="send-btn"
+            >
+              <i class="fas fa-paper-plane"></i>
+              发送
+            </button>
+            <button 
+              v-else
+              @click="abortRequest"
+              class="abort-btn"
+            >
+              <i class="fas fa-stop"></i>
+              终止
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -548,15 +590,15 @@ const getMessageContext = () => {
   
   // 获取历史消息数量限制
   const historyTurns = currentChat.value.historyTurns || 20
-  debugLog('historyTurns', historyTurns)
-  // 获取最近的消息
+  
+  // 获取最近的消息并处理内容
   const recentMessages = currentChat.value.messages
     .slice(-historyTurns * 2) // 乘以2是因为每轮对话包含用户和助手的消息
     .map(msg => ({
       role: msg.role,
-      content: msg.content
+      // 如果存在处理后的内容且是用户消息，则使用处理后的内容
+      content: (msg.role === 'user' && msg.processedContent) ? msg.processedContent : msg.content
     }))
-    debugLog('recentMessages', recentMessages)
 
   return recentMessages
 }
@@ -595,7 +637,7 @@ const getRoleTitle = () => {
   }
 }
 
-// 修改发送消息方法，分离用户显示内容和发送给模型的内容
+// 修改发送消息方法
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return
   if (inputRole.value === 'user' && !currentChat.value?.modelId) return
@@ -603,17 +645,35 @@ const sendMessage = async () => {
   // 保存原始用户输入
   const originalContent = inputMessage.value.trim()
   
+  // 处理关键词检测
+  let processedContent = originalContent
+  if (currentChat.value?.enableKeywords && inputRole.value === 'user') {
+    const detectedKeywords = inputDetectedKeywords.value
+    if (detectedKeywords.length > 0) {
+      let keywordsContext = '检测到以下相关内容:\n\n'
+      for (const keyword of detectedKeywords) {
+        const content = getKeywordContent(keyword)
+        if (content) {
+          keywordsContext += `【${keyword.name}】:\n${content}\n\n`
+        }
+      }
+      // 使用统一格式
+      processedContent = keywordsContext + '【用户问题】:\n' + originalContent
+    }
+  }
+
   const newMessage = {
     id: Date.now(),
     role: inputRole.value === 'user' ? 'user' : 
           inputRole.value === 'assistant' ? 'assistant' : 
           'user', // 游客模式下发送 user 角色消息
-    content: originalContent,
-    timestamp: new Date()
+    content: originalContent, // 前端显示原始内容
+    timestamp: new Date(),
+    // 只有当内容被处理过时才添加processedContent属性
+    ...(processedContent !== originalContent ? { processedContent } : {})
   }
 
   let assistantMessage = null
-  let processedContent = originalContent
 
   try {
     // 添加消息到聊天记录
@@ -688,37 +748,21 @@ const sendMessage = async () => {
     }
     currentChat.value.messages.push(assistantMessage)
 
-    // 处理关键词检测
-    if (currentChat.value.enableKeywords) {
-      const keywords = allKeywords.value.filter(keyword => 
-        originalContent.toLowerCase().includes(keyword.name.toLowerCase())
-      )
+    // 构建历史上下文 - 不包含当前消息
+    const previousMessages = currentChat.value.messages
+      .slice(0, -2) // 排除最后两条消息（刚刚添加的用户消息和空的助手消息）
+      .slice(-(currentChat.value.historyTurns || 20) * 2) // 限制历史消息条数
+      .map(msg => ({
+        role: msg.role,
+        content: (msg.role === 'user' && msg.processedContent) ? msg.processedContent : msg.content
+      }));
 
-      if (keywords.length > 0) {
-        let keywordsContext = '检测到以下相关内容:\n\n'
-        for (const keyword of keywords) {
-          const content = getKeywordContent(keyword)
-          if (content) {
-            keywordsContext += `【${keyword.name}】:\n${content}\n\n`
-          }
-        }
-        
-        if (promptTemplate) {
-          promptTemplate = promptTemplate.replace('{{content}}', keywordsContext + '\n\n用户问题:\n{{content}}')
-        } else {
-          processedContent = keywordsContext + '\n\n用户问题:\n' + originalContent
-        }
-      }
-    }
-
-    // 发送请求
+    // 发送请求 - 只发送处理后的当前消息内容，不从getMessageContext()获取上下文
     const response = await chatService.sendStreamMessage(processedContent, {
       model: modelConfig,
-      context: getMessageContext(),
+      context: previousMessages, // 使用不包含当前消息的历史上下文
       promptTemplate,
-      enableKeywords: currentChat.value.enableKeywords,
-      keywords: detectedKeywords.value,
-      getKeywordContent,
+      enableKeywords: false, // 已经在消息中包含了关键词，不需要再次处理
       onChunk: (chunk) => {
         if (assistantMessage) {
           assistantMessage.content += chunk
@@ -735,10 +779,18 @@ const sendMessage = async () => {
     if (assistantMessage) {
       assistantMessage.responseTime = Date.now() - requestStartTime.value
       assistantMessage.isStreaming = false
+      
+      // 消息完成后立即检测关键词
+      if (currentChat.value.enableKeywords) {
+        // 强制清除消息关键词缓存
+        delete messageKeywordsMap.value[assistantMessage.id]
+        
+        // 立即检测新消息中的关键词
+        getMessageKeywords(assistantMessage)
+      }
     }
 
     await saveSessions()
-
   } catch (error) {
     console.error('发送失败:', error)
     
@@ -792,6 +844,12 @@ const abortRequest = () => {
         // 保留已输出的内容，只是标记为非流式状态
         streamingMessage.isStreaming = false
         streamingMessage.responseTime = Date.now() - requestStartTime.value
+        
+        // 中止请求后也检测关键词
+        if (currentChat.value.enableKeywords) {
+          delete messageKeywordsMap.value[streamingMessage.id]
+          getMessageKeywords(streamingMessage)
+        }
       }
 
       showToastMessage('已终止回答', 'success')
@@ -1118,25 +1176,58 @@ const resendMessage = async (msg) => {
       }
     }
 
-    // 获取历史消息
-    const context = getMessageContext()
+    // 构建历史上下文 - 不包含当前消息
+    const msgIndex = currentChat.value.messages.findIndex(m => m.id === msg.id);
+    const previousMessages = currentChat.value.messages
+      .slice(0, msgIndex) // 只包含当前消息之前的消息
+      .slice(-(currentChat.value.historyTurns || 20) * 2) // 限制历史消息条数
+      .map(m => ({
+        role: m.role,
+        content: (m.role === 'user' && m.processedContent) ? m.processedContent : m.content
+      }));
 
-    // 处理关键词检测
+    // 处理关键词检测 - 使用与新消息发送相同的检测逻辑
     let processedContent = msg.content
     if (currentChat.value.enableKeywords) {
-      const keywords = allKeywords.value.filter(keyword => 
-        msg.content.toLowerCase().includes(keyword.name.toLowerCase())
-      )
+      // 重新检测当前消息中的关键词，而不是使用之前的缓存
+      const detectedKeywords = []
+      allKeywords.value.forEach(keyword => {
+        if (!keyword.name || keyword.name.length < 2) return
+        
+        // 转换为小写进行比较
+        const messageContent = msg.content.toLowerCase()
+        const keywordText = keyword.name.toLowerCase()
+        
+        // 检查是否完整包含关键词
+        if (messageContent.includes(keywordText)) {
+          // 找到匹配的卡片
+          const matchedCard = getAllCards().find(card => 
+            card.title?.toLowerCase() === keyword.name.toLowerCase()
+          )
+          
+          if (matchedCard) {
+            detectedKeywords.push({
+              id: matchedCard.id,
+              name: matchedCard.title,
+              card: matchedCard
+            })
+          }
+        }
+      })
 
-      if (keywords.length > 0) {
+      if (detectedKeywords.length > 0) {
         let keywordsContext = '检测到以下相关内容:\n\n'
-        for (const keyword of keywords) {
+        for (const keyword of detectedKeywords) {
           const content = getKeywordContent(keyword)
           if (content) {
             keywordsContext += `【${keyword.name}】:\n${content}\n\n`
           }
         }
-        processedContent = keywordsContext + '用户问题:\n' + msg.content
+        // 使用统一格式
+        processedContent = keywordsContext + '【用户问题】:\n' + msg.content
+        
+        // 保存处理后的内容，但不更新显示
+        msg.processedContent = processedContent
       }
     }
 
@@ -1167,11 +1258,9 @@ const resendMessage = async (msg) => {
           stream: true
         }
       },
-      context,
+      context: previousMessages, // 使用不包含当前消息的历史上下文
       promptTemplate,
-      enableKeywords: currentChat.value.enableKeywords,
-      keywords: detectedKeywords.value,
-      getKeywordContent,
+      enableKeywords: false, // 已经处理过关键词，不需要再次处理
       onChunk: (chunk) => {
         assistantMessage.content += chunk
         scrollToBottom()
@@ -1194,6 +1283,15 @@ const resendMessage = async (msg) => {
     // 更新消息状态
     assistantMessage.isStreaming = false
     assistantMessage.responseTime = Date.now() - requestStartTime.value
+    
+    // 消息完成后立即检测关键词
+    if (currentChat.value.enableKeywords) {
+      // 强制清除消息关键词缓存
+      delete messageKeywordsMap.value[assistantMessage.id]
+      
+      // 立即检测新消息中的关键词
+      getMessageKeywords(assistantMessage)
+    }
 
     await saveSessions()
     showToastMessage('消息已重新发送')
@@ -1328,6 +1426,207 @@ const toggleKeywordsArea = () => {
   keywordsAreaCollapsed.value = !keywordsAreaCollapsed.value
 }
 
+// 添加输入框关键词检测相关的响应式变量
+const inputDetectedKeywords = ref([])
+const inputKeywordsAreaCollapsed = ref(true)
+
+// 监听输入框内容变化，实时检测关键词
+watch(inputMessage, (newValue) => {
+  if (currentChat.value?.enableKeywords && newValue) {
+    detectKeywordsInInput(newValue)
+  } else {
+    inputDetectedKeywords.value = []
+  }
+})
+
+// 添加检测输入框关键词的方法
+const detectKeywordsInInput = (content) => {
+  if (!content || !currentChat.value?.enableKeywords) {
+    inputDetectedKeywords.value = []
+    return
+  }
+  
+  // 存储已处理的卡片ID，避免重复显示
+  const processedCardIds = new Set()
+  const result = []
+  
+  allKeywords.value.forEach(keyword => {
+    if (!keyword.name || keyword.name.length < 2) return
+    
+    // 转换为小写进行比较
+    const inputContent = content.toLowerCase()
+    const keywordText = keyword.name.toLowerCase()
+    
+    // 检查是否完整包含关键词
+    if (inputContent.includes(keywordText)) {
+      // 找到匹配的卡片
+      const matchedCard = getAllCards().find(card => 
+        card.title?.toLowerCase() === keyword.name.toLowerCase()
+      )
+      
+      if (matchedCard && !processedCardIds.has(matchedCard.id)) {
+        processedCardIds.add(matchedCard.id)
+        
+        // 获取关联卡片
+        const linkedCards = []
+        if (matchedCard.links && matchedCard.links.length > 0) {
+          matchedCard.links.forEach(linkId => {
+            const linkedCard = findCardById(linkId)
+            if (linkedCard && !processedCardIds.has(linkedCard.id)) {
+              processedCardIds.add(linkedCard.id)
+              linkedCards.push(linkedCard)
+            }
+          })
+        }
+        
+        // 添加主卡片和关联卡片信息
+        result.push({
+          id: matchedCard.id,
+          name: matchedCard.title,
+          card: matchedCard,
+          linkedCards: linkedCards
+        })
+      }
+    }
+  })
+  
+  inputDetectedKeywords.value = result
+}
+
+// 切换输入框关键词区域的折叠状态
+const toggleInputKeywordsArea = () => {
+  inputKeywordsAreaCollapsed.value = !inputKeywordsAreaCollapsed.value
+}
+
+// 监听当前聊天的enableKeywords变化
+watch(() => currentChat.value?.enableKeywords, (newValue) => {
+  if (!newValue) {
+    // 如果关闭了关键词检测，清空输入框检测到的关键词
+    inputDetectedKeywords.value = []
+  } else if (inputMessage.value) {
+    // 如果开启了关键词检测且输入框有内容，立即检测关键词
+    detectKeywordsInInput(inputMessage.value)
+  }
+})
+
+// 添加引用卡片相关的响应式变量
+const activeReferencePopup = ref(null)
+const expandedReferenceCards = ref([])
+const messageKeywordsMap = ref({})
+
+// 获取消息中引用的关键词
+const getMessageKeywords = (msg, forceRecheck = false) => {
+  if (!currentChat.value?.enableKeywords || !msg.content) return []
+  
+  // 如果已经缓存了该消息的关键词且不是强制重新检测，直接返回
+  if (!forceRecheck && messageKeywordsMap.value[msg.id]) {
+    return messageKeywordsMap.value[msg.id]
+  }
+  
+  const content = msg.content.toLowerCase()
+  const result = []
+  const processedCardIds = new Set()
+  
+  allKeywords.value.forEach(keyword => {
+    if (!keyword.name || keyword.name.length < 2) return
+    
+    const keywordText = keyword.name.toLowerCase()
+    if (content.includes(keywordText)) {
+      // 找到匹配的卡片
+      const matchedCard = getAllCards().find(card => 
+        card.title?.toLowerCase() === keyword.name.toLowerCase()
+      )
+      
+      if (matchedCard && !processedCardIds.has(matchedCard.id)) {
+        processedCardIds.add(matchedCard.id)
+        
+        // 添加卡片信息
+        result.push({
+          id: matchedCard.id,
+          name: matchedCard.title,
+          card: matchedCard
+        })
+      }
+    }
+  })
+  
+  // 缓存结果
+  messageKeywordsMap.value[msg.id] = result
+  return result
+}
+
+// 添加弹窗位置样式的响应式变量
+const popupStyle = ref({})
+
+// 修改切换引用卡片弹窗的方法，添加事件参数用于获取点击位置
+const toggleReferencePopup = (event, msgId) => {
+  // 阻止事件冒泡
+  event.stopPropagation()
+  
+  if (activeReferencePopup.value === msgId) {
+    activeReferencePopup.value = null
+  } else {
+    activeReferencePopup.value = msgId
+    
+    // 计算弹窗位置
+    const rect = event.target.getBoundingClientRect()
+    
+    // 设置弹窗位置样式
+    popupStyle.value = {
+      position: 'fixed',
+      top: `${rect.bottom + 10}px`,
+      left: `${rect.left}px`,
+      // 确保弹窗不会超出窗口右侧边界
+      maxWidth: `${window.innerWidth - rect.left - 20}px`
+    }
+    
+    // 延迟一下，确保弹窗已渲染后再调整位置
+    setTimeout(() => {
+      const popup = document.querySelector('.reference-popup')
+      if (popup) {
+        // 检查是否会超出底部边界
+        const popupRect = popup.getBoundingClientRect()
+        if (popupRect.bottom > window.innerHeight) {
+          // 如果会超出底部，则改为显示在标签上方
+          popupStyle.value.top = `${rect.top - popupRect.height - 10}px`
+        }
+      }
+    }, 0)
+  }
+}
+
+// 确保关闭弹窗方法也阻止事件冒泡
+const closeReferencePopup = (event) => {
+  if (event) event.stopPropagation()
+  activeReferencePopup.value = null
+}
+
+// 切换引用卡片展开状态也需要阻止事件冒泡
+const toggleReferenceCard = (cardId, event) => {
+  if (event) event.stopPropagation()
+  
+  const index = expandedReferenceCards.value.indexOf(cardId)
+  if (index === -1) {
+    expandedReferenceCards.value.push(cardId)
+  } else {
+    expandedReferenceCards.value.splice(index, 1)
+  }
+}
+
+// 在消息内容变化时清除缓存的关键词
+watch(() => currentChat.value?.messages, () => {
+  messageKeywordsMap.value = {}
+}, { deep: true })
+
+// 添加点击文档其他地方关闭弹窗的功能
+onMounted(() => {
+  document.addEventListener('click', (e) => {
+    if (activeReferencePopup.value !== null) {
+      closeReferencePopup()
+    }
+  })
+})
+
 </script>
 
 <style scoped>
@@ -1376,5 +1675,109 @@ const toggleKeywordsArea = () => {
   background: #f6ffed;
   border-color: #52c41a;
   color: #52c41a;
+}
+
+.chat-input-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.input-keywords-area {
+  margin-bottom: 10px;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 引用标签样式 */
+.reference-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  padding: 4px 8px;
+  background-color: #f0f7ff;
+  border: 1px solid #d0e3ff;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #1976d2;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reference-tag:hover {
+  background-color: #d0e3ff;
+}
+
+.reference-tag i {
+  margin-right: 4px;
+}
+
+/* 修改引用卡片弹窗样式 */
+.reference-popup {
+  width: 300px;
+  max-height: 400px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000; /* 增加z-index确保弹窗显示在最上层 */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.reference-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.reference-popup-content {
+  padding: 10px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.reference-card {
+  margin-bottom: 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.reference-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #f9f9f9;
+  cursor: pointer;
+}
+
+.reference-card-content {
+  padding: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: #fff;
+  white-space: pre-wrap;
+  font-size: 14px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #666;
+}
+
+.close-btn:hover {
+  color: #333;
+}
+
+/* 为消息添加相对定位，使弹窗定位正确 */
+.message {
+  position: relative;
 }
 </style>

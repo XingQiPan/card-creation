@@ -564,9 +564,10 @@
   line-height: 1.8;
   font-size: 25px;
   outline: none;
-  max-width: 1700px;
   margin: 0 auto;
+  height: 85%;
   width: 100%;
+  background-color: transparent;
   color: var(--text-primary);
 }
 

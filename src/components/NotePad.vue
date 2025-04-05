@@ -127,6 +127,17 @@ const newWork = ref({
   type: '小说',
 })
 
+// 模型数据 - 这里是示例数据，你需要替换为实际的数据源
+const modelInfo = ref({
+  models: [
+    { id: 'gemini-2.0', name: 'Google - gemini-2.0-flash-thinking-exp-01-2' },
+    { id: 'gpt-4', name: 'OpenAI - GPT-4' },
+    { id: 'claude-3-opus', name: 'Anthropic - Claude 3 Opus' },
+    { id: 'claude-3-sonnet', name: 'Anthropic - Claude 3 Sonnet' }
+  ],
+  defaultModel: 'gemini-2.0'
+})
+
 // 根据活动标签过滤章节
 const filteredChapters = computed(() => {
   if (activeTabIndex.value === 0) {
@@ -174,6 +185,11 @@ const loadChapters = () => {
   }
 }
 
+// 保存模型数据到localStorage
+const saveModelInfo = () => {
+  saveToStorage('modelInfo', modelInfo.value)
+}
+
 // 创建新作品
 const createNewChapter = () => {
   const newChapter = {
@@ -209,6 +225,9 @@ const navigateToChapter = (chapterId) => {
     console.error('找不到章节:', chapterId)
     return
   }
+  
+  // 保存模型数据，以便编辑器可以使用
+  saveModelInfo()
   
   console.log('找到章节:', chapter)
   
@@ -293,6 +312,9 @@ const formatWordCount = (count) => {
 onMounted(() => {
   loadChapters()
   document.addEventListener('click', closeManagementMenu)
+  
+  // 如果你有API获取模型数据，可以在这里调用
+  // fetchModelData()
 })
 
 onBeforeUnmount(() => {

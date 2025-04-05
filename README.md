@@ -28,6 +28,7 @@
 <summary>0.9.3.6</summary>
 
 - 修复了API显示，增加了OpenAI模型选择可以输入，或者拉取模型
+- 小说编辑器排版，保存功能完成
 
 </details>
 
@@ -202,13 +203,15 @@ start-dev.bat
 
 新教程：
 
-版本号：0.9.3.3
+2、[【星卡写作第二课教程，如何接入API】]() (版本号：0.9.3.6)
 
-1、[【星卡写作第一课教程，如何安装星卡写作！】](https://www.bilibili.com/video/BV1K3XnYrEmK/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1)
+文档；[【API注册与星卡填入API文档】](https://rw29psdqbrk.feishu.cn/docx/PLgIdp2N9o1tyjxPhLyc5Mghnbh?from=from_copylink)
+
+1、[【星卡写作第一课教程，如何安装星卡写作！】](https://www.bilibili.com/video/BV1K3XnYrEmK/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1) (版本号：0.9.3.3)
 
 旧教程：
 
-1、[【逆天，一步操作，写作10倍效率——《星卡基础教程》】](https://www.bilibili.com/video/BV1WdPFegEpt/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1)
+1、[【逆天，一步操作，写作10倍效率——《星卡基础教程》】](https://www.bilibili.com/video/BV1WdPFegEpt/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1) (版本号：0.9.3.2之前)
 
 本教程虽然才过了几天，但是已经与最新版本有较大差异，可以在本视频了解对应功能。
 

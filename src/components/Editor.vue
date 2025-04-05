@@ -218,14 +218,14 @@
           </div>
         </div>
         
-        <div 
-          ref="editorContent" 
+        <textarea 
+          ref="editorContent"
+          v-model="currentChapter.content" 
           class="content-editor" 
-          contenteditable="true"
           @input="onContentUpdate"
           @keydown.tab.prevent="insertTab"
-          @paste="onPaste"
-        ></div>
+          placeholder="在这里写下章节内容..."
+        ></textarea>
       </div>
       
       <!-- 章节右键菜单 -->
@@ -264,9 +264,9 @@
           <div class="panel-section">
             <div class="section-header">AI 模型</div>
             <select v-model="aiSettings.model" class="model-selector">
-              <option value="gemini-2.0">Google - gemini-2.0-flash-thinking-exp-01-2</option>
-              <option value="gpt-4">OpenAI - GPT-4</option>
-              <option value="claude-3">Anthropic - Claude 3</option>
+              <option v-for="model in availableModels" :key="model.id" :value="model.id">
+                {{ model.name }}
+              </option>
             </select>
           </div>
           
@@ -342,7 +342,9 @@
           <div class="panel-section">
             <div class="section-header">AI 模型</div>
             <select v-model="aiSettings.model" class="model-selector">
-              <option value="gemini-2.0">Google - gemini-2.0-flash-thinking-exp-01-2</option>
+              <option v-for="model in availableModels" :key="model.id" :value="model.id">
+                {{ model.name }}
+              </option>
             </select>
           </div>
           
@@ -408,7 +410,9 @@
           <div class="panel-section">
             <div class="section-header">AI 模型</div>
             <select v-model="aiSettings.model" class="model-selector">
-              <option value="gemini-2.0">Google - gemini-2.0-flash-thinking-exp-01-2</option>
+              <option v-for="model in availableModels" :key="model.id" :value="model.id">
+                {{ model.name }}
+              </option>
             </select>
           </div>
           
@@ -661,9 +665,9 @@
         <div class="ai-setting-section">
           <div class="setting-label">AI 模型</div>
           <select v-model="aiOutlineModal.model" class="model-selector">
-            <option value="gemini-2.0">Google - gemini-2.0-flash-thinking-exp-01-21</option>
-            <option value="gpt-4">OpenAI - GPT-4</option>
-            <option value="claude-3">Anthropic - Claude 3</option>
+            <option v-for="model in availableModels" :key="model.id" :value="model.id">
+              {{ model.name }}
+            </option>
           </select>
         </div>
         
@@ -741,6 +745,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } 
 import { useRoute } from 'vue-router'
 import { v4 as uuidv4 } from 'uuid'
 import { debounce, showToast } from '../utils/common'
+import { debugLog } from '../utils/debug'
 
 export default {
   name: 'Editor',
@@ -753,6 +758,59 @@ export default {
   setup(props) {
     const route = useRoute()
     const bookId = ref(props.bookId || 'default')
+    
+    // 从localStorage加载模型数据
+    const loadModelInfo = () => {
+      try {
+        const savedInfo = JSON.parse(localStorage.getItem('modelInfo'))
+        return savedInfo || {
+          models: [
+            { id: 'gemini-2.0', name: 'Google - gemini-2.0-flash-thinking-exp-01-2' },
+            { id: 'gpt-4', name: 'OpenAI - GPT-4' },
+            { id: 'claude-3', name: 'Anthropic - Claude 3' }
+          ],
+          defaultModel: 'gemini-2.0'
+        }
+      } catch (e) {
+        console.error('Error loading model info:', e)
+        return {
+          models: [
+            { id: 'gemini-2.0', name: 'Google - gemini-2.0-flash-thinking-exp-01-2' }
+          ],
+          defaultModel: 'gemini-2.0'
+        }
+      }
+    }
+    
+    // 加载模型信息
+    const modelInfo = ref(loadModelInfo())
+    
+    // 获取可用模型列表
+    const availableModels = computed(() => {
+      return modelInfo.value.models || []
+    })
+    
+    // 简化后的AI设置 - 使用加载的默认模型
+    const aiSettings = reactive({
+      model: modelInfo.value.defaultModel || 'gemini-2.0',
+      continuity: false,
+      promptMode: 'template',
+      outlineDirection: '',
+      userIdea: '',
+      customPrompt: ''
+    })
+    
+    // AI大纲生成弹窗 - 使用加载的默认模型
+    const aiOutlineModal = reactive({
+      show: false,
+      chapter: null,
+      model: modelInfo.value.defaultModel || 'gemini-2.0',
+      continuity: false,
+      promptMode: 'template',
+      selectedTemplate: '',
+      content: '',
+      selectedChapters: []
+    })
     
     // 核心状态变量
     const isFullscreen = ref(false)
@@ -824,23 +882,6 @@ export default {
       }
     })
     
-    // 简化后的AI设置
-    const aiSettings = reactive({
-      model: 'gemini-2.0',
-      continuity: false,
-      promptMode: 'template',
-      outlineDirection: '',
-      userIdea: '',
-      customPrompt: ''
-    })
-
-    // 小说信息 - 简化保留
-    const novelInfo = reactive({
-      title: '',
-      genre: '',
-      summary: ''
-    })
-
     // 左侧栏选项卡状态 - 修改默认值为'directory'
     const sidebarTab = ref('directory')
     const expandedChapters = ref([])
@@ -865,28 +906,49 @@ export default {
       }
     }
 
+    const undo = () => {
+      if (history.index <= 0) {
+        showToast('已到达最早记录', 'info');
+        return;
+      }
+      
+      history.index--;
+      applyHistoryState(); // 应用历史状态
+    }
+
+    const redo = () => {
+      if (history.index >= history.stack.length - 1) {
+        showToast('已到达最新记录', 'info');
+        return;
+      }
+      
+      history.index++;
+      applyHistoryState(); // 应用历史状态
+    }
+
     // 计算属性
     const isEditing = computed(() => currentChapterId.value !== null)
 
     const loadChapters = async () => {
       try {
-        // 简化为在控制台显示
-        console.log('加载章节：', bookId.value);
-        // 添加一些模拟数据用于演示
-        chapters.value = [
-          { id: '1', title: '章节一', content: '示例内容', outline: '' },
-          { id: '2', title: '章节二', content: '示例内容', outline: '' }
-        ];
+        const response = await fetch(`/api/books/${bookId.value}/chapters`);
+        if (!response.ok) {
+          throw new Error('加载章节失败');
+        }
+        chapters.value = await response.json(); // 加载章节数据
+        if (chapters.value.length > 0) {
+          openChapter(chapters.value[0].id); // 打开第一章
+        }
       } catch (error) {
-        console.error('加载章节出错:', error)
-        showToast('加载章节失败', 'error')
+        console.error('加载章节出错:', error);
+        showToast('加载章节失败', 'error');
       }
     }
 
     // 保存章节 - 简化
     const saveChapters = async (manualSave = false) => {
       try {
-        console.log('保存章节', chapters.value);
+        debugLog('保存章节', chapters.value);
         contentChanged.value = false;
         titleChanged.value = false;
         
@@ -914,16 +976,11 @@ export default {
         // 更新当前章节数据
         currentChapter.id = chapter.id
         currentChapter.title = chapter.title
-        currentChapter.content = chapter.content
+        currentChapter.content = chapter.content // 确保内容更新
         
-        // 更新编辑器内容
-        nextTick(() => {
-          if (editorContent.value) {
-            editorContent.value.innerHTML = chapter.content || ''
-            calculateWordCount()
-          }
-        })
-        
+        // 更新字数统计
+        calculateWordCount(); // 更新字数统计
+
         // 重置变更标志
         contentChanged.value = false
         titleChanged.value = false
@@ -944,9 +1001,7 @@ export default {
         if (!currentChapterId.value) return
         
         // 确保章节数据是最新的
-        if (editorContent.value) {
-          currentChapter.content = editorContent.value.innerHTML
-        }
+        currentChapter.content = currentChapter.content.trim();
         
         // 找到当前章节索引
         const index = chapters.value.findIndex(c => c.id === currentChapterId.value)
@@ -955,15 +1010,35 @@ export default {
         // 更新章节数据
         chapters.value[index] = {
           ...chapters.value[index],
-          title: currentChapter.title,
+          title: currentChapter.title, // 确保标题更新
           content: currentChapter.content,
           updatedAt: new Date().toISOString()
         }
         
-        await saveChapters(true)
+        // 调用后端 API 保存章节
+        await saveChaptersToBackend(); // 新增调用后端保存章节的函数
+        showToast('章节保存成功', 'success'); // 提示保存成功
       } catch (error) {
         console.error('保存章节失败:', error)
         showToast('保存章节失败', 'error')
+      }
+    }
+
+    const saveChaptersToBackend = async () => {
+      try {
+        const response = await fetch(`/api/books/${bookId.value}/chapters`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(chapters.value)
+        });
+        if (!response.ok) {
+          throw new Error('保存章节失败');
+        }
+      } catch (error) {
+        console.error('保存章节到后端失败:', error);
+        showToast('保存章节到后端失败', 'error');
       }
     }
 
@@ -1044,19 +1119,15 @@ export default {
 
     // 内容更新处理
     const onContentUpdate = () => {
-      contentChanged.value = true
-      calculateWordCount()
-      recordHistory()
+      contentChanged.value = true;
+      calculateWordCount(); // 更新字数统计
+      recordHistory();
     }
 
     // 计算字数
     const calculateWordCount = () => {
-      if (editorContent.value) {
-        const content = editorContent.value.innerText || ''
-        wordCount.value = content.replace(/\s+/g, '').length
-      } else {
-        wordCount.value = 0
-      }
+      // 更新字数统计
+      wordCount.value = currentChapter.content.replace(/\s+/g, '').length;
     }
 
     // 基础编辑器功能
@@ -1124,123 +1195,69 @@ export default {
 
     // 历史记录功能 - 保留
     const recordHistory = debounce(() => {
-      if (!editorContent.value) return
+      // 记录当前章节的标题和内容
+      const content = currentChapter.content; // 使用 currentChapter.content 获取内容
+      const title = currentChapter.title;
       
-      const content = editorContent.value.innerHTML
-      const title = currentChapter.title
-      
+      // 检查当前内容是否与历史记录相同
       if (history.stack[history.index]?.content === content && 
           history.stack[history.index]?.title === title) {
-        return
+        return;
       }
       
+      // 如果历史记录索引小于栈的长度，截断历史记录
       if (history.index < history.stack.length - 1) {
-        history.stack = history.stack.slice(0, history.index + 1)
+        history.stack = history.stack.slice(0, history.index + 1);
       }
       
+      // 添加新的历史记录
       history.stack.push({
         content,
         title,
         timestamp: new Date().getTime()
-      })
+      });
       
+      // 如果历史记录超过最大长度，移除最旧的记录
       if (history.stack.length > history.maxSize) {
-        history.stack.shift()
+        history.stack.shift();
       } else {
-        history.index = history.stack.length - 1
+        history.index = history.stack.length - 1; // 更新索引
       }
-    }, 500)
-
-    // 撤销/重做功能 - 保留
-    const undo = () => {
-      if (history.index <= 0) {
-        showToast('已到达最早记录', 'info')
-        return
-      }
-      
-      history.index--
-      applyHistoryState()
-    }
-
-    const redo = () => {
-      if (history.index >= history.stack.length - 1) {
-        showToast('已到达最新记录', 'info')
-        return
-      }
-      
-      history.index++
-      applyHistoryState()
-    }
+    }, 500);
 
     const applyHistoryState = () => {
-      const state = history.stack[history.index]
-      if (!state || !editorContent.value) return
+      const state = history.stack[history.index];
+      if (!state) return; // 如果没有状态，直接返回
       
-      currentChapter.title = state.title
-      editorContent.value.innerHTML = state.content
-      calculateWordCount()
+      // 更新当前章节的标题和内容
+      currentChapter.title = state.title;
+      currentChapter.content = state.content; // 使用历史记录中的内容
+      calculateWordCount(); // 更新字数统计
     }
 
     // 一键排版 - 保留
     const formatContent = () => {
-      const editor = editorContent.value
-      if (!editor) return
-      
+      debugLog('使用了一键排版');
       // 获取当前内容
-      let content = editor.innerHTML.trim()
-      
-      // 获取所有内容中的文本
-      const formattedContent = formatTextWithIndent(content)
-      
-      // 更新编辑器内容
-      editor.innerHTML = formattedContent
-      
+      let content = currentChapter.content; // 使用 currentChapter.content 获取内容
+      debugLog('content\n', content);
+      if (!content) return; // 确保内容存在
+
+      // 处理每一行，确保每行前有一个制表符
+      const formattedContent = content.split('\n').map(line => {
+        // 确保每行前有一个制表符，并处理空行
+        return line.trimStart().replace(/^\s*/, '    '); // 确保每行前有一个制表符
+      }).join('\n');
+
+      // 更新章节内容
+      currentChapter.content = formattedContent; // 更新 currentChapter.content
+      debugLog('formattedContent\n', formattedContent);
       // 更新历史记录和字数统计
-      onContentUpdate()
-      showToast('排版完成', 'success')
+      onContentUpdate();
+      showToast('排版完成', 'success');
     }
 
-    // 辅助函数：处理文本缩进
-    const formatTextWithIndent = (content) => {
-      // 如果已经有<p>标签，处理每个段落
-      if (content.includes('<p>')) {
-        // 将HTML内容按</p>分割成段落数组
-        return content.split('</p>').map(paragraph => {
-          if (!paragraph.trim()) return ''
-          
-          // 找到<p>标签的结束位置
-          const pTagEndIndex = paragraph.indexOf('>') + 1
-          if (pTagEndIndex <= 0) return paragraph
-          
-          // 将段落分为<p>标签部分和内容部分
-          const pTag = paragraph.substring(0, pTagEndIndex)
-          let pContent = paragraph.substring(pTagEndIndex).trim()
-          
-          // 如果内容为空，返回原段落
-          if (!pContent) return paragraph + '</p>'
-          
-          // 移除内容开头的空格和全角空格
-          pContent = pContent.replace(/^[\s　]+/, '')
-          
-          // 添加两个全角空格作为缩进
-          return `${pTag}　　${pContent}</p>`
-        }).join('')
-      } else {
-        // 没有<p>标签，将整个内容作为一个段落处理
-        // 移除内容开头的空格和全角空格
-        content = content.replace(/^[\s　]+/, '')
-        
-        // 将内容按换行符拆分成段落
-        const paragraphs = content.split(/\n+/)
-        
-        // 添加两个全角空格作为缩进，并用<p>标签包裹每个段落
-        return paragraphs.map(p => {
-          if (!p.trim()) return ''
-          return `<p>　　${p.trim()}</p>`
-        }).join('')
-      }
-    }
-
+   
     // 查找替换功能 - 保留
     const findText = () => {
       if (!searchState.searchText) return
@@ -1326,18 +1343,6 @@ export default {
       content: ''
     })
 
-    // AI大纲生成弹窗
-    const aiOutlineModal = reactive({
-      show: false,
-      chapter: null,
-      model: 'gemini-2.0',
-      continuity: false,
-      promptMode: 'template',
-      selectedTemplate: '',
-      content: '',
-      selectedChapters: []
-    })
-
     // 大纲编辑器函数 - 简化
     const openOutlineEditor = (type) => {
       let title = ''
@@ -1394,7 +1399,7 @@ export default {
 
     // 关键功能 - 需要暴露给模板的AI大纲函数
     const openAIOutlineGenerator = (chapter) => {
-      console.log('Opening AI outline generator for chapter:', chapter.title);
+      debugLog('Opening AI outline generator for chapter:', chapter.title);
       aiOutlineModal.show = true;
       aiOutlineModal.chapter = chapter;
       aiOutlineModal.content = chapter.content || '';
@@ -1412,7 +1417,7 @@ export default {
     };
 
     const closeAIOutlineGenerator = () => {
-      console.log('Closing AI outline generator');
+      debugLog('Closing AI outline generator');
       aiOutlineModal.show = false;
     }
 
@@ -1506,6 +1511,15 @@ export default {
       }
     }
 
+    // 添加小说信息对象
+    const novelInfo = reactive({
+      title: '',
+      genre: '都市修真',
+      summary: '',
+      tags: '',
+      extra: ''
+    })
+
     // 组件生命周期钩子
     onMounted(async () => {
       window.addEventListener('beforeunload', beforeUnloadHandler)
@@ -1516,6 +1530,16 @@ export default {
       }
       
       window.addEventListener('keydown', handleKeyDown)
+      
+      // 重新加载最新的模型信息
+      const latestModelInfo = loadModelInfo()
+      modelInfo.value = latestModelInfo
+      
+      // 设置默认模型
+      if (latestModelInfo.defaultModel) {
+        aiSettings.model = latestModelInfo.defaultModel
+        aiOutlineModal.model = latestModelInfo.defaultModel
+      }
     })
 
     onBeforeUnmount(() => {
@@ -1589,7 +1613,6 @@ export default {
       currentPanel,
       currentPanelTitle,
       aiSettings,
-      novelInfo,
       openPanel,
       toggleAiPanel,
       generateIdea,
@@ -1619,7 +1642,14 @@ export default {
       // 新增章节上移和下移功能
       moveChapterUp,
       moveChapterDown,
-      renameChapter
+      renameChapter,
+
+      // 添加模型信息
+      modelInfo,
+      availableModels,
+
+      // 添加小说信息对象
+      novelInfo
     }
   }
 }

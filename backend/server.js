@@ -1056,38 +1056,38 @@ app.get('/api/books/:bookId/chapters', (req, res) => {
 
 app.post('/api/books/:bookId/chapters', (req, res) => {
   try {
-    const { bookId } = req.params
-    const chapters = req.body
-    
+    const { bookId } = req.params;
+    const chapters = req.body;
+
     // 添加更严格的验证
     if (!Array.isArray(chapters)) {
       return res.status(400).json({
         success: false,
         error: '无效的章节数据格式'
-      })
+      });
     }
-    
+
     // 确保目录存在
     if (!fs.existsSync(BOOKS_DIR)) {
-      fs.mkdirSync(BOOKS_DIR, { recursive: true })
+      fs.mkdirSync(BOOKS_DIR, { recursive: true });
     }
-    
-    // 保存原始HTML内容
+
+    // 保存章节数据
     fs.writeFileSync(
       path.join(BOOKS_DIR, `${bookId}.json`),
       JSON.stringify(chapters, null, 2),
       'utf8'
-    )
-    
-    res.json({ success: true })
+    );
+
+    res.json({ success: true });
   } catch (error) {
-    console.error('保存失败:', error)
+    console.error('保存失败:', error);
     res.status(500).json({
       success: false,
       error: '保存失败: ' + error.message
-    })
+    });
   }
-})
+});
 
 // 获取所有书籍列表
 app.get('/api/books', (req, res) => {

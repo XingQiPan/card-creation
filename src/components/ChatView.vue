@@ -163,10 +163,19 @@
               >
                 <div class="reference-card-header" @click.stop="toggleReferenceCard(keyword.id)">
                   <span>{{ keyword.name }}</span>
+                  <span v-if="keyword.isGroup" class="group-badge">卡组</span>
                   <i :class="['fas', expandedReferenceCards.includes(keyword.id) ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
                 </div>
                 <div class="reference-card-content" v-if="expandedReferenceCards.includes(keyword.id)">
-                  {{ getKeywordContent(keyword) }}
+                  <template v-if="keyword.isGroup && keyword.card.cards?.length > 0">
+                    <div v-for="groupCard in keyword.card.cards" :key="groupCard.id" class="group-card">
+                      <div class="group-card-title">{{ groupCard.title }}</div>
+                      <div class="group-card-content">{{ truncateText(groupCard.content, 100) }}</div>
+                    </div>
+                  </template>
+                  <template v-else>
+                    {{ getKeywordContent(keyword) }}
+                  </template>
                 </div>
               </div>
             </div>
@@ -189,7 +198,7 @@
           <!-- 根据折叠状态显示或隐藏整个内容区域 -->
           <div v-if="!inputKeywordsAreaCollapsed" class="keywords-content">
             <div class="keywords-list">
-              <!-- 主卡片 -->
+              <!-- 主卡片或卡组 -->
               <div 
                 v-for="keyword in inputDetectedKeywords" 
                 :key="keyword.id"
@@ -197,13 +206,23 @@
               >
                 <div class="keyword-title" @click="toggleKeywordContent(keyword)">
                   <span>{{ keyword.name }}</span>
+                  <span v-if="keyword.isGroup" class="group-badge">卡组</span>
                   <i :class="['fas', expandedKeywords.includes(keyword.id) ? 'fa-chevron-up' : 'fa-chevron-down']"></i>
                 </div>
                 <div 
                   v-if="expandedKeywords.includes(keyword.id)"
                   class="keyword-content"
                 >
-                  {{ getKeywordContent(keyword) }}
+                  <!-- 卡组内容展示 -->
+                  <template v-if="keyword.isGroup && keyword.card.cards?.length > 0">
+                    <div v-for="groupCard in keyword.card.cards" :key="groupCard.id" class="group-card">
+                      <div class="group-card-title">{{ groupCard.title }}</div>
+                      <div class="group-card-content">{{ truncateText(groupCard.content, 100) }}</div>
+                    </div>
+                  </template>
+                  <template v-else>
+                    {{ getKeywordContent(keyword) }}
+                  </template>
                 </div>
                 
                 <!-- 关联卡片 -->
@@ -504,6 +523,12 @@ const detectedKeywords = computed(() => {
 // 修改获取关键词内容的方法，只返回主卡片内容
 const getKeywordContent = (keyword) => {
   if (!keyword.card) return null
+  
+  // 如果是卡组，返回卡组内所有卡片的标题列表
+  if (keyword.isGroup && keyword.card.cards?.length > 0) {
+    return `卡组包含 ${keyword.card.cards.length} 张卡片`
+  }
+  
   return keyword.card.content || ''
 }
 
@@ -652,9 +677,18 @@ const sendMessage = async () => {
     if (detectedKeywords.length > 0) {
       let keywordsContext = '检测到以下相关内容:\n\n'
       for (const keyword of detectedKeywords) {
-        const content = getKeywordContent(keyword)
-        if (content) {
-          keywordsContext += `【${keyword.name}】:\n${content}\n\n`
+        if (keyword.isGroup && keyword.card.cards?.length > 0) {
+          // 处理卡组，参考app.vue的卡组处理代码
+          keywordsContext += `关键词[${keyword.name}]：\n` + 
+            keyword.card.cards.map(card => 
+              "【" + card.title + '】：\n```\n' + card.content + '\n```'
+            ).join('\n\n') + '\n\n'
+        } else {
+          // 处理普通卡片
+          const content = getKeywordContent(keyword)
+          if (content) {
+            keywordsContext += `【${keyword.name}】:\n${content}\n\n`
+          }
         }
       }
       // 使用统一格式
@@ -1459,18 +1493,18 @@ const detectKeywordsInInput = (content) => {
     
     // 检查是否完整包含关键词
     if (inputContent.includes(keywordText)) {
-      // 找到匹配的卡片
-      const matchedCard = getAllCards().find(card => 
+      // 找到匹配的卡片或卡组
+      const matchedItem = getAllCards().find(card => 
         card.title?.toLowerCase() === keyword.name.toLowerCase()
       )
       
-      if (matchedCard && !processedCardIds.has(matchedCard.id)) {
-        processedCardIds.add(matchedCard.id)
+      if (matchedItem && !processedCardIds.has(matchedItem.id)) {
+        processedCardIds.add(matchedItem.id)
         
         // 获取关联卡片
         const linkedCards = []
-        if (matchedCard.links && matchedCard.links.length > 0) {
-          matchedCard.links.forEach(linkId => {
+        if (matchedItem.links && matchedItem.links.length > 0) {
+          matchedItem.links.forEach(linkId => {
             const linkedCard = findCardById(linkId)
             if (linkedCard && !processedCardIds.has(linkedCard.id)) {
               processedCardIds.add(linkedCard.id)
@@ -1479,12 +1513,25 @@ const detectKeywordsInInput = (content) => {
           })
         }
         
-        // 添加主卡片和关联卡片信息
+        // 处理卡组内的卡片
+        const groupCards = []
+        if (matchedItem.type === 'group' && matchedItem.cards?.length > 0) {
+          matchedItem.cards.forEach(card => {
+            if (!processedCardIds.has(card.id)) {
+              processedCardIds.add(card.id)
+              groupCards.push(card)
+            }
+          })
+        }
+        
+        // 添加主卡片/卡组和关联卡片信息
         result.push({
-          id: matchedCard.id,
-          name: matchedCard.title,
-          card: matchedCard,
-          linkedCards: linkedCards
+          id: matchedItem.id,
+          name: matchedItem.title,
+          card: matchedItem,
+          linkedCards: linkedCards,
+          isGroup: matchedItem.type === 'group',
+          groupCards: groupCards
         })
       }
     }
@@ -1532,19 +1579,20 @@ const getMessageKeywords = (msg, forceRecheck = false) => {
     
     const keywordText = keyword.name.toLowerCase()
     if (content.includes(keywordText)) {
-      // 找到匹配的卡片
-      const matchedCard = getAllCards().find(card => 
+      // 找到匹配的卡片或卡组
+      const matchedItem = getAllCards().find(card => 
         card.title?.toLowerCase() === keyword.name.toLowerCase()
       )
       
-      if (matchedCard && !processedCardIds.has(matchedCard.id)) {
-        processedCardIds.add(matchedCard.id)
+      if (matchedItem && !processedCardIds.has(matchedItem.id)) {
+        processedCardIds.add(matchedItem.id)
         
-        // 添加卡片信息
+        // 添加卡片或卡组信息
         result.push({
-          id: matchedCard.id,
-          name: matchedCard.title,
-          card: matchedCard
+          id: matchedItem.id,
+          name: matchedItem.title,
+          card: matchedItem,
+          isGroup: matchedItem.type === 'group'
         })
       }
     }
@@ -1779,5 +1827,37 @@ onMounted(() => {
 /* 为消息添加相对定位，使弹窗定位正确 */
 .message {
   position: relative;
+}
+
+/* 添加卡组相关样式 */
+.group-badge {
+  font-size: 12px;
+  background-color: #e6f7ff;
+  color: #1890ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+}
+
+.group-card {
+  border: 1px solid #f0f0f0;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  padding: 8px;
+  background-color: #fafafa;
+}
+
+.group-card-title {
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: #333;
+}
+
+.group-card-content {
+  font-size: 12px;
+  color: #666;
+  white-space: pre-wrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

@@ -1727,3 +1727,309 @@
   background: #ccc;
   cursor: not-allowed;
 }
+
+
+.view-switcher button {
+  position: relative;
+}
+
+.view-switcher button:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: 100%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 100;
+  margin-bottom: 5px;
+}
+
+/* 添加关键词选择模态框的样式 */
+.keyword-matches {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.keyword-match-item {
+  margin-bottom: 1rem;
+  padding: 0.8rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.keyword-match-item label {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.keyword-match-item input[type="checkbox"] {
+  margin-right: 0.5rem;
+}
+
+.keyword-title {
+  font-weight: bold;
+  margin-left: 0.5rem;
+}
+
+.keyword-preview {
+  color: #666;
+  font-size: 0.9em;
+  margin-left: 1.5rem;
+  white-space: pre-wrap;
+}
+
+.select-all {
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.select-all label {
+  display: flex;
+  align-items: center;
+  font-weight: bold;
+}
+
+.select-all input[type="checkbox"] {
+  margin-right: 0.5rem;
+}
+
+/* 添加新的样式 */
+.keyword-detection-control {
+  margin: 10px 0;
+}
+
+.detection-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.setting-description {
+  font-size: 0.9em;
+  color: #666;
+  margin-left: 4px;
+}
+
+.keyword-match-item.is-group {
+  border-color: var(--primary-color);
+}
+
+.match-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.group-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.edit-group-btn {
+  position: relative;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.edit-group-btn.is-edited {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.selected-count {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: var(--primary-color);
+  color: white;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.group-cards-list {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.group-card-item {
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.group-card-item:last-child {
+  border-bottom: none;
+}
+
+.group-card-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.group-card-content label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 添加编辑按钮样式 */
+.match-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edit-card-btn {
+  padding: 2px 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary-color);
+  transition: color 0.2s ease;
+  font-size: 0.9em;
+}
+
+.edit-card-btn:hover {
+  color: var(--primary-color);
+}
+
+/* 修改卡片项样式以适应新布局 */
+.group-card-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.group-card-content label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 调整勾选框右侧的间距 */
+.group-card-item input[type="checkbox"],
+.keyword-match-item input[type="checkbox"] {
+  margin-right: 8px;
+}
+
+/* 为了保持一致的布局 */
+.keyword-match-item .match-header label,
+.group-card-item label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal:has(.keyword-matches) {
+  z-index: 999;
+}
+
+.modal:has(.detail-modal) {
+  z-index: 9999; /* 比关键词匹配模态框更高的层级 */
+}
+
+/* 修改模态框层级顺序 */
+.modal:has(.placeholder-list) {
+  z-index: 9999; /* 占位符选择模态框最高 */
+}
+
+.modal:has(.prompt-list) {
+  z-index: 9998; /* 提示词选择模态框次之 */
+}
+
+.modal:has(.keyword-matches) {
+  z-index: 9997; /* 关键词匹配模态框 */
+}
+
+.modal:has(.detail-modal) {
+  z-index: 9996; /* 详情模态框 */
+}
+
+.prompt-tags {
+  margin-top: 5px;
+}
+
+.tag {
+  display: inline-block;
+  background-color: #e0e0e0;
+  border-radius: 3px;
+  padding: 2px 5px;
+  margin-right: 5px;
+  font-size: 0.9em;
+}
+
+.category-select {
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1f2937;
+  background: #f9fafb;
+  transition: all 0.2s ease;
+}
+
+.category-select {
+  border-color: #d1d5db;
+}
+
+.category-select {
+  outline: none;
+  border-color: #646cff;
+  box-shadow: 0 0 0 3px rgba(100, 108, 255, 0.1);
+}
+
+/* 添加占位符选择模态框样式 */
+.placeholder-list {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.placeholder-item {
+  padding: 15px;
+  margin: 10px 0;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.placeholder-item:hover {
+  border-color: var(--primary-color);
+  background: rgba(100, 108, 255, 0.05);
+}
+
+.placeholder-content {
+  margin-top: 8px;
+  font-size: 0.9em;
+}
+
+.existing-content {
+  color: #ff4d4f;
+  margin-bottom: 5px;
+}
+
+.placeholder-preview {
+  color: #666;
+}

@@ -23,8 +23,9 @@
         </button>
       </div>
       <div class="header-right">
-        <button class="icon-btn" @click="saveCurrentChapter" title="保存 (Ctrl+S)">
-          <i class="fas fa-save"></i>
+        <button :disabled="isLoading" @click="saveCurrentChapter">
+          <i class="fas" :class="isLoading ? 'fa-spinner fa-spin' : 'fa-save'"></i>
+          {{ isLoading ? '保存中...' : '保存' }}
         </button>
         <button class="icon-btn" @click="toggleFullscreen" title="全屏">
           <i class="fas fa-expand"></i>
@@ -52,10 +53,10 @@
         <button class="function-btn" @click="openPanel('inspiration')">
           <i class="fas fa-lightbulb"></i> 灵感风暴
         </button>
-        <button class="function-btn">
+        <button class="function-btn" @click="openCharacterCardPanel">
           <i class="fas fa-id-card"></i> 人物卡
         </button>
-        <button class="function-btn">
+        <button class="function-btn" @click="openEntryCardPanel">
           <i class="fas fa-tags"></i> 词条卡
         </button>
       </div>
@@ -273,13 +274,15 @@
           <!-- 会话连续性 -->
           <div class="panel-section">
             <div class="section-header-row">
-              <span>启用会话连续性</span>
+              <div class="tooltip-container">
+                <span class="continuity-label">启用会话连续性</span>
+                <span class="tooltip-text">开启后AI将记住上下文，重新生成时可填入自定义要求，但字数会明请谨慎开启,对话模式默认关联上下文！</span>
+              </div>
               <div class="toggle-switch">
                 <input type="checkbox" v-model="aiSettings.continuity" id="continuity-toggle">
                 <label for="continuity-toggle"></label>
               </div>
             </div>
-            <div class="section-info">开启后AI将记住对话上下文</div>
           </div>
           
           <!-- 提示词模式 -->
@@ -337,72 +340,7 @@
         </div>
         
         <!-- AI写作面板 -->
-        <div v-if="currentPanel === 'writing'" class="panel-content">
-          <!-- AI模型选择 -->
-          <div class="panel-section">
-            <div class="section-header">AI 模型</div>
-            <select v-model="aiSettings.model" class="model-selector">
-              <option v-for="model in availableModels" :key="model.id" :value="model.id">
-                {{ model.name }}
-              </option>
-            </select>
-          </div>
-          
-          <!-- 会话连续性 -->
-          <div class="panel-section">
-            <div class="section-header-row">
-              <span>启用会话连续性</span>
-              <div class="toggle-switch">
-                <input type="checkbox" v-model="aiSettings.continuity" id="writing-continuity">
-                <label for="writing-continuity"></label>
-              </div>
-            </div>
-            <div class="section-info">关闭</div>
-          </div>
-          
-          <!-- 要求 -->
-          <div class="panel-section">
-            <div class="section-header">要求</div>
-            <div class="prompt-selection">
-              <input type="text" value="爆款写作-【番茄风】" disabled class="prompt-display">
-              <button class="prompt-select-btn">点击选择要求</button>
-            </div>
-          </div>
-          
-          <!-- 写作剧情点 -->
-          <div class="panel-section">
-            <div class="section-header">写作剧情点 <span class="highlight-text">*一次5~10个剧情点效果最佳，不要太多也不要太少，否则AI容易自由发挥！</span></div>
-            <textarea class="idea-input" placeholder="请简要描述本章的主要剧情发展..." v-model="aiSettings.plotPoints"></textarea>
-          </div>
-          
-          <!-- 关联章节和角色 -->
-          <div class="panel-section">
-            <div class="section-header">关联章节</div>
-            <div class="link-buttons">
-              <button class="link-btn active">选择章节</button>
-              <button class="link-btn">未选择章节</button>
-            </div>
-            
-            <div class="section-header">相关角色</div>
-            <div class="link-buttons">
-              <button class="link-btn active">选择角色</button>
-              <button class="link-btn">未选择角色</button>
-            </div>
-            
-            <div class="section-header">关联词条</div>
-            <div class="link-note">选择词条后，按写作顺序输出词条内容，一次不要选择太多，否则AI容易混乱！</div>
-            <div class="link-buttons">
-              <button class="link-btn">选择词条</button>
-              <button class="link-btn">未选择词条</button>
-            </div>
-          </div>
-          
-          <!-- 操作按钮 -->
-          <div class="panel-actions">
-            <button class="close-btn" @click="toggleAiPanel">关闭</button>
-            <button class="generate-btn">开始生成</button>
-          </div>
-        </div>
+        <AIWrit v-if="currentPanel === 'writing'" :availableModels="availableModels" :aiSettings="aiSettings" @close="closeAiPanel" />
         
         <!-- AI续写面板 -->
         <div v-if="currentPanel === 'continuation'" class="panel-content">
@@ -419,7 +357,10 @@
           <!-- 会话连续性 -->
           <div class="panel-section">
             <div class="section-header-row">
-              <span>启用会话连续性</span>
+              <div class="tooltip-container">
+                <span class="continuity-label">启用会话连续性</span>
+                <span class="tooltip-text">开启后AI将记住上下文，重新生成时可填入自定义要求，但字数会明请谨慎开启,对话模式默认关联上下文！</span>
+              </div>
               <div class="toggle-switch">
                 <input type="checkbox" v-model="aiSettings.continuity" id="continuation-continuity">
                 <label for="continuation-continuity"></label>
@@ -494,47 +435,17 @@
         </div>
         
         <!-- 黄金开篇面板 -->
-        <div v-if="currentPanel === 'opening'" class="panel-content">
-          <!-- 小说信息 -->
-          <div class="panel-section">
-            <div class="section-header">小说信息 <span class="highlight-text">可自定义补充任意内容，用于生成完整开篇</span></div>
-            <div class="novel-info-form">
-              <div class="form-row">
-                <label>小说名称:</label>
-                <input type="text" v-model="novelInfo.title" class="info-input" value="xing">
-              </div>
-              <div class="form-row">
-                <label>小说类型:</label>
-                <input type="text" v-model="novelInfo.genre" class="info-input" value="都市修真">
-              </div>
-              <div class="form-row">
-                <label>小说简介:</label>
-                <textarea v-model="novelInfo.summary" class="info-textarea"></textarea>
-              </div>
-              <div class="form-row">
-                <label>小说标签:</label>
-                <textarea v-model="novelInfo.tags" class="info-textarea"></textarea>
-              </div>
-            </div>
-          </div>
-          
-          <!-- 补充信息 -->
-          <div class="panel-section">
-            <div class="section-header">补充信息 (可选) <span class="highlight-text">可以补充任何你想要AI考虑的额外信息</span></div>
-            <textarea class="idea-input" placeholder="请输入补充信息..." v-model="novelInfo.extra"></textarea>
-          </div>
-          
-          <!-- 操作按钮 -->
-          <div class="panel-actions">
-            <button class="close-btn" @click="toggleAiPanel">关闭</button>
-            <button class="generate-btn">灵感开篇 生成</button>
-          </div>
-        </div>
+        <AIOpen v-if="currentPanel === 'opening'" :aiSettings="aiSettings" @close="closeAiPanel" />
+
+        <!-- 人物卡面板 -->
+        <CharacterCardPanel v-if="isCharacterCardPanelOpen" @close="closeCharacterCardPanel" />
+        
+        <!-- 词条卡面板 -->
+        <EntryCardPanel v-if="isEntryCardPanelOpen" @close="closeEntryCardPanel" />
       </div>
     </div>
   </div>
 
-  <!-- Font Settings Modal -->
   <div v-if="fontSettings.showModal" class="settings-modal">
     <div class="modal-content">
       <h3>字体设置</h3>
@@ -566,7 +477,7 @@
     </div>
   </div>
 
-  <!-- Background Settings Modal -->
+  <!-- 背景颜色 -->
   <div v-if="backgroundSettings.showModal" class="settings-modal">
     <div class="modal-content">
       <h3>背景设置</h3>
@@ -738,6 +649,179 @@
       </div>
     </div>
   </div>
+
+  <!-- 在现有模态框后添加章节选择模态框 -->
+  <div v-if="showChapterSelectModal" class="select-modal chapter-select-modal" @click="closeChapterSelectModal">
+    <div class="modal-content" @click.stop>
+      <div class="modal-header">
+        <h3>选择关联章节</h3>
+        <button @click="closeChapterSelectModal" class="close-btn">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="search-box">
+        <input type="text" v-model="chapterSearchKeyword" placeholder="搜索章节...">
+      </div>
+      <div class="select-list">
+        <div class="select-all-container">
+          <label>
+            <input type="checkbox" :checked="isAllChaptersSelected" @change="toggleSelectAllChapters">
+            全选
+          </label>
+        </div>
+        <div v-for="chapter in filteredChapters" :key="chapter.id" class="select-item">
+          <label>
+            <input type="checkbox" v-model="selectedChapterIds" :value="chapter.id">
+            {{ chapter.title || '未命名章节' }}
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="confirmChaptersSelection" class="confirm-btn">
+          确认选择 ({{ selectedChapterIds.length }})
+        </button>
+        <button @click="closeChapterSelectModal" class="cancel-btn">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景选择模态框 -->
+  <div v-if="showSceneSelectModal" class="select-modal scene-select-modal" @click="closeSceneSelectModal">
+    <div class="modal-content" @click.stop>
+      <div class="modal-header">
+        <h3>选择场景</h3>
+        <button @click="closeSceneSelectModal" class="close-btn">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="search-box">
+        <input type="text" v-model="sceneSearchKeyword" placeholder="搜索场景...">
+      </div>
+      
+      <!-- 添加调试信息和刷新按钮 -->
+      <div v-if="filteredScenes.length === 0" class="debug-info">
+        <p>未找到场景数据。请确保您已经在Data部分创建了场景。</p>
+        <button @click="refreshSceneData" class="refresh-btn">
+          <i class="fas fa-sync-alt"></i> 刷新场景数据
+        </button>
+      </div>
+      
+      <div class="scene-list">
+        <div v-for="scene in filteredScenes" 
+             :key="scene.id" 
+             class="scene-item"
+             @click="selectScene(scene)">
+          <div class="scene-name">{{ scene.name }}</div>
+          <i class="fas fa-chevron-right"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 角色选择模态框 (卡片选择) -->
+  <div v-if="showCharacterSelectModal" class="select-modal character-select-modal" @click="closeCharacterSelectModal">
+  <div class="modal-content" @click.stop>
+    <div class="modal-header">
+      <h3>选择角色 ({{ currentScene?.name }})</h3>
+      <button @click="closeCharacterSelectModal" class="close-btn">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div class="search-box">
+      <input type="text" v-model="cardSearchKeyword" placeholder="搜索卡片...">
+    </div>
+    <div class="select-list">
+      <div class="select-all-container">
+        <label>
+          <input type="checkbox" :checked="isAllCardsSelected" @change="toggleSelectAllCards">
+          全选
+        </label>
+      </div>
+      <div v-for="card in filteredSceneCards"
+        :key="card.id"
+        class="select-item"
+        >
+        <label>
+          <input type="checkbox" v-model="selectedCardIds" :value="card.id"> 
+          {{ card.title || '未命名卡片' }}
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button @click="confirmCardsSelection" class="confirm-btn">
+        确认选择 ({{ selectedCardIds.length }})
+      </button>
+      <button @click="closeCharacterSelectModal" class="cancel-btn">返回场景选择</button>
+    </div>
+  </div>
+</div>
+
+  <!-- 词条选择模态框 -->
+  <div v-if="showEntrySelectModal" class="select-modal entry-select-modal" @click="closeEntrySelectModal">
+    <div class="modal-content" @click.stop>
+      <div class="modal-header">
+        <h3>选择词条</h3>
+        <button @click="closeEntrySelectModal" class="close-btn">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="tab-buttons">
+        <button 
+          :class="['tab-btn', entrySelectTab === 'cards' ? 'active' : '']"
+          @click="entrySelectTab = 'cards'">
+          选择卡片
+        </button>
+        <button 
+          :class="['tab-btn', entrySelectTab === 'groups' ? 'active' : '']"
+          @click="entrySelectTab = 'groups'">
+          选择卡组
+        </button>
+      </div>
+      <div class="search-box">
+        <input type="text" v-model="entrySearchKeyword" placeholder="搜索...">
+      </div>
+      <div v-if="entrySelectTab === 'cards'" class="select-list">
+        <div class="select-all-container">
+          <label>
+            <input type="checkbox" :checked="isAllEntriesSelected" @change="toggleSelectAllEntries">
+            全选
+          </label>
+        </div>
+        <div v-for="card in filteredEntryCards" 
+             :key="card.id" 
+             class="select-item"
+             v-if="card.type !== 'group'">
+          <label>
+            <input type="checkbox" v-model="selectedEntryIds" :value="card.id">
+            {{ card.title || '未命名卡片' }}
+          </label>
+        </div>
+      </div>
+      <div v-else class="select-list">
+        <div class="select-all-container">
+          <label>
+            <input type="checkbox" :checked="isAllGroupsSelected" @change="toggleSelectAllGroups">
+            全选
+          </label>
+        </div>
+        <div v-for="group in filteredEntryGroups" 
+             :key="group.id" 
+             class="select-item">
+          <label>
+            <input type="checkbox" v-model="selectedEntryIds" :value="group.id">
+            {{ group.title || '未命名卡组' }}
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="confirmEntrySelection" class="confirm-btn">
+          确认选择 ({{ selectedEntryIds.length }})
+        </button>
+        <button @click="closeEntrySelectModal" class="cancel-btn">取消</button>
+      </div>
+    </div>
+  </div>
+
 </template>
 
 <script>
@@ -746,6 +830,8 @@ import { useRoute } from 'vue-router'
 import { v4 as uuidv4 } from 'uuid'
 import { debounce, showToast } from '../utils/common'
 import { debugLog } from '../utils/debug'
+import AIOpen from './Editors/AIOpen.vue'; // 引入AIOpen组件
+import AIWrit from './Editors/AIWrit.vue'; // 引入AIWrit组件
 
 export default {
   name: 'Editor',
@@ -753,33 +839,30 @@ export default {
     bookId: {
       type: String,
       required: true
+    },
+    selectedModel: {
+      type: Object,
+      required: true
     }
+  },
+  components: {
+    AIOpen,
+    AIWrit,
   },
   setup(props) {
     const route = useRoute()
     const bookId = ref(props.bookId || 'default')
+    const isCharacterCardPanelOpen = ref(false);
+    const isEntryCardPanelOpen = ref(false);
     
     // 从localStorage加载模型数据
     const loadModelInfo = () => {
-      try {
-        const savedInfo = JSON.parse(localStorage.getItem('modelInfo'))
-        return savedInfo || {
-          models: [
-            { id: 'gemini-2.0', name: 'Google - gemini-2.0-flash-thinking-exp-01-2' },
-            { id: 'gpt-4', name: 'OpenAI - GPT-4' },
-            { id: 'claude-3', name: 'Anthropic - Claude 3' }
-          ],
-          defaultModel: 'gemini-2.0'
-        }
-      } catch (e) {
-        console.error('Error loading model info:', e)
-        return {
-          models: [
-            { id: 'gemini-2.0', name: 'Google - gemini-2.0-flash-thinking-exp-01-2' }
-          ],
-          defaultModel: 'gemini-2.0'
-        }
+      const savedData = localStorage.getItem('allData')
+      if (savedData) {
+        const parsedData = JSON.parse(savedData)
+        return parsedData.config.models || [props.selectedModel]
       }
+      return [props.selectedModel]
     }
     
     // 加载模型信息
@@ -787,24 +870,26 @@ export default {
     
     // 获取可用模型列表
     const availableModels = computed(() => {
-      return modelInfo.value.models || []
+      return modelInfo.value || []
     })
     
     // 简化后的AI设置 - 使用加载的默认模型
     const aiSettings = reactive({
-      model: modelInfo.value.defaultModel || 'gemini-2.0',
+      model: modelInfo.value[0]?.id || 'gemini-2.0',
       continuity: false,
       promptMode: 'template',
       outlineDirection: '',
       userIdea: '',
-      customPrompt: ''
+      customPrompt: '',
+      selectedPrompt: '',
+      promptContent: ''
     })
     
     // AI大纲生成弹窗 - 使用加载的默认模型
     const aiOutlineModal = reactive({
       show: false,
       chapter: null,
-      model: modelInfo.value.defaultModel || 'gemini-2.0',
+      model: modelInfo.value[0]?.id || 'gemini-2.0',
       continuity: false,
       promptMode: 'template',
       selectedTemplate: '',
@@ -926,8 +1011,6 @@ export default {
       applyHistoryState(); // 应用历史状态
     }
 
-    // 计算属性
-    const isEditing = computed(() => currentChapterId.value !== null)
 
     const loadChapters = async () => {
       try {
@@ -942,22 +1025,6 @@ export default {
       } catch (error) {
         console.error('加载章节出错:', error);
         showToast('加载章节失败', 'error');
-      }
-    }
-
-    // 保存章节 - 简化
-    const saveChapters = async (manualSave = false) => {
-      try {
-        debugLog('保存章节', chapters.value);
-        contentChanged.value = false;
-        titleChanged.value = false;
-        
-        if (manualSave) {
-          showToast('保存成功', 'success')
-        }
-      } catch (error) {
-        console.error('保存章节出错:', error)
-        showToast('保存章节失败', 'error')
       }
     }
 
@@ -1062,7 +1129,7 @@ export default {
         chapters.value.push(newChapter)
         openChapter(newChapter.id)
         
-        await saveChapters()
+        await saveCurrentChapter()
         showToast('章节创建成功', 'success')
       } catch (error) {
         console.error('创建章节失败:', error)
@@ -1071,7 +1138,7 @@ export default {
     }
 
     // 基础章节操作
-    const deleteChapter = () => {
+    const deleteChapter = async () => {
       if (!contextMenu.targetChapter) return
       
       const targetId = contextMenu.targetChapter.id
@@ -1089,7 +1156,7 @@ export default {
           }
         }
         
-        saveChapters()
+        await saveCurrentChapter()
       }
       
       closeContextMenu()
@@ -1287,8 +1354,6 @@ export default {
       showToast(`已替换所有匹配项`, 'success')
     }
 
-    // ===== AI功能 - 简化 =====
-    
     // 面板切换
     const toggleAiPanel = () => {
       showAiPanel.value = !showAiPanel.value
@@ -1301,6 +1366,7 @@ export default {
 
     const closeAiPanel = () => {
       showAiPanel.value = false
+      currentPanel.value = '' // 关闭时重置当前面板
     }
 
     // AI生成功能的简化版 - 主要展示界面
@@ -1448,7 +1514,7 @@ export default {
     }
 
     // 添加章节上移功能
-    const moveChapterUp = () => {
+    const moveChapterUp = async () => {
       if (!contextMenu.targetChapter) return
       
       const targetId = contextMenu.targetChapter.id
@@ -1457,7 +1523,7 @@ export default {
       if (index > 0) {
         // 交换当前章节与上一章节
         [chapters.value[index], chapters.value[index - 1]] = [chapters.value[index - 1], chapters.value[index]]
-        saveChapters()
+        await saveCurrentChapter()
         showToast('章节已上移', 'success')
       } else {
         showToast('已经是第一章', 'info')
@@ -1467,7 +1533,7 @@ export default {
     }
 
     // 添加章节下移功能
-    const moveChapterDown = () => {
+    const moveChapterDown = async () => {
       if (!contextMenu.targetChapter) return
       
       const targetId = contextMenu.targetChapter.id
@@ -1476,7 +1542,7 @@ export default {
       if (index !== -1 && index < chapters.value.length - 1) {
         // 交换当前章节与下一章节
         [chapters.value[index], chapters.value[index + 1]] = [chapters.value[index + 1], chapters.value[index]]
-        saveChapters()
+        await saveCurrentChapter()
         showToast('章节已下移', 'success')
       } else {
         showToast('已经是最后一章', 'info')
@@ -1511,15 +1577,6 @@ export default {
       }
     }
 
-    // 添加小说信息对象
-    const novelInfo = reactive({
-      title: '',
-      genre: '都市修真',
-      summary: '',
-      tags: '',
-      extra: ''
-    })
-
     // 组件生命周期钩子
     onMounted(async () => {
       window.addEventListener('beforeunload', beforeUnloadHandler)
@@ -1536,9 +1593,9 @@ export default {
       modelInfo.value = latestModelInfo
       
       // 设置默认模型
-      if (latestModelInfo.defaultModel) {
-        aiSettings.model = latestModelInfo.defaultModel
-        aiOutlineModal.model = latestModelInfo.defaultModel
+      if (latestModelInfo[0]?.id) {
+        aiSettings.model = latestModelInfo[0].id
+        aiOutlineModal.model = latestModelInfo[0].id
       }
     })
 
@@ -1565,7 +1622,6 @@ export default {
       }
     }
 
-    // 确保返回所有需要在模板中使用的函数和变量
     return {
       // 编辑器基础
       isFullscreen,
@@ -1647,9 +1703,6 @@ export default {
       // 添加模型信息
       modelInfo,
       availableModels,
-
-      // 添加小说信息对象
-      novelInfo
     }
   }
 }

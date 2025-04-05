@@ -150,8 +150,10 @@
                 v-model="card.title" 
                 placeholder="输入标题..."
                 class="card-title"
+                :style="{ color: card.titleColor || '#333333' }"
                 @input="$emit('update-card', card)"
               />
+              <!-- 颜色选择器已移出 -->
             </div>
             <div class="card-content">
               <textarea 
@@ -175,6 +177,7 @@
                   <span 
                     v-if="part.isKeyword" 
                     class="keyword-highlight"
+                    :style="{ color: part.titleColor }"
                     @mouseover="showCardPreview($event, part.cardId)"
                     @mouseout="hideCardPreview"
                     @click.stop="handleKeywordClick($event, part.cardId)"
@@ -188,10 +191,21 @@
               <div class="resize-handle" @mousedown="startCardResize($event, card)"></div>
             </div>
 
-            <!-- 添加被引用指示器 -->
-            <div v-if="hasKeywordTag(card) && isCardReferenced(card)" class="reference-indicator">
-              <i class="fas fa-quote-right"></i>
-              <span>引用于 {{ getReferencedByCards(card).length }} 张卡片</span>
+            <!-- 新增容器包裹颜色选择器和引用指示器 -->
+            <div class="card-meta-info">
+              <!-- 添加颜色选择器 -->
+              <input 
+                type="color" 
+                v-model="card.titleColor"
+                class="title-color-picker"
+                title="设置标题颜色"
+                @input="handleTitleColorChange(card)"
+              />
+              <!-- 被引用指示器 -->
+              <div v-if="hasKeywordTag(card) && isCardReferenced(card)" class="reference-indicator">
+                <i class="fas fa-quote-right"></i>
+                <span>引用于 {{ getReferencedByCards(card).length }} 张卡片</span>
+              </div>
             </div>
 
             <div class="card-tags">
@@ -606,7 +620,7 @@ const generateUUID = () => {
   })
 }
 
-// 修改卡片创建方法，添加数据保存
+// 修改卡片创建方法，添加数据保存和 titleColor
 const createNewCard = async () => {
   if (!props.scene.cards) {
     props.scene.cards = []
@@ -618,7 +632,8 @@ const createNewCard = async () => {
     content: '',
     height: '120px',
     tags: [],
-    insertedContents: []
+    insertedContents: [],
+    titleColor: '#333333' // 添加默认标题颜色
   }
   
   // 更新场景
@@ -648,6 +663,17 @@ const createNewCard = async () => {
   }
 }
 
+// 添加处理标题颜色变化的方法，确保更新和保存
+const handleTitleColorChange = (card) => {
+  // v-model 已经更新了 card.titleColor
+  // 触发更新事件以通知父组件
+  emit('update-card', { ...card }) 
+  
+  // 可以在这里添加防抖逻辑，避免频繁保存
+  // 暂时直接保存
+  saveSceneData() 
+}
+
 // 修改处理数据保存的方法
 const saveSceneData = async () => {
   try {
@@ -657,13 +683,14 @@ const saveSceneData = async () => {
     const sceneIndex = allScenes.findIndex(s => s.id === props.scene.id)
     
     if (sceneIndex !== -1) {
-      // 确保卡组数据完整性
+      // 确保卡组数据和标题颜色完整性
       const updatedScene = {
         ...props.scene,
         cards: props.scene.cards.map(card => ({
           ...card,
           type: card.type || 'normal',
-          cards: card.type === 'group' ? (card.cards || []) : undefined
+          cards: card.type === 'group' ? (card.cards || []) : undefined,
+          titleColor: card.titleColor || '#333333' // 确保 titleColor 存在
         }))
       }
       
@@ -1689,11 +1716,12 @@ const parseContent = (content, card) => {
           })
         }
         
-        // 添加关键词部分
+        // 添加关键词部分，包含标题颜色
         newResult.push({
           text: keywordCard.title,
           isKeyword: true,
-          cardId: keywordCard.id
+          cardId: keywordCard.id,
+          titleColor: keywordCard.titleColor || '#333333' // 使用关键词卡片的标题颜色
         })
         
         lastIndex = titleIndex + keywordCard.title.length
@@ -2321,16 +2349,17 @@ const handleKeywordClick = (event, cardId) => {
 
 /* 添加关键词高亮和预览弹窗样式 */
 :deep(.keyword-highlight) {
-  background-color: rgba(var(--primary-color-rgb), 0.2);
-  border-bottom: 1px dashed var(--primary-color);
+  border-bottom: 1px dashed currentColor;
   cursor: pointer;
   position: relative;
   padding: 0 2px;
   border-radius: 2px;
+  display: inline-block;
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 :deep(.keyword-highlight:hover) {
-  background-color: rgba(var(--primary-color-rgb), 0.4);
+  background-color: rgba(0, 0, 0, 0.1);
 }
 
 .card-preview-popup {
@@ -2412,118 +2441,82 @@ const handleKeywordClick = (event, cardId) => {
   background: rgba(0, 0, 0, 0.02);
 }
 
-.keyword-highlight {
-  background-color: rgba(var(--primary-color-rgb), 0.2);
-  border-bottom: 1px dashed var(--primary-color);
-  cursor: pointer;
-  position: relative;
-  padding: 0 2px;
-  border-radius: 2px;
-}
-
-.keyword-highlight:hover {
-  background-color: rgba(var(--primary-color-rgb), 0.4);
-}
-
-/* 当按下Ctrl键时显示提示 */
-.keyword-highlight:has(:root[data-ctrl-pressed="true"]:not(:has(button:hover)))::after {
-  content: '点击跳转至卡片';
-  position: absolute;
-  top: -24px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.7);
-  color: white;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  z-index: 10;
-  white-space: nowrap;
-}
-
-/* 卡片内容区域样式调整 */
-.card-content {
-  position: relative;
-  flex: 1;
-  overflow: hidden;
-}
-
-/* 隐藏编辑模式下的渲染内容 */
-.card-content:has(textarea:focus) .rendered-content {
-  display: none;
-}
-
-/* 添加被引用指示器 */
-.reference-indicator {
-  position: absolute;
-  top: 0;
-  right: 0;
-  background-color: rgba(255, 255, 255, 0.8);
-  color: var(--text-secondary-color);
-  padding: 4px 8px;
-  border-radius: 4px;
-  margin: 8px;
-  font-size: 0.8em;
-}
-
-/* 修改卡片特殊状态的样式 */
-.text-card.is-keyword-card {
-  border-left: 3px solid var(--primary-color);
-}
-
-.text-card.is-keyword-card.is-referenced {
-  box-shadow: 0 0 0 2px var(--primary-color);
-  position: relative;
-}
-
-.text-card.is-keyword-card.is-referenced::after {
-  content: '';
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  width: 16px;
-  height: 16px;
-  background: var(--primary-color);
-  border-radius: 50%;
-  border: 2px solid white;
-  z-index: 2;
-}
-
-/* 添加引用指示器样式 */
-.reference-indicator {
-  background: rgba(var(--primary-color-rgb), 0.1);
-  color: var(--primary-color);
-  padding: 4px 8px;
-  font-size: 12px;
-  border-radius: 0 0 4px 4px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.reference-indicator i {
-  font-size: 10px;
-}
-
-/* 优化关键词高亮样式 */
-.keyword-highlight {
-  background-color: rgba(var(--primary-color-rgb), 0.2);
-  border-bottom: 1px dashed var(--primary-color);
-  cursor: pointer;
-  position: relative;
-  padding: 0 2px;
-  border-radius: 2px;
-  display: inline-block;
-}
-
-.keyword-highlight:hover {
-  background-color: rgba(var(--primary-color-rgb), 0.4);
-}
-
 /* 确保编辑文本区域覆盖渲染内容 */
 .card-content textarea {
   position: relative;
   z-index: 3;
   background: var(--card-bg-color);
+}
+
+/* 恢复卡片头部样式 */
+.card-header {
+  display: flex;
+  align-items: center;
+  /* gap: 8px; */ /* 移除gap */
+  padding: 10px 12px; 
+  border-bottom: 1px solid var(--border-color);
+}
+
+.card-title {
+  /* flex: 1; */ /* 不再需要flex:1 */
+  width: 100%; /* 占满头部宽度 */
+  font-size: 1.1em;
+  font-weight: bold;
+  border: none;
+  background: transparent;
+  padding: 4px 0; 
+  /* 颜色将通过内联样式设置 */
+}
+
+/* 新容器样式 */
+.card-meta-info {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* 在颜色选择器和指示器之间添加间距 */
+  padding: 4px 12px; /* 添加一些内边距 */
+  /* border-top: 1px solid var(--border-color); */ /* 可选：添加分隔线 */
+}
+
+/* 标题颜色选择器样式 */
+.title-color-picker {
+  width: 20px; /* 稍微减小尺寸 */
+  height: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 1px; 
+  cursor: pointer;
+  background-color: transparent; 
+  /* margin-right: 8px; */ /* 使用 gap 代替 */
+}
+
+/* 移除 Webkit/Blink 浏览器的默认边框 */
+.title-color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.title-color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px; 
+}
+
+/* Firefox 样式 */
+.title-color-picker::-moz-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+
+/* 调整被引用指示器的位置 */
+.reference-indicator {
+  /* position: absolute; */ /* 移除绝对定位 */
+  background: rgba(var(--primary-color-rgb), 0.1);
+  color: var(--primary-color);
+  padding: 2px 6px; /* 稍微减小内边距 */
+  font-size: 11px; /* 稍微减小字体 */
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* margin-top: 4px; */ /* 移除顶部外边距 */
+  margin-left: auto; /* 将其推到右侧 */
 }
 </style>

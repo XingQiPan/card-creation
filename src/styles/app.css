@@ -697,9 +697,9 @@
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
     padding: 24px;
     position: relative;
-    overflow: visible; /* 允许内容溢出 */
     padding: 20px;
     overflow-y: auto;
+    overflow-x: hidden;
     min-width: 1600px;
     max-width: 95%;
     max-height: 85vh; /* 限制最大高度 */

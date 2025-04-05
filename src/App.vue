@@ -516,13 +516,16 @@
                 <div class="form-group" v-if="model.provider === 'openai'">
                   <label>选择输入方式</label>
                   <select v-model="model.inputMethod">
-                    <option value="input">拉取模型</option>
-                    <option value="fetch">输入模型</option>
+                    <option value="input">输入模型</option>
+                    <option value="fetch">拉取模型</option>
                   </select>
                 </div>
-                <div class="form-group">
+                <div class="form-group" v-if="model.provider !== 'gemini'">
                   <label>API 地址</label>
-                  <input v-model="model.apiUrl" placeholder="API 地址"/>
+                  <input 
+                    v-model="model.apiUrl" 
+                    placeholder="API 地址"
+                  />
                 </div>
                 <div class="form-group">
                   <label>API Key</label>
@@ -537,7 +540,10 @@
                   <label>模型选择</label>
                   <div class="model-actions">
                     <template v-if="
-                      model.provider === 'custom' || model.provider === 'gemini' || model.provider === 'embedding' || model.provider === 'openai' && model.inputMethod === 'fetch'
+                      model.provider === 'custom' || 
+                      model.provider === 'gemini' || 
+                      model.provider === 'embedding' || 
+                      (model.provider === 'openai' && model.inputMethod === 'input')
                       ">
                       <input 
                         v-model="model.modelId"

@@ -25,6 +25,13 @@
 
 # 版本更新内容:
 <details open>
+<summary>0.9.3.6</summary>
+
+- 修复了API显示，增加了OpenAI模型选择可以输入，或者拉取模型
+
+</details>
+
+<details>
 <summary>0.9.3.5</summary>
 
 - 小说编辑器基础版本-为完善
@@ -193,17 +200,20 @@ start-dev.bat
 - QQ群：1028368820
 - 教程：
 
+新教程：
+
+版本号：0.9.3.3
+
+1、[【星卡写作第一课教程，如何安装星卡写作！】](https://www.bilibili.com/video/BV1K3XnYrEmK/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1)
+
+旧教程：
+
 1、[【逆天，一步操作，写作10倍效率——《星卡基础教程》】](https://www.bilibili.com/video/BV1WdPFegEpt/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1)
 
 本教程虽然才过了几天，但是已经与最新版本有较大差异，可以在本视频了解对应功能。
 
 有问题优先进群问，我后期会出新视频同步更新到这里。
 
-新教程：
-
-版本号：0.9.3.3
-
-1、[【星卡写作第一课教程，如何安装星卡写作！】](https://www.bilibili.com/video/BV1K3XnYrEmK/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1)
 
 ---
 

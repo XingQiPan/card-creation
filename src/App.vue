@@ -578,7 +578,7 @@
                 </div>
                 <div class="form-group">
                   <label>最大 Tokens</label>
-                  <input v-model="model.maxTokens" type="number" placeholder="512"/>
+                  <input v-model="model.maxTokens" type="number" placeholder="2048"/>
                 </div>
                 <div class="form-group">
                   <label>Temperature</label>
@@ -976,54 +976,7 @@ const promptForm = ref({
   category: '' // 新增分类字段
 })
 const showSettings = ref(false)
-const models = ref([
-  {
-    id: 'default',
-    name: 'OpenAI',
-    provider: 'openai',
-    apiUrl: 'https://api.openai.com/v1',
-    apiKey: '',
-    modelId: 'gpt-3.5-turbo',
-    maxTokens: 512,
-    temperature: 0.7
-  },
-  {
-    id: 'gemini',
-    name: 'Gemini',
-    provider: 'gemini',
-    apiUrl: '', // 用户自己填写 API 地址
-    apiKey: '',
-    modelId: '', // 用户自己填写模型 ID
-    maxTokens: 2048,
-    temperature: 0.7
-  },
-  {
-    id: 'stepfun',
-    name: '阶跃星辰',
-    provider: 'stepfun',
-    apiUrl: 'https://platform.stepfun.com/v1',
-    apiKey: '',
-    modelId: 'step-1',
-    maxTokens: 512,
-    temperature: 0.7
-  },
-  {
-    id: 'mistral',
-    name: 'Mistral AI',
-    provider: 'mistral',
-    apiUrl: 'https://api.mistral.ai',
-    apiKey: '',
-    modelId: 'mistral-small',
-    maxTokens: 512,
-    temperature: 0.7,
-    availableModels: [
-      { id: 'mistral-tiny', name: 'Mistral Tiny' },
-      { id: 'mistral-small', name: 'Mistral Small' },
-      { id: 'mistral-medium', name: 'Mistral Medium' },
-      { id: 'mistral-large', name: 'Mistral Large' }
-    ]
-  }
-])
+const models = ref([])
 const promptPanelWidth = ref(300)
 const showPromptDetailModal = ref(false)
 const showCardDetailModal = ref(false)
@@ -1210,7 +1163,7 @@ const initializeData = (data) => {
     models.value = (data.config.models || []).map(model => ({
       ...model,
       provider: model.provider || 'custom',
-      maxTokens: model.maxTokens || 512,
+      maxTokens: model.maxTokens || 2048,
       temperature: model.temperature || 0.7
     }))
     
@@ -1803,7 +1756,7 @@ const createDefaultModel = () => ({
   apiUrl: '',
   apiKey: '',
   modelId: '',
-  maxTokens: 512,
+  maxTokens: 2048,
   temperature: 0.7,
   availableModels: [],
   organizationId: ''

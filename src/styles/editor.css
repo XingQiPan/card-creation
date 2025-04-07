@@ -2286,3 +2286,64 @@ button,
 .refresh-btn:hover {
   background-color: #ffe082;
 }
+
+
+/* 添加文本选择菜单样式 */
+.selection-menu {
+  position: absolute;
+  display: flex;
+  background-color: white;
+  border-radius: 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  padding: 4px;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.selection-menu::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  margin-left: -8px;
+  border-width: 8px;
+  border-style: solid;
+}
+
+/* 根据方向变换气泡角 */
+.selection-menu[data-direction="down"]::after {
+  top: 100%;
+  border-color: white transparent transparent transparent;
+}
+
+.selection-menu[data-direction="up"]::after {
+  bottom: 100%;
+  border-color: transparent transparent white transparent;
+}
+
+.selection-menu .menu-item {
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  margin: 0 2px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: #333;
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.selection-menu .menu-item i {
+  margin-right: 4px;
+}
+
+.selection-menu .menu-item:hover {
+  background-color: #f0f7ff;
+  color: #1890ff;
+}

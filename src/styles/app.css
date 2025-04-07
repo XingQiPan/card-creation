@@ -374,6 +374,8 @@
   }
   
   .panel-header {
+    display: flex;
+    flex-direction: column;
     position: sticky;
     top: 0;
     background: #f5f5f5;

@@ -926,7 +926,7 @@ import AIDetector from './components/AIDetector.vue'
 import KnowledgeBase from './components/KnowledgeBase.vue'
 import { useRoute, useRouter } from 'vue-router'
 
-setDebugMode(true)
+setDebugMode(false)
 
 
 // 添加版本号
@@ -1043,6 +1043,7 @@ const insertMdSyntax = (prefix, suffix) => {
 // 使用组合式API
 const {
   isLoading,
+  loadFromStorage,
   truncateText,
   createDebounce
 } = useCommon()
@@ -3107,6 +3108,16 @@ const handleInsertContent = (prompt, index) => {
   // 同步数据
   syncData()
 }
+
+// 在App.vue的setup部分前面(之前尚未提供的代码)
+// ... existing code ...
+
+// 提供scenes和syncData方法给CharacterCardPanel组件
+provide('scenes', scenes);
+provide('syncData', syncData);
+provide('tags', tags); // 添加这一行
+
+// ... existing code ...
 </script>
 
 <style scoped>

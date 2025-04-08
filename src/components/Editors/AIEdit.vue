@@ -261,9 +261,9 @@ watch(() => [aiSettings.editMode, aiSettings.customEditRequest], () => {
 }
 
 .mode-btn.active, .range-btn.active {
-  background-color: var(--primary-color);
+  background-color: #4caf50;
   color: white;
-  border-color: var(--primary-color);
+  border-color: #388e3c;
 }
 
 .range-selector {
@@ -346,6 +346,28 @@ watch(() => [aiSettings.editMode, aiSettings.customEditRequest], () => {
 
 .tooltip-container {
   position: relative;
+}
+
+.tooltip-text {
+  visibility: hidden;
+  width: 200px;
+  background-color: #333;
+  color: #fff;
+  text-align: center;
+  border-radius: 6px;
+  padding: 5px;
+  position: absolute;
+  z-index: 1;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.tooltip-container:hover .tooltip-text {
+  visibility: visible;
+  opacity: 1;
 }
 
 .toggle-switch {

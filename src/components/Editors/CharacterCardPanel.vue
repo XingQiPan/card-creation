@@ -12,14 +12,9 @@
       <div v-if="currentTab === 'scene'" class="panel-section">
         <div class="section-header-row">
           <div class="section-header">场景列表</div>
-          <div class="section-actions">
-            <button class="sync-btn" title="同步所有角色卡片" @click="syncAllCharacterCards">
-              <i class="fas fa-sync"></i>
-            </button>
-            <button class="add-btn" @click="openAddSceneModal">
-              <i class="fas fa-plus"></i>
-            </button>
-          </div>
+          <button class="add-btn" @click="openAddSceneModal">
+            <i class="fas fa-plus"></i>
+          </button>
         </div>
         <div class="scene-filter">
           <input type="text" v-model="sceneSearchKeyword" placeholder="搜索场景..." class="search-input" />
@@ -76,9 +71,6 @@
               <div class="character-header">
                 <h4>{{ character.name }}</h4>
                 <div class="character-actions">
-                  <button class="move-btn" title="移动到其他场景" @click.stop="moveCharacter(character)">
-                    <i class="fas fa-exchange-alt"></i>
-                  </button>
                   <button class="edit-btn" title="编辑" @click.stop="editCharacter(character)">
                     <i class="fas fa-edit"></i>
                   </button>
@@ -122,9 +114,6 @@
               <div class="character-header">
                 <h4>{{ character.name }}</h4>
                 <div class="character-actions">
-                  <button class="move-btn" title="移动到其他场景" @click.stop="moveCharacter(character)">
-                    <i class="fas fa-exchange-alt"></i>
-                  </button>
                   <button class="edit-btn" title="编辑" @click.stop="editCharacter(character)">
                     <i class="fas fa-edit"></i>
                   </button>
@@ -417,267 +406,137 @@
         </div>
       </div>
     </div>
-
-    <!-- 移动角色的模态框 -->
-    <div v-if="showMoveCharacterModal" class="modal-overlay" @click.self="closeMoveCharacterModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>移动角色 "{{ characterToMove?.name }}" 到其他场景</h3>
-          <button class="close-modal-btn" @click="closeMoveCharacterModal">
-            <i class="fas fa-times"></i>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="scene-list-for-move">
-            <div v-if="filteredScenesForMove.length === 0" class="empty-state">
-              <p>没有其他可用场景</p>
-            </div>
-            <div v-else class="scene-move-items">
-              <div 
-                v-for="scene in filteredScenesForMove" 
-                :key="scene.id"
-                class="scene-move-item"
-                @click="moveCharacterToScene(scene)"
-              >
-                <div class="scene-name">{{ scene.name }}</div>
-                <i class="fas fa-chevron-right"></i>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="cancel-btn" @click="closeMoveCharacterModal">取消</button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, reactive, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, computed, reactive, onMounted, onBeforeUnmount, inject } from 'vue';
 import { showToast } from '../../utils/common';
 import { v4 as uuidv4 } from 'uuid';
-import { dataService } from '../../utils/services/dataService'; // 导入dataService
-import { debugLog } from '../../utils/debug';
 
-// 添加props定义，接收App.vue传来的场景数据
-const props = defineProps({
-  // 主应用场景数据
-  appScenes: {
-    type: Array,
-    default: () => []
-  },
-  // 当前激活的场景
-  currentAppScene: {
-    type: Object,
-    default: null
-  }
-});
+// 从App.vue注入scenes数据和数据同步方法
+const appScenes = inject('scenes');
+const syncAppData = inject('syncData');
+const appTags = inject('tags',ref([])); // 注入tags数据，提供默认值防止undefined
 
-// 定义向父组件发出的事件
-const emit = defineEmits(['close', 'editEntry', 'updateCharacter', 'character-scene-changed']);
-
-// 场景和角色数据 - 初始化为空数组，之后从localStorage加载
-// scenes将从App.vue获取，不再独立存储
+// 场景和角色数据 - 初始化为空数组，之后从App.vue的scenes加载
 const scenes = ref([]);
 const characters = ref([]);
 
-// 数据存储键 - 角色仍然需要本地存储
-const STORAGE_KEY_CHARACTERS = 'character-card-characters';
+// 角色标签ID
+const characterTagId = ref(null);
 
-// 在script setup部分的开头添加默认样式常量
-const DEFAULT_CHARACTER_CARD_STYLE = {
-  backgroundColor: '#ffffff',
-  color: '#000000',
-  fontSize: '14px',
-  fontFamily: 'Arial',
-  borderRadius: '4px',
-  padding: '8px',
-  width: '220px',
-  height: 'auto',
-  minHeight: '160px',
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  lineHeight: '1.5',
-  whiteSpace: 'pre-line'
+// 确保存在"角色"标签
+const ensureCharacterTag = () => {
+  try {
+    // 查找是否已有"角色"标签
+    const characterTag = appTags.value?.find(tag => tag.name === '角色' && tag.isKeyword === true);
+    
+    if (characterTag) {
+      // 如果已存在，保存其ID
+      characterTagId.value = characterTag.id;
+      console.log('找到已存在的角色标签:', characterTagId.value);
+    } else {
+      // 创建新的"角色"标签
+      const newTag = {
+        id: Date.now(),
+        name: '角色',
+        isKeyword: true
+      };
+      
+      // 确保appTags.value是数组
+      if (!appTags.value) appTags.value = [];
+      
+      appTags.value.push(newTag);
+
+      characterTagId.value = newTag.id;
+      console.log('创建了新角色标签:', newTag, '当前tags:', appTags.value);
+      setTimeout(() => {
+        console.log('同步数据前tags:', appTags.value);
+        syncAppData();
+        console.log('同步数据后tags:', appTags.value);
+      }, 0);
+    }
+  } catch (error) {
+    console.error('创建角色标签出错:', error);
+    // 设置一个临时ID，确保后续操作不会失败
+    characterTagId.value = 'character-tag';
+  }
 };
 
-// 加载数据 - 修改为使用Props中的场景数据
-const loadData = async () => {
+// 加载数据
+const loadData = () => {
   try {
-    // 优先使用App场景数据
-    if (props.appScenes && props.appScenes.length > 0) {
-      scenes.value = props.appScenes.map(scene => ({
-        id: scene.id,
-        name: scene.name,
-        characterCount: 0 // 将在加载角色时更新
-      }));
-    } else {
-      // 如果没有App场景数据，尝试从localStorage加载
-      const savedScenes = localStorage.getItem('character-card-scenes');
-      if (savedScenes) {
-        scenes.value = JSON.parse(savedScenes);
-      }
-    }
+    // 确保"角色"标签存在
+    ensureCharacterTag();
     
-    // 先尝试从后端加载角色数据
-    try {
-      const allData = await dataService.loadAllData();
-      if (allData && allData.characters && Array.isArray(allData.characters)) {
-        characters.value = allData.characters;
-        debugLog('从后端加载角色数据成功，共加载', characters.value.length, '个角色');
-      } else {
-        // 如果后端没有角色数据，尝试从localStorage加载
-        const savedCharacters = localStorage.getItem(STORAGE_KEY_CHARACTERS);
-        if (savedCharacters) {
-          characters.value = JSON.parse(savedCharacters);
-          debugLog('从本地存储加载角色数据成功，共加载', characters.value.length, '个角色');
+    // 从App.vue注入的scenes数据中加载场景
+    scenes.value = appScenes.value.map(scene => ({
+      id: scene.id,
+      name: scene.name,
+      // 计算场景中的角色数量，如果没有characterTagId则返回所有normal类型卡片
+      characterCount: scene.cards ? scene.cards.filter(card => 
+        card.type === 'normal' && 
+        (!characterTagId.value || !card.tags || card.tags.includes(characterTagId.value))
+      ).length : 0
+    }));
+    
+    // 从场景的cards中提取人物卡数据
+    const allCharacters = [];
+    appScenes.value.forEach(scene => {
+      if (scene.cards && Array.isArray(scene.cards)) {
+        // 获取卡片，如果没有characterTagId则获取所有normal类型卡片
+        scene.cards.filter(card => 
+          card.type === 'normal' && 
+          (!characterTagId.value || !card.tags || card.tags.includes(characterTagId.value))
+        ).forEach(card => {
+          // 从卡片内容中解析角色信息
+          let characterData = {
+            id: card.id,
+            sceneId: scene.id,
+            name: card.title || '未命名角色',
+            role: '',
+            description: '',
+            personality: '',
+            goals: '',
+            relationships: '',
+            entries: [] // 确保每个角色对象都有entries数组属性
+          };
           
-          // 将本地角色数据同步到后端
-          if (allData) {
-            allData.characters = characters.value;
-            await dataService.saveAllData(allData);
-            debugLog('已将本地角色数据同步到后端');
+          // 解析content中的角色信息
+          if (card.content) {
+            const contentLines = card.content.split('\n');
+            contentLines.forEach(line => {
+              if (line.includes('身份:')) characterData.role = line.split('身份:')[1]?.trim();
+              if (line.includes('描述:')) characterData.description = line.split('描述:')[1]?.trim();
+              if (line.includes('性格:')) characterData.personality = line.split('性格:')[1]?.trim();
+              if (line.includes('目标:')) characterData.goals = line.split('目标:')[1]?.trim();
+              if (line.includes('关系:')) characterData.relationships = line.split('关系:')[1]?.trim();
+              if (line.includes('词条:')) {
+                const entriesStr = line.split('词条:')[1]?.trim();
+                if (entriesStr) {
+                  // 假设词条以逗号分隔
+                  const entryTitles = entriesStr.split(',').map(e => e.trim());
+                  characterData.entries = entryTitles.map(title => ({
+                    id: Date.now() + Math.random(),
+                    title
+                  }));
+                }
+              }
+            });
           }
-        }
+          
+          allCharacters.push(characterData);
+        });
       }
-    } catch (error) {
-      console.error('从后端加载角色数据失败:', error);
-      
-      // 从localStorage加载作为备份
-      const savedCharacters = localStorage.getItem(STORAGE_KEY_CHARACTERS);
-      if (savedCharacters) {
-        characters.value = JSON.parse(savedCharacters);
-        debugLog('从本地存储加载角色数据成功（作为备份）');
-      }
-    }
+    });
     
-    // 更新场景中的角色计数
-    updateSceneCharacterCounts();
-    
-    // 如果当前有激活的App场景，自动选中它
-    if (props.currentAppScene) {
-      const matchedScene = scenes.value.find(s => s.id === props.currentAppScene.id);
-      if (matchedScene) {
-        selectScene(matchedScene);
-      }
-    }
-    
-    // 确保每个角色在其场景中都有对应的卡片
-    await ensureCharacterCardsExist();
-    
+    characters.value = allCharacters;
   } catch (error) {
     console.error('加载数据出错:', error);
     showToast('加载数据出错', 'error');
   }
 };
-
-// 确保每个角色在对应场景中都有卡片
-const ensureCharacterCardsExist = async () => {
-  try {
-    // 加载场景数据
-    const allData = await dataService.loadAllData();
-    if (!allData || !allData.scenes || !Array.isArray(allData.scenes)) {
-      return;
-    }
-    
-    let hasChanges = false;
-    
-    // 遍历所有角色
-    for (const character of characters.value) {
-      if (!character.sceneId) continue;
-      
-      // 查找角色所属场景
-      const sceneIndex = allData.scenes.findIndex(s => s.id === character.sceneId);
-      if (sceneIndex === -1) continue;
-      
-      const scene = allData.scenes[sceneIndex];
-      
-      // 确保场景有cards数组
-      if (!scene.cards) {
-        scene.cards = [];
-      }
-      
-      // 检查场景中是否已存在该角色的卡片
-      const cardExists = scene.cards.some(card => 
-        card.type === 'character' && card.characterId === character.id
-      );
-      
-      // 如果不存在，创建一个新卡片
-      if (!cardExists) {
-        debugLog(`为角色 ${character.name} 在场景 ${scene.name} 中创建卡片`);
-        
-        // 创建角色卡片
-        const card = {
-          id: 'card-' + Date.now(),
-          type: 'character',
-          characterId: character.id,
-          title: character.name,
-          content: formatCharacterCardContent(character),
-          position: { x: 100, y: 100 },
-          tags: character.tags || [],
-          style: DEFAULT_CHARACTER_CARD_STYLE
-        };
-        
-        // 添加到场景的cards数组
-        scene.cards.push(card);
-        hasChanges = true;
-      }
-    }
-    
-    // 如果有更改，保存更新后的场景数据
-    if (hasChanges) {
-      await dataService.saveAllData(allData);
-      debugLog('已同步角色卡片数据到场景');
-    }
-  } catch (error) {
-    console.error('确保角色卡片存在时出错:', error);
-  }
-};
-
-// 更新场景中的角色计数
-const updateSceneCharacterCounts = () => {
-  // 重置所有场景的角色计数
-  scenes.value.forEach(scene => {
-    scene.characterCount = characters.value.filter(char => char.sceneId === scene.id).length;
-  });
-};
-
-// 保存数据 - 只保存角色数据，场景数据由App.vue管理
-const saveData = () => {
-  try {
-    localStorage.setItem(STORAGE_KEY_CHARACTERS, JSON.stringify(characters.value));
-    
-    // 更新场景中的角色计数
-    updateSceneCharacterCounts();
-  } catch (error) {
-    console.error('保存数据出错:', error);
-    showToast('保存数据出错', 'error');
-  }
-};
-
-// 监听App场景变化
-watch(() => props.appScenes, (newScenes) => {
-  if (newScenes && newScenes.length > 0) {
-    scenes.value = newScenes.map(scene => ({
-      id: scene.id,
-      name: scene.name,
-      characterCount: 0 // 将在更新角色计数时填充
-    }));
-    
-    // 更新场景中的角色计数
-    updateSceneCharacterCounts();
-  }
-}, { deep: true });
-
-// 监听当前App场景变化
-watch(() => props.currentAppScene, (newScene) => {
-  if (newScene) {
-    const matchedScene = scenes.value.find(s => s.id === newScene.id);
-    if (matchedScene) {
-      selectScene(matchedScene);
-    }
-  }
-});
 
 // 添加当前标签页状态
 const currentTab = ref('scene');
@@ -704,8 +563,7 @@ const characterForm = reactive({
   personality: '',
   goals: '',
   relationships: '',
-  entries: [],
-  tags: []
+  entries: []
 });
 
 // 场景表单模态框状态
@@ -813,9 +671,10 @@ const getSceneName = (sceneId) => {
   return scene ? scene.name : '未知场景';
 };
 
-// 打开新增场景模态框 - 不再支持从这里创建场景，现在场景数据从App.vue获取
+// 打开新增场景模态框
 const openAddSceneModal = () => {
-  showToast('场景管理功能已移至主界面', 'info');
+  sceneForm.name = '';
+  showSceneFormModal.value = true;
 };
 
 // 关闭场景表单模态框
@@ -833,11 +692,21 @@ const saveScene = () => {
   const newScene = {
     id: uuidv4(),
     name: sceneForm.name,
-    characterCount: 0
+    cards: []
   };
   
-  scenes.value.push(newScene);
-  saveData(); // 保存数据
+  // 更新本地scenes引用
+  scenes.value.push({
+    id: newScene.id,
+    name: newScene.name,
+    characterCount: 0
+  });
+  
+  // 更新App.vue中的scenes数据
+  appScenes.value.push(newScene);
+  
+  // 同步数据
+  syncAppData();
   showToast('场景已添加', 'success');
   closeSceneFormModal();
 };
@@ -863,78 +732,38 @@ const deleteScene = () => {
   // 删除场景下的所有角色
   characters.value = characters.value.filter(char => char.sceneId !== sceneId);
   
-  // 删除场景
+  // 删除本地场景
   scenes.value = scenes.value.filter(scene => scene.id !== sceneId);
+  
+  // 删除App.vue中的场景
+  const sceneIndex = appScenes.value.findIndex(s => s.id === sceneId);
+  if (sceneIndex !== -1) {
+    appScenes.value.splice(sceneIndex, 1);
+  }
   
   // 如果当前显示的是被删除的场景，重置选中的场景
   if (selectedScene.value && selectedScene.value.id === sceneId) {
     selectedScene.value = null;
   }
   
-  saveData(); // 保存数据
+  // 同步数据
+  syncAppData();
   showToast('场景及其角色已删除', 'success');
   closeDeleteSceneModal();
 };
 
-// 刷新场景数据 - 重新从App获取场景数据
+// 刷新场景数据
 const refreshSceneData = () => {
-  loadData();
+  // 这里可以实现从后端加载场景数据的逻辑
+  // 暂时使用示例数据
   showToast('场景数据已刷新', 'success');
 };
 
 // 选择场景
-const selectScene = async (scene) => {
+const selectScene = (scene) => {
   selectedScene.value = scene;
   selectedCharacter.value = null; // 重置选中的角色
   characterSearchKeyword.value = ''; // 重置搜索关键词
-  
-  // 自动同步当前场景的角色卡片
-  try {
-    const sceneCharacters = characters.value.filter(char => char.sceneId === scene.id);
-    if (sceneCharacters.length > 0) {
-      let needsSync = false;
-      
-      // 获取场景数据，检查是否需要同步
-      const allData = await dataService.loadAllData();
-      const sceneData = allData.scenes?.find(s => s.id === scene.id);
-      
-      if (sceneData) {
-        // 检查场景中是否有所有角色的卡片
-        for (const character of sceneCharacters) {
-          const cardExists = sceneData.cards?.some(card => 
-            card.type === 'character' && card.characterId === character.id
-          );
-          
-          if (!cardExists) {
-            needsSync = true;
-            break;
-          }
-        }
-        
-        // 如果需要同步，只同步缺失的卡片
-        if (needsSync) {
-          debugLog(`场景 ${scene.name} 中缺少角色卡片，正在自动同步...`);
-          
-          // 更新场景UI时自动同步角色卡片
-          const missingCardCharacters = sceneCharacters.filter(character => {
-            return !sceneData.cards?.some(card => 
-              card.type === 'character' && card.characterId === character.id
-            );
-          });
-          
-          if (missingCardCharacters.length > 0) {
-            for (const character of missingCardCharacters) {
-              await generateCharacterCard(character);
-            }
-            showToast(`已为${missingCardCharacters.length}个角色自动同步卡片`, 'success');
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.error('自动同步角色卡片失败:', error);
-    // 不显示错误提示，避免影响用户体验
-  }
 };
 
 // 选择角色
@@ -942,39 +771,8 @@ const selectCharacter = (character) => {
   selectedCharacter.value = character;
 };
 
-// 检查角色标签是否存在
-const checkCharacterTagExists = async () => {
-  try {
-    // 获取标签数据
-    const allData = await dataService.loadAllData();
-    if (!allData || !allData.tags || !Array.isArray(allData.tags)) {
-      return false;
-    }
-    
-    // 查找"角色"标签
-    const characterTagExists = allData.tags.some(tag => tag.name === '角色');
-    
-    if (!characterTagExists) {
-      showToast('请先在标签管理中创建"角色"标签，再创建角色卡片！', 'error');
-      return false;
-    }
-    
-    return true;
-  } catch (error) {
-    console.error('检查角色标签出错:', error);
-    showToast('无法验证角色标签，请确保已创建"角色"标签', 'warning');
-    return false;
-  }
-};
-
 // 打开新增角色模态框
-const openAddCharacterModal = async () => {
-  // 检查是否存在角色标签
-  const tagExists = await checkCharacterTagExists();
-  if (!tagExists) {
-    return;
-  }
-  
+const openAddCharacterModal = () => {
   isEditMode.value = false;
   
   // 重置表单
@@ -1002,13 +800,7 @@ const openAddCharacterModal = async () => {
 };
 
 // 编辑角色
-const editCharacter = async (character) => {
-  // 检查是否存在角色标签
-  const tagExists = await checkCharacterTagExists();
-  if (!tagExists) {
-    return;
-  }
-  
+const editCharacter = (character) => {
   isEditMode.value = true;
   
   // 填充表单
@@ -1036,396 +828,69 @@ const closeCharacterFormModal = () => {
 };
 
 // 保存角色
-const saveCharacter = async () => {
+const saveCharacter = () => {
+  // 验证必填字段
   if (!characterForm.name) {
-    alert('请输入角色名称');
+    showToast('请输入角色名称', 'error');
     return;
   }
   
-  // 确保角色有tags数组
-  if (!characterForm.tags) {
-    characterForm.tags = [];
+  if (!characterForm.sceneId) {
+    showToast('请选择场景', 'error');
+    return;
   }
-
-  try {
-    // 获取所有标签数据
-    const allData = await dataService.loadAllData();
-    if (!allData) {
-      throw new Error('无法加载数据');
-    }
-
-    // 检查是否存在角色标签
-    const characterTagExists = allData.tags && allData.tags.some(tag => tag.name === '角色');
-    if (!characterTagExists) {
-      showToast('请先在标签管理中创建"角色"标签，再创建角色卡片！', 'error');
-      return;
-    }
-    
-    // 获取角色标签ID
-    const characterTag = allData.tags.find(tag => tag.name === '角色');
-    
-    // 添加角色标签ID到角色的标签中
-    if (characterTag && !characterForm.tags.includes(characterTag.id)) {
-      characterForm.tags.push(characterTag.id);
-    }
-
-    // 添加"人设"标签（如果不存在）
-    if (!characterForm.tags.includes('人设')) {
-      characterForm.tags.push('人设');
-    }
-
-    // 如果是新角色
-    if (!characterForm.id) {
-      // 生成唯一ID
-      characterForm.id = 'character-' + Date.now();
+  
+  if (isEditMode.value) {
+    // 编辑现有角色
+    const index = characters.value.findIndex(char => char.id === characterForm.id);
+    if (index !== -1) {
+      // 获取旧场景ID用于更新计数
+      const oldSceneId = characters.value[index].sceneId;
       
-      // 添加到角色列表
-      characters.value.push({...characterForm});
+      // 更新角色
+      characters.value[index] = { ...characterForm };
       
-      // 如果选择了场景，将角色添加到场景
-      if (characterForm.sceneId) {
-        // 不再触发角色场景变化事件，直接在这里处理
-        debugLog(`角色 ${characterForm.name} (${characterForm.id}) 添加到场景 ${characterForm.sceneId}`);
+      // 如果场景有变更，更新场景中的角色数量
+      if (oldSceneId !== characterForm.sceneId) {
+        // 减少旧场景的角色数量
+        const oldSceneIndex = scenes.value.findIndex(scene => scene.id === oldSceneId);
+        if (oldSceneIndex !== -1 && scenes.value[oldSceneIndex].characterCount > 0) {
+          scenes.value[oldSceneIndex].characterCount--;
+        }
         
-        // 创建角色卡片并添加到场景
-        await createCharacterCardInScene(characterForm);
-      }
-    } else {
-      // 更新现有角色
-      const index = characters.value.findIndex(c => c.id === characterForm.id);
-      if (index !== -1) {
-        const oldSceneId = characters.value[index].sceneId;
-        characters.value[index] = {...characterForm};
-      
-        // 更新场景中的角色卡片内容
-        await updateCharacterCardContent(characterForm);
-      
-        // 如果场景发生变化，直接在这里处理
-        if (oldSceneId !== characterForm.sceneId) {
-          debugLog(`角色 ${characterForm.name} (${characterForm.id}) 从 ${oldSceneId} 移动到场景 ${characterForm.sceneId}`);
-          
-          // 如果角色被添加到新场景，生成角色卡片
-          if (characterForm.sceneId) {
-            await createCharacterCardInScene(characterForm);
-          }
-          
-          // 如果从旧场景移除，需要更新旧场景数据
-          if (oldSceneId) {
-            await removeCharacterFromScene(characterForm.id, oldSceneId);
-          }
+        // 增加新场景的角色数量
+        const newSceneIndex = scenes.value.findIndex(scene => scene.id === characterForm.sceneId);
+        if (newSceneIndex !== -1) {
+          scenes.value[newSceneIndex].characterCount = (scenes.value[newSceneIndex].characterCount || 0) + 1;
         }
       }
-    }
-    
-    // 更新后端数据
-    if (!allData.characters) {
-      allData.characters = [];
-    }
-    
-    // 更新或添加角色数据到后端
-    const characterIndex = allData.characters.findIndex(c => c.id === characterForm.id);
-    if (characterIndex !== -1) {
-      allData.characters[characterIndex] = characterForm;
-    } else {
-      allData.characters.push(characterForm);
-    }
-    
-    // 保存更新后的数据
-    await dataService.saveAllData(allData);
-    
-    // 保存角色数据到本地存储作为备份
-    localStorage.setItem(STORAGE_KEY_CHARACTERS, JSON.stringify(characters.value));
-    
-    // 关闭表单模态框
-    showCharacterFormModal.value = false;
-    
-    // 显示成功提示
-    showToast('角色保存成功', 'success');
-  } catch (error) {
-    console.error('保存角色失败:', error);
-    showToast('保存角色失败: ' + error.message, 'error');
-  }
-};
-
-// 新增函数：从场景中移除角色
-const removeCharacterFromScene = async (characterId, sceneId) => {
-  try {
-    // 获取场景数据
-    const allData = await dataService.loadAllData();
-    const scenes = allData.scenes || [];
-    
-    // 查找角色所属场景
-    const sceneIndex = scenes.findIndex(s => s.id === sceneId);
-    if (sceneIndex === -1) {
-      console.error('找不到对应的场景:', sceneId);
-      return;
-    }
-    
-    const scene = scenes[sceneIndex];
-    
-    // 确保场景有cards数组
-    if (!scene.cards) {
-      scene.cards = [];
-    }
-    
-    // 从场景中移除角色卡片
-    const originalLength = scene.cards.length;
-    scene.cards = scene.cards.filter(card => 
-      !(card.type === 'character' && card.characterId === characterId)
-    );
-    
-    // 如果卡片被移除，更新场景的角色计数
-    if (scene.cards.length < originalLength) {
-      scene.characterCount = Math.max(0, (scene.characterCount || 0) - 1);
       
-      // 保存更新后的场景数据
-      await dataService.saveAllData(allData);
-      
-      debugLog(`已从场景 ${scene.name} 中移除角色卡片`);
-      
-      // 触发场景更新事件，通知视图更新
-      const event = new CustomEvent('scene-updated', { 
-        detail: { sceneId: scene.id } 
-      });
-      window.dispatchEvent(event);
-    }
-  } catch (error) {
-    console.error('从场景中移除角色失败:', error);
-  }
-};
-
-// 新增函数：在创建人物卡后自动在对应场景中生成角色卡片
-const createCharacterCardInScene = async (character) => {
-  try {
-    // 如果角色没有指定场景，则不创建卡片
-    if (!character.sceneId) {
-      debugLog('角色未指定场景，不创建卡片');
-      return;
-    }
-    
-    // 获取场景数据
-    const allData = await dataService.loadAllData();
-    if (!allData) {
-      throw new Error('无法加载场景数据');
-    }
-
-    // 检查是否存在角色标签
-    const characterTagExists = allData.tags && allData.tags.some(tag => tag.name === '角色');
-    if (!characterTagExists) {
-      showToast('请先在标签管理中创建"角色"标签，再创建角色卡片！', 'error');
-      return;
-    }
-
-    // 获取角色标签ID
-    const characterTag = allData.tags.find(tag => tag.name === '角色');
-    
-    // 确保角色有标签数组
-    if (!character.tags) {
-      character.tags = [];
-    }
-    
-    // 添加角色标签ID（如果不存在）
-    if (characterTag && !character.tags.includes(characterTag.id)) {
-      character.tags.push(characterTag.id);
-    }
-    
-    const scenes = allData.scenes || [];
-    
-    // 查找角色所属场景
-    const sceneIndex = scenes.findIndex(s => s.id === character.sceneId);
-    if (sceneIndex === -1) {
-      console.error('找不到对应的场景:', character.sceneId);
-      return;
-    }
-    
-    const scene = scenes[sceneIndex];
-    
-    // 确保场景有cards数组
-    if (!scene.cards) {
-      scene.cards = [];
-    }
-    
-    // 检查场景中是否已有该角色的卡片
-    const existingCardIndex = scene.cards.findIndex(card => 
-      card.type === 'character' && card.characterId === character.id
-    );
-    
-    debugLog('场景卡片:', scene.cards);
-    
-    if (existingCardIndex === -1) {
-      // 创建角色卡片
-      const card = {
-        id: `character-${character.id}-${Date.now()}`,
-        type: 'character',
-        characterId: character.id,
-        title: character.name,
-        content: formatCharacterCardContent(character),
-        position: { x: 100, y: 100 },
-        tags: character.tags || [],
-        style: DEFAULT_CHARACTER_CARD_STYLE
-      };
-      
-      // 添加到场景的cards数组
-      scene.cards.push(card);
-      debugLog('添加卡片到场景:', card);
-      
-      // 更新场景的角色计数
-      scene.characterCount = (scene.characterCount || 0) + 1;
-      
-      // 确保角色数据存在于后端
-      if (!allData.characters) {
-        allData.characters = [];
+      // 如果当前正在查看此角色，更新选中的角色
+      if (selectedCharacter.value && selectedCharacter.value.id === characterForm.id) {
+        selectedCharacter.value = { ...characterForm };
       }
-      
-      // 更新或添加角色数据
-      const characterIndex = allData.characters.findIndex(c => c.id === character.id);
-      if (characterIndex !== -1) {
-        allData.characters[characterIndex] = character;
-      } else {
-        allData.characters.push(character);
-      }
-      
-      // 保存更新后的场景数据
-      await dataService.saveAllData(allData);
-      
-      debugLog(`已为角色 ${character.name} 在场景 ${scene.name} 中创建卡片`);
-      
-      // 触发场景更新事件，通知视图更新
-      const event = new CustomEvent('scene-updated', { 
-        detail: { sceneId: scene.id } 
-      });
-      window.dispatchEvent(event);
-    } else {
-      debugLog(`角色 ${character.name} 在场景 ${scene.name} 中已有卡片`);
     }
-  } catch (error) {
-    console.error('创建角色卡片失败:', error);
-    showToast('创建角色卡片失败: ' + error.message, 'error');
-  }
-};
-
-// 格式化角色卡片内容 - 以指定的格式显示
-const formatCharacterCardContent = (character) => {
-  const entries = character.entries && character.entries.length > 0 
-    ? character.entries.map(entry => entry.title).join('，') 
-    : '无';
-
-  return `【角色身份：】${character.role || '未知'}
-【角色描述：】${character.description || '暂无描述'}
-【性格特点：】${character.personality || '暂无性格描述'}
-【角色目标：】${character.goals || '暂无目标描述'}
-【角色关系：】${character.relationships || '暂无角色关系'}
-【词条：】${entries}`;
-};
-
-// 重置表单数据
-const resetForm = () => {
-  // 重置所有表单字段
-  characterForm.id = '';
-  characterForm.sceneId = '';
-  characterForm.name = '';
-  characterForm.role = '';
-  characterForm.avatar = '';
-  characterForm.description = '';
-  characterForm.personality = '';
-  characterForm.goals = '';
-  characterForm.relationships = '';
-  characterForm.entries = [];
-  characterForm.tags = [];
-  
-  // 重置场景选择
-  selectedSceneForCharacter.value = null;
-  sceneFilterKeyword.value = '';
-  
-  // 关闭模态框
-  showCharacterFormModal.value = false;
-};
-
-// 生成角色卡片并添加到场景
-const generateCharacterCard = async (character) => {
-  try {
-    // 获取当前场景
-    const scene = scenes.value.find(s => s.id === character.sceneId);
-    if (!scene) {
-      console.error('找不到对应的场景:', character.sceneId);
-      return;
-    }
+  } else {
+    // 添加新角色
+    const newCharacter = {
+      ...characterForm,
+      id: uuidv4()
+    };
     
-    // 检查角色是否有"角色"标签
-    const allData = await dataService.loadAllData();
-    const characterTagExists = allData.tags && allData.tags.some(tag => tag.name === '角色');
+    characters.value.push(newCharacter);
     
-    if (!characterTagExists) {
-      showToast('请先在标签管理中创建"角色"标签，再创建角色卡片！', 'error');
-      return;
-    }
-    
-    // 获取"角色"标签ID
-    const characterTag = allData.tags.find(tag => tag.name === '角色');
-    
-    // 确保角色有标签数组
-    if (!character.tags) {
-      character.tags = [];
-    }
-    
-    // 添加角色标签ID（如果不存在）
-    if (characterTag && !character.tags.includes(characterTag.id)) {
-      character.tags.push(characterTag.id);
-    }
-    
-    // 检查场景是否有cards数组
-    if (!scene.cards) {
-      scene.cards = [];
-    }
-    
-    // 检查场景中是否已有该角色的卡片
-    const existingCard = scene.cards.find(card => 
-      card.type === 'character' && card.characterId === character.id
-    );
-    
-    if (existingCard) {
-      // 更新现有卡片
-      existingCard.title = character.name;
-      existingCard.content = formatCharacterCardContent(character);
-      existingCard.tags = character.tags;
-      showToast('已更新角色卡片', 'success');
-    } else {
-      // 创建新的角色卡片
-      const newCard = {
-        id: 'card-' + Date.now(),
-        type: 'character',
-        characterId: character.id,
-        title: character.name,
-        content: formatCharacterCardContent(character),
-        position: { x: 100, y: 100 },
-        tags: character.tags,
-        style: DEFAULT_CHARACTER_CARD_STYLE
-      };
-      
-      // 添加卡片到场景
-      scene.cards.push(newCard);
-      showToast('已生成角色卡片', 'success');
-    }
-    
-    // 更新场景数据
-    const sceneIndex = allData.scenes.findIndex(s => s.id === scene.id);
+    // 更新场景中的角色数量
+    const sceneIndex = scenes.value.findIndex(scene => scene.id === newCharacter.sceneId);
     if (sceneIndex !== -1) {
-      allData.scenes[sceneIndex] = scene;
-      
-      // 保存更新后的数据
-      await dataService.saveAllData(allData);
-      debugLog('已保存角色卡片:', character.name);
-      
-      // 添加：触发场景更新事件，通知视图更新
-      const event = new CustomEvent('scene-updated', { 
-        detail: { sceneId: scene.id } 
-      });
-      window.dispatchEvent(event);
+      scenes.value[sceneIndex].characterCount = (scenes.value[sceneIndex].characterCount || 0) + 1;
     }
-  } catch (error) {
-    console.error('生成角色卡片失败:', error);
-    showToast('生成角色卡片失败: ' + error.message, 'error');
   }
+  
+  // 更新appScenes数据并同步
+  updateAppScenesWithCharacters();
+  syncAppData();
+  showToast(isEditMode.value ? '角色已更新' : '角色已添加', 'success');
+  closeCharacterFormModal();
 };
 
 // 确认删除角色
@@ -1441,7 +906,7 @@ const closeDeleteConfirmModal = () => {
 };
 
 // 删除角色
-const deleteCharacter = async () => {
+const deleteCharacter = () => {
   if (!characterToDelete.value) return;
   
   const index = characters.value.findIndex(char => char.id === characterToDelete.value.id);
@@ -1449,124 +914,82 @@ const deleteCharacter = async () => {
     const deletedChar = characters.value[index];
     characters.value.splice(index, 1);
     
-    // 通知父组件角色已从场景删除
-    debugLog(`角色场景变化事件触发: 角色 ${deletedChar.name} (${deletedChar.id}) 从场景 ${deletedChar.sceneId} 删除`);
-    emit('character-scene-changed', deletedChar, deletedChar.sceneId, null);
+    // 更新场景中的角色数量
+    const sceneIndex = scenes.value.findIndex(scene => scene.id === deletedChar.sceneId);
+    if (sceneIndex !== -1 && scenes.value[sceneIndex].characterCount > 0) {
+      scenes.value[sceneIndex].characterCount--;
+    }
     
     // 如果当前正在查看此角色，重置选中的角色
     if (selectedCharacter.value && selectedCharacter.value.id === deletedChar.id) {
       selectedCharacter.value = null;
     }
-    
-    // 从场景中删除对应的卡片
-    await removeCharacterCardFromScene(deletedChar);
   }
   
-  saveData(); // 保存数据
+  // 更新appScenes数据并同步
+  updateAppScenesWithCharacters();
+  syncAppData();
   showToast('角色已删除', 'success');
   closeDeleteConfirmModal();
 };
 
-// 从场景中删除角色卡片
-const removeCharacterCardFromScene = async (character) => {
+// 新增方法：更新appScenes中的角色数据
+const updateAppScenesWithCharacters = () => {
   try {
-    // 如果角色有场景ID
-    if (character.sceneId) {
-      // 获取场景数据
-      const sceneData = await dataService.loadAllData();
-      const currentScenes = sceneData.scenes || [];
+    appScenes.value.forEach(scene => {
+      // 获取该场景下的所有角色
+      const sceneCharacters = characters.value.filter(char => char.sceneId === scene.id);
       
-      // 找到对应的场景
-      const sceneIndex = currentScenes.findIndex(s => s.id === character.sceneId);
+      // 保留非人物卡片和没有角色标签的人物卡片
+      const nonCharacterCards = scene.cards ? scene.cards.filter(card => 
+        card.type !== 'normal' || 
+        (characterTagId.value && card.tags && !card.tags.includes(characterTagId.value))
+      ) : [];
       
-      if (sceneIndex !== -1) {
-        const scene = currentScenes[sceneIndex];
+      // 将角色转换为卡片格式
+      const characterCards = sceneCharacters.map(char => {
+        // 构建content内容
+        let content = '';
+        if (char.role) content += `身份: ${char.role}\n`;
+        if (char.description) content += `描述: ${char.description}\n`;
+        if (char.personality) content += `性格: ${char.personality}\n`;
+        if (char.goals) content += `目标: ${char.goals}\n`;
+        if (char.relationships) content += `关系: ${char.relationships}\n`;
         
-        // 确保场景有cards数组并且有卡片
-        if (scene.cards && scene.cards.length > 0) {
-          // 移除角色相关的卡片
-          const originalCount = scene.cards.length;
-          scene.cards = scene.cards.filter(card => card.characterId !== character.id);
-          
-          // 如果有卡片被移除，保存更新后的场景数据
-          if (originalCount > scene.cards.length) {
-            // 更新场景的角色计数
-            if (scene.characterCount && scene.characterCount > 0) {
-              scene.characterCount -= 1;
-            }
-            
-            // 保存更新后的场景数据
-            await dataService.saveAllData(sceneData);
-            debugLog('从场景移除角色卡片成功:', character.name);
-          } else {
-            debugLog('场景中未找到角色卡片:', character.name);
-          }
+        // 添加词条
+        if (char.entries && char.entries.length > 0) {
+          const entryTitles = char.entries.map(entry => entry.title).join(', ');
+          content += `词条: ${entryTitles}`;
         }
-      }
+        
+        // 添加角色标签 - 只有当characterTagId存在时才添加
+        const tags = characterTagId.value ? [characterTagId.value] : [];
+        
+        return {
+          id: char.id,
+          title: char.name,
+          content: content.trim(),
+          type: 'normal',
+          height: '120px',
+          tags: tags,
+          insertedContents: [],
+          titleColor: '#333333'
+        };
+      });
       
-      // 从角色数组中移除该角色
-      const characterIndex = characters.value.findIndex(c => c.id === character.id);
-      if (characterIndex !== -1) {
-        characters.value.splice(characterIndex, 1);
-        
-        // 更新本地存储
-        localStorage.setItem(STORAGE_KEY_CHARACTERS, JSON.stringify(characters.value));
-        
-        // 更新character列表
-        if (sceneData.characters) {
-          sceneData.characters = sceneData.characters.filter(c => c.id !== character.id);
-          await dataService.saveAllData(sceneData);
-        }
-      }
-    }
+      // 更新场景的cards
+      scene.cards = [...nonCharacterCards, ...characterCards];
+    });
   } catch (error) {
-    console.error('从场景移除角色卡片失败:', error);
+    console.error('更新角色数据出错:', error);
+    showToast('更新角色数据出错', 'error');
   }
 };
 
 // 为当前章节选择角色
-const selectCharactersForCurrentChapter = async () => {
-  if (!selectedScene.value) {
-    showToast('请先选择一个场景', 'error');
-    return;
-  }
-  
-  try {
-    const scene = selectedScene.value;
-    const sceneCharacters = characters.value.filter(char => char.sceneId === scene.id);
-    
-    if (sceneCharacters.length === 0) {
-      showToast('当前场景下没有角色可选择', 'warning');
-      return;
-    }
-    
-    // 为场景下的所有角色生成卡片
-    let successCount = 0;
-    for (const character of sceneCharacters) {
-      try {
-        await generateCharacterCard(character);
-        successCount++;
-      } catch (error) {
-        console.error(`为角色 ${character.name} 生成卡片失败:`, error);
-      }
-    }
-    
-    if (successCount > 0) {
-      showToast(`已为${successCount}个角色生成/更新卡片`, 'success');
-    } else {
-      showToast('没有生成任何卡片', 'warning');
-    }
-    
-    // 触发场景更新事件
-    const event = new CustomEvent('scene-updated', { 
-      detail: { sceneId: scene.id } 
-    });
-    window.dispatchEvent(event);
-    
-  } catch (error) {
-    console.error('生成角色卡片失败:', error);
-    showToast('操作失败: ' + error.message, 'error');
-  }
+const selectCharactersForCurrentChapter = () => {
+  showToast('为当前章节关联角色功能待实现', 'info');
+  // 实际实现中，可能需要打开一个选择角色的模态框，允许用户选择多个角色
 };
 
 // 打开角色详情弹窗
@@ -1631,25 +1054,11 @@ const isEntrySelected = (entry) => {
 };
 
 // 加载词条数据
-const loadEntries = async () => {
+const loadEntries = () => {
   try {
-    // 先尝试从后端加载词条数据
-    try {
-      const allData = await dataService.loadAllData();
-      if (allData && allData.entries && Array.isArray(allData.entries) && allData.entries.length > 0) {
-        allEntries.value = allData.entries;
-        debugLog('从后端加载词条数据成功，共加载', allEntries.value.length, '个词条');
-        return;
-      }
-    } catch (error) {
-      console.error('从后端加载词条数据失败:', error);
-    }
-    
-    // 如果后端没有词条数据或加载失败，尝试从localStorage加载
     const savedEntries = localStorage.getItem('entry-card-entries');
     if (savedEntries) {
       allEntries.value = JSON.parse(savedEntries);
-      debugLog('从本地存储加载词条数据成功');
     }
   } catch (error) {
     console.error('加载词条数据出错:', error);
@@ -1685,10 +1094,10 @@ const showEntryModal = (mode, entry = null) => {
 };
 
 // 在mounted中加载数据
-onMounted(async () => {
+onMounted(() => {
   document.addEventListener('click', handleClickOutside);
-  await loadData(); // 异步加载保存的数据
-  await loadEntries(); // 异步加载词条数据
+  loadData(); // 加载保存的数据
+  loadEntries(); // 加载词条数据
 });
 
 // 在beforeUnmount中移除处理器
@@ -1696,229 +1105,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside);
 });
 
-// 添加更新角色卡片内容的方法
-const updateCharacterCardContent = async (character) => {
-  try {
-    // 获取场景数据
-    const sceneData = await dataService.loadAllData();
-    const currentScenes = sceneData.scenes || [];
-    
-    // 如果角色有所属场景，更新该场景中的卡片
-    if (character.sceneId) {
-      const sceneIndex = currentScenes.findIndex(s => s.id === character.sceneId);
-      
-      if (sceneIndex !== -1) {
-        const scene = currentScenes[sceneIndex];
-        
-        // 确保场景有cards数组
-        if (!scene.cards) {
-          scene.cards = [];
-        }
-        
-        // 查找该角色的卡片
-        const cardIndex = scene.cards.findIndex(c => c.characterId === character.id);
-        
-        if (cardIndex !== -1) {
-          // 更新卡片内容
-          scene.cards[cardIndex].title = character.name;
-          scene.cards[cardIndex].content = formatCharacterCardContent(character);
-          scene.cards[cardIndex].tags = character.tags || [];
-          
-          // 保存更新后的场景数据
-          await dataService.saveAllData(sceneData);
-          debugLog('更新角色卡片内容成功:', character.name);
-        } else {
-          // 如果找不到该角色的卡片，创建一个新卡片
-          const newCard = {
-            id: 'card-' + Date.now(),
-            type: 'character',
-            characterId: character.id,
-            title: character.name,
-            content: formatCharacterCardContent(character),
-            position: { x: 100, y: 100 },
-            tags: character.tags || [],
-            style: DEFAULT_CHARACTER_CARD_STYLE
-          };
-          
-          // 添加到场景的cards数组
-          scene.cards.push(newCard);
-          
-          // 保存更新后的场景数据
-          await dataService.saveAllData(sceneData);
-          debugLog('在场景中创建角色卡片成功:', character.name);
-        }
-      }
-    }
-  } catch (error) {
-    console.error('更新角色卡片内容失败:', error);
-  }
-};
-
-// 在script部分添加移动角色相关的状态和方法
-const showMoveCharacterModal = ref(false);
-const characterToMove = ref(null);
-
-// 打开移动角色模态框
-const moveCharacter = (character) => {
-  characterToMove.value = character;
-  showMoveCharacterModal.value = true;
-};
-
-// 关闭移动角色模态框
-const closeMoveCharacterModal = () => {
-  showMoveCharacterModal.value = false;
-  characterToMove.value = null;
-};
-
-// 计算可移动到的场景列表（排除当前场景）
-const filteredScenesForMove = computed(() => {
-  if (!characterToMove.value) return [];
-  
-  return scenes.value.filter(scene => scene.id !== characterToMove.value.sceneId);
-});
-
-// 移动角色到选中的场景
-const moveCharacterToScene = async (targetScene) => {
-  if (!characterToMove.value) return;
-  
-  try {
-    const character = {...characterToMove.value};
-    const oldSceneId = character.sceneId;
-    
-    // 更新角色的场景ID
-    character.sceneId = targetScene.id;
-    
-    // 触发角色场景变化事件
-    debugLog(`角色场景变化事件触发: 角色 ${character.name} (${character.id}) 从 ${oldSceneId} 移动到场景 ${targetScene.id}`);
-    emit('character-scene-changed', character, oldSceneId, targetScene.id);
-    
-    // 更新本地角色数据
-    const index = characters.value.findIndex(c => c.id === character.id);
-    if (index !== -1) {
-      characters.value[index] = character;
-    }
-    
-    // 获取场景数据
-    const sceneData = await dataService.loadAllData();
-    const currentScenes = sceneData.scenes || [];
-    
-    // 在新场景添加角色卡片
-    const targetSceneIndex = currentScenes.findIndex(s => s.id === targetScene.id);
-    if (targetSceneIndex !== -1) {
-      const scene = currentScenes[targetSceneIndex];
-      
-      // 确保场景有cards数组
-      if (!scene.cards) {
-        scene.cards = [];
-      }
-      
-      // 检查是否已存在该角色卡片
-      const existingCardIndex = scene.cards.findIndex(c => c.characterId === character.id);
-      
-      if (existingCardIndex === -1) {
-        // 创建新的角色卡片
-        const card = {
-          id: 'card-' + Date.now(),
-          type: 'character',
-          characterId: character.id,
-          title: character.name,
-          content: formatCharacterCardContent(character),
-          position: { x: 100, y: 100 },
-          tags: character.tags || [],
-          style: DEFAULT_CHARACTER_CARD_STYLE
-        };
-        
-        // 添加到新场景
-        scene.cards.push(card);
-      }
-    }
-    
-    // 从旧场景移除角色卡片
-    if (oldSceneId) {
-      const oldSceneIndex = currentScenes.findIndex(s => s.id === oldSceneId);
-      if (oldSceneIndex !== -1) {
-        const oldScene = currentScenes[oldSceneIndex];
-        if (oldScene.cards) {
-          oldScene.cards = oldScene.cards.filter(c => c.characterId !== character.id);
-        }
-      }
-    }
-    
-    // 更新角色数据
-    if (!sceneData.characters) {
-      sceneData.characters = [];
-    }
-    
-    const characterIndex = sceneData.characters.findIndex(c => c.id === character.id);
-    if (characterIndex !== -1) {
-      sceneData.characters[characterIndex] = character;
-    } else {
-      sceneData.characters.push(character);
-    }
-    
-    // 保存更新后的数据
-    await dataService.saveAllData(sceneData);
-    
-    // 保存到localStorage作为备份
-    localStorage.setItem(STORAGE_KEY_CHARACTERS, JSON.stringify(characters.value));
-    
-    // 更新场景中的角色计数
-    updateSceneCharacterCounts();
-    
-    showToast(`已将角色 "${character.name}" 移动到场景 "${targetScene.name}"`, 'success');
-    closeMoveCharacterModal();
-    
-    // 如果当前显示的是源场景，可能需要刷新角色列表
-    if (selectedScene.value && selectedScene.value.id === oldSceneId) {
-      // 选中移动后的场景
-      selectScene(targetScene);
-    }
-  } catch (error) {
-    console.error('移动角色失败:', error);
-    showToast('移动角色失败: ' + error.message, 'error');
-  }
-};
-
-// 同步所有角色卡片
-const syncAllCharacterCards = async () => {
-  try {
-    const charactersWithScene = characters.value.filter(c => c.sceneId);
-    if (charactersWithScene.length === 0) {
-      showToast('没有找到关联场景的角色', 'warning');
-      return;
-    }
-    
-    showToast('开始同步角色卡片...', 'info');
-    
-    let successCount = 0;
-    for (const character of charactersWithScene) {
-      try {
-        await generateCharacterCard(character);
-        successCount++;
-      } catch (error) {
-        console.error(`同步角色 ${character.name} 的卡片失败:`, error);
-      }
-    }
-    
-    if (successCount > 0) {
-      showToast(`成功同步 ${successCount} 个角色卡片`, 'success');
-      
-      // 如果当前选中了场景，触发场景更新事件
-      if (selectedScene.value) {
-        const event = new CustomEvent('scene-updated', { 
-          detail: { sceneId: selectedScene.value.id } 
-        });
-        window.dispatchEvent(event);
-      }
-    } else {
-      showToast('没有角色卡片需要同步', 'info');
-    }
-  } catch (error) {
-    console.error('同步角色卡片失败:', error);
-    showToast('同步失败: ' + error.message, 'error');
-  }
-};
-
+// 定义 emit 事件
+const emit = defineEmits(['close', 'editEntry']);
 </script>
 
 <style scoped>
@@ -1955,6 +1143,18 @@ const syncAllCharacterCards = async () => {
   z-index: 1;
 }
 
+.tab.active {
+  color: #4caf50;
+}
+
+.tab-indicator {
+  position: absolute;
+  bottom: 0;
+  height: 3px;
+  width: 50%;
+  background-color: #4caf50;
+  transition: transform 0.3s;
+}
 
 .panel-section {
   margin-bottom: 20px;
@@ -2039,6 +1239,15 @@ const syncAllCharacterCards = async () => {
   font-size: 0.85em;
   color: #666;
   margin-right: 12px;
+}
+
+.add-btn {
+  padding: 6px 12px;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
 }
 
 .character-items {
@@ -2203,6 +1412,15 @@ const syncAllCharacterCards = async () => {
   border-radius: 4px;
   border: 1px solid #ccc;
   background-color: #f5f5f5;
+  cursor: pointer;
+}
+
+.primary-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid #388e3c;
+  background-color: #4caf50;
+  color: white;
   cursor: pointer;
 }
 
@@ -2518,57 +1736,5 @@ const syncAllCharacterCards = async () => {
 
 .detail-text.markdown {
   white-space: pre-wrap;
-}
-
-.scene-list-for-move {
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.scene-move-items {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.scene-move-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.scene-move-item:hover {
-  background-color: #f5f5f5;
-}
-
-.section-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.sync-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 16px;
-  color: #666;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.sync-btn:hover {
-  background-color: #f0f0f0;
-  color: #4caf50;
-}
-
-.move-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px;
-  color: #2196f3;
 }
 </style> 

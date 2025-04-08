@@ -840,6 +840,19 @@ defineExpose({
   z-index: 1;
 }
 
+.tab.active {
+  color: #4caf50;
+}
+
+.tab-indicator {
+  position: absolute;
+  bottom: 0;
+  height: 3px;
+  width: 50%;
+  background-color: #4caf50;
+  transition: transform 0.3s;
+}
+
 .panel-section {
   margin-bottom: 20px;
   border: 1px solid #e0e0e0;
@@ -983,6 +996,15 @@ defineExpose({
   color: #666;
 }
 
+.add-btn {
+  padding: 6px 12px;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
 .panel-actions {
   display: flex;
   justify-content: space-between;
@@ -999,6 +1021,14 @@ defineExpose({
   cursor: pointer;
 }
 
+.primary-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid #388e3c;
+  background-color: #4caf50;
+  color: white;
+  cursor: pointer;
+}
 
 .modal-overlay {
   position: fixed;

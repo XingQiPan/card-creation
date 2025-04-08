@@ -75,11 +75,21 @@
       <button class="close-btn" @click="$emit('close')">关闭</button>
       <button class="generate-btn" @click="generateIdea">开始生成</button>
     </div>
+    
+    <!-- 添加提示词选择弹窗 -->
+    <PromptSelectionDialog
+      :visible="promptSelectionVisible"
+      :categories="categories"
+      :prompts="prompts"
+      @close="promptSelectionVisible = false"
+      @select="handlePromptSelect"
+    />
   </div>
 </template>
 
 <script setup>
-import { reactive, computed, ref } from 'vue';
+import { reactive, computed, ref, watch } from 'vue';
+import PromptSelectionDialog from '../Prompt/PromptSelectionDialog.vue';
 
 const props = defineProps({
   availableModels: {
@@ -89,24 +99,68 @@ const props = defineProps({
   aiSettings: {
     type: Object,
     required: true
+  },
+  panelState: {
+    type: Object,
+    required: false,
+    default: () => ({
+      content: '',
+      prompt: '',
+      selectedTemplate: ''
+    })
+  },
+  categories: {
+    type: Array,
+    required: false,
+    default: () => []
+  },
+  prompts: {
+    type: Array,
+    required: false,
+    default: () => []
   }
 });
 
-// 简化的基本数据
-const aiSettings = reactive(props.aiSettings);
+// 使用传入的 panelState 初始化数据
+const aiSettings = reactive({
+  ...props.aiSettings,
+  plotPoints: props.panelState.content || '',
+  selectedPrompt: props.panelState.selectedTemplate || '',
+  customPrompt: props.panelState.prompt || ''
+});
 
-// 简化方法
+// 控制提示词选择弹窗显示
+const promptSelectionVisible = ref(false);
+
+// 监听数据变化，更新父组件状态
+const emit = defineEmits(['close', 'update:state']);
+
+// 监视数据变化
+watch(() => [aiSettings.plotPoints, aiSettings.selectedPrompt, aiSettings.customPrompt], () => {
+  emit('update:state', {
+    content: aiSettings.plotPoints,
+    prompt: aiSettings.customPrompt,
+    selectedTemplate: aiSettings.selectedPrompt
+  });
+}, { deep: true });
+
+// 显示提示词选择弹窗
 const showPromptSelection = () => {
-  console.log('显示提示词选择');
-  // 这里可以添加显示提示词选择的逻辑
-}
+  promptSelectionVisible.value = true;
+};
+
+// 处理提示词选择
+const handlePromptSelect = (prompt) => {
+  aiSettings.selectedPrompt = prompt.title;
+  aiSettings.selectedPromptId = prompt.id;
+  aiSettings.selectedPromptContent = prompt.systemPrompt;
+  promptSelectionVisible.value = false;
+};
 
 const generateIdea = () => {
   console.log('开始生成内容');
   // 这里可以添加生成内容的逻辑
 }
-
-const emit = defineEmits(['close']);
 </script>
 
 <style scoped>
@@ -198,28 +252,6 @@ const emit = defineEmits(['close']);
 
 .tooltip-container {
   position: relative;
-}
-
-.tooltip-text {
-  visibility: hidden;
-  width: 200px;
-  background-color: #333;
-  color: #fff;
-  text-align: center;
-  border-radius: 6px;
-  padding: 5px;
-  position: absolute;
-  z-index: 1;
-  bottom: 125%;
-  left: 50%;
-  transform: translateX(-50%);
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.tooltip-container:hover .tooltip-text {
-  visibility: visible;
-  opacity: 1;
 }
 
 .selected-prompt {

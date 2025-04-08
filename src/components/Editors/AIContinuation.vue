@@ -85,7 +85,7 @@
       <div class="panel-section">
         <div class="section-header">关联章节</div>
         <div class="link-buttons">
-          <button class="link-btn" :class="{ 'active': aiSettings.linkedChapters?.length > 0 }">
+          <button class="link-btn" :class="{ 'active': aiSettings.linkedChapters?.length > 0 }" @click="showChapterSelection">
             {{ aiSettings.linkedChapters?.length > 0 ? `已选择 ${aiSettings.linkedChapters.length} 章` : '选择章节' }}
           </button>
         </div>
@@ -95,7 +95,7 @@
       <div class="panel-section">
         <div class="section-header">相关角色</div>
         <div class="link-buttons">
-          <button class="link-btn" :class="{ 'active': aiSettings.linkedCharacters?.length > 0 }">
+          <button class="link-btn" :class="{ 'active': aiSettings.linkedCharacters?.length > 0 }" @click="showCharacterSelection">
             <span v-if="aiSettings.linkedCharacters?.length > 0">
               已选择 {{ aiSettings.linkedCharacters.length }} 个角色
               <span v-if="aiSettings.selectedCardsInfo" class="selected-cards-preview">
@@ -114,11 +114,44 @@
       <button class="dialog-btn" @click="startDialog">开始对话</button>
       <button class="generate-btn" @click="startGenerate">开始生成</button>
     </div>
+    
+    <!-- 提示词选择弹窗 -->
+    <PromptSelectionDialog
+      :visible="promptSelectionVisible"
+      :categories="categories"
+      :prompts="prompts"
+      :defaultCategory="'续写'"
+      @close="promptSelectionVisible = false"
+      @select="handlePromptSelect"
+    />
+    
+    <!-- 章节选择弹窗 -->
+    <ChapterSelectionDialog
+      :visible="chapterSelectionVisible"
+      :chapters="availableChapters"
+      :selectedChapters="aiSettings.linkedChapters"
+      :selectedOutlines="aiSettings.linkedOutlines"
+      @close="chapterSelectionVisible = false"
+      @confirm="handleChapterSelection"
+    />
+    
+    <!-- 角色选择弹窗 -->
+    <CharacterSelectionDialog
+      :visible="characterSelectionVisible"
+      :characters="availableCharacters"
+      :scenes="availableScenes"
+      :selectedCharacters="aiSettings.linkedCharacters"
+      @close="characterSelectionVisible = false"
+      @confirm="handleCharacterSelection"
+    />
   </div>
 </template>
 
 <script setup>
-import { reactive, computed, ref } from 'vue';
+import { reactive, computed, ref, watch } from 'vue';
+import PromptSelectionDialog from '../Prompt/PromptSelectionDialog.vue';
+import ChapterSelectionDialog from '../Prompt/ChapterSelectionDialog.vue';
+import CharacterSelectionDialog from '../Prompt/CharacterSelectionDialog.vue';
 
 const props = defineProps({
   availableModels: {
@@ -128,16 +161,63 @@ const props = defineProps({
   aiSettings: {
     type: Object,
     required: true
+  },
+  panelState: {
+    type: Object,
+    required: false,
+    default: () => ({
+      content: '',
+      prompt: '',
+      useOutline: true
+    })
+  },
+  categories: {
+    type: Array,
+    required: false,
+    default: () => ['扩写', '润色', '续写', '改写', '大纲相关']
+  },
+  prompts: {
+    type: Array,
+    required: false,
+    default: () => []
+  },
+  chapters: {
+    type: Array,
+    required: false,
+    default: () => []
   }
 });
 
-// 响应式引用 aiSettings
-const aiSettings = reactive(props.aiSettings);
+// 使用传入的 panelState 初始化数据
+const aiSettings = reactive({
+  ...props.aiSettings,
+  continuationPlot: props.panelState.content || '',
+  customPrompt: props.panelState.prompt || '',
+  useOutline: props.panelState.useOutline
+});
+
+// 提示词选择弹窗状态
+const promptSelectionVisible = ref(false);
+
+// 章节选择相关的状态和方法
+const chapterSelectionVisible = ref(false);
+const availableChapters = ref([]);
+
+// 角色选择相关的状态和方法
+const characterSelectionVisible = ref(false);
+const availableCharacters = ref([]);
+const availableScenes = ref([]);
 
 // 方法
 const showPromptSelection = () => {
-  console.log('显示提示词选择');
-  // 这里可以添加显示提示词选择的逻辑
+  promptSelectionVisible.value = true;
+}
+
+const handlePromptSelect = (prompt) => {
+  aiSettings.selectedPrompt = prompt.title;
+  aiSettings.selectedPromptId = prompt.id;
+  aiSettings.selectedPromptContent = prompt.systemPrompt;
+  promptSelectionVisible.value = false;
 }
 
 const startDialog = () => {
@@ -150,7 +230,70 @@ const startGenerate = () => {
   // 这里可以添加开始生成的逻辑
 }
 
-const emit = defineEmits(['close']);
+// 显示章节选择弹窗
+const showChapterSelection = () => {
+  // 从父组件获取章节数据
+  availableChapters.value = props.chapters || [];
+  chapterSelectionVisible.value = true;
+};
+
+// 处理章节选择
+const handleChapterSelection = (selection) => {
+  aiSettings.linkedChapters = selection.chapters;
+  aiSettings.linkedOutlines = selection.outlines;
+  
+  // 更新章节信息显示
+  const selectedChapters = availableChapters.value
+    .filter(chapter => selection.chapters.includes(chapter.id))
+    .map(chapter => chapter.title);
+  
+  aiSettings.selectedChaptersInfo = selectedChapters.join('、');
+};
+
+// 显示角色选择弹窗
+const showCharacterSelection = () => {
+  // 从localStorage加载角色和场景数据
+  try {
+    const savedCharacters = localStorage.getItem('character-card-characters');
+    const savedScenes = localStorage.getItem('character-card-scenes');
+    
+    if (savedCharacters) {
+      availableCharacters.value = JSON.parse(savedCharacters);
+    }
+    
+    if (savedScenes) {
+      availableScenes.value = JSON.parse(savedScenes);
+    }
+  } catch (error) {
+    console.error('加载角色数据出错:', error);
+  }
+  
+  characterSelectionVisible.value = true;
+};
+
+// 处理角色选择
+const handleCharacterSelection = (selectedIds) => {
+  aiSettings.linkedCharacters = selectedIds;
+  
+  // 更新角色信息显示
+  const selectedCharacters = availableCharacters.value
+    .filter(character => selectedIds.includes(character.id))
+    .map(character => character.name);
+  
+  aiSettings.selectedCardsInfo = selectedCharacters.join('、');
+};
+
+// 监听数据变化，更新父组件状态
+const emit = defineEmits(['close', 'update:state']);
+
+// 监视数据变化
+watch(() => [aiSettings.continuationPlot, aiSettings.customPrompt, aiSettings.useOutline], () => {
+  emit('update:state', {
+    content: aiSettings.continuationPlot,
+    prompt: aiSettings.customPrompt,
+    useOutline: aiSettings.useOutline
+  });
+}, { deep: true });
 </script>
 
 <style scoped>
@@ -218,7 +361,7 @@ const emit = defineEmits(['close']);
 }
 
 .tab-btn.active {
-  color: #4caf50;
+  color: #ffffff;
   font-weight: bold;
 }
 
@@ -229,7 +372,7 @@ const emit = defineEmits(['close']);
   left: 0;
   width: 100%;
   height: 2px;
-  background-color: #4caf50;
+  background-color: #ffffff;
 }
 
 .template-selector {
@@ -336,28 +479,6 @@ const emit = defineEmits(['close']);
 
 .tooltip-container {
   position: relative;
-}
-
-.tooltip-text {
-  visibility: hidden;
-  width: 200px;
-  background-color: #333;
-  color: #fff;
-  text-align: center;
-  border-radius: 6px;
-  padding: 5px;
-  position: absolute;
-  z-index: 1;
-  bottom: 125%;
-  left: 50%;
-  transform: translateX(-50%);
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.tooltip-container:hover .tooltip-text {
-  visibility: visible;
-  opacity: 1;
 }
 
 .toggle-switch {

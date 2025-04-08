@@ -129,7 +129,7 @@
 </template>
 
 <script setup>
-import { reactive, computed, ref } from 'vue';
+import { reactive, computed, ref, watch } from 'vue';
 
 const props = defineProps({
   availableModels: {
@@ -139,13 +139,29 @@ const props = defineProps({
   aiSettings: {
     type: Object,
     required: true
+  },
+  panelState: {
+    type: Object,
+    required: false,
+    default: () => ({
+      content: '',
+      editMode: 'polish',
+      customRequest: ''
+    })
   }
 });
 
+// 使用传入的 panelState 初始化数据
+const aiSettings = reactive({
+  ...props.aiSettings,
+  editMode: props.panelState.editMode || 'polish',
+  customEditRequest: props.panelState.customRequest || ''
+});
+
+// 添加要编辑的内容变量
+const contentToEdit = ref(props.panelState.content || '');
+
 // 确保 aiSettings 中有必要的编辑相关属性
-if (!props.aiSettings.editMode) {
-  props.aiSettings.editMode = 'polish';
-}
 if (!props.aiSettings.editRange) {
   props.aiSettings.editRange = 'selection';
 }
@@ -155,15 +171,9 @@ if (!props.aiSettings.editStyle) {
 if (!props.aiSettings.styleIntensity) {
   props.aiSettings.styleIntensity = 5;
 }
-if (!props.aiSettings.customEditRequest) {
-  props.aiSettings.customEditRequest = '';
-}
 if (!props.aiSettings.editNotes) {
   props.aiSettings.editNotes = '';
 }
-
-// 响应式引用 aiSettings
-const aiSettings = reactive(props.aiSettings);
 
 // 方法
 const startEdit = () => {
@@ -171,7 +181,17 @@ const startEdit = () => {
   // 这里可以添加开始编辑的逻辑
 }
 
-const emit = defineEmits(['close']);
+// 监听数据变化，更新父组件状态
+const emit = defineEmits(['close', 'update:state']);
+
+// 监视数据变化
+watch(() => [aiSettings.editMode, aiSettings.customEditRequest], () => {
+  emit('update:state', {
+    content: contentToEdit.value,
+    editMode: aiSettings.editMode,
+    customRequest: aiSettings.customEditRequest
+  });
+}, { deep: true });
 </script>
 
 <style scoped>
@@ -326,28 +346,6 @@ const emit = defineEmits(['close']);
 
 .tooltip-container {
   position: relative;
-}
-
-.tooltip-text {
-  visibility: hidden;
-  width: 200px;
-  background-color: #333;
-  color: #fff;
-  text-align: center;
-  border-radius: 6px;
-  padding: 5px;
-  position: absolute;
-  z-index: 1;
-  bottom: 125%;
-  left: 50%;
-  transform: translateX(-50%);
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.tooltip-container:hover .tooltip-text {
-  visibility: visible;
-  opacity: 1;
 }
 
 .toggle-switch {

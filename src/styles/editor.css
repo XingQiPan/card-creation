@@ -1500,7 +1500,7 @@ button,
 
 .primary-btn {
   padding: 10px 18px;
-  background: linear-gradient(135deg, #4CAF50, #388E3C);
+  background: linear-gradient(135deg, #1e88e5, #1e88e5);
   color: var(--text-white);
   border: none;
   border-radius: var(--border-radius);
@@ -1511,7 +1511,7 @@ button,
 }
 
 .primary-btn:hover {
-  background: linear-gradient(135deg, #388E3C, #2E7D32);
+  background: linear-gradient(135deg, #1e88e5, #1e88e5);
   transform: translateY(-2px);
   box-shadow: 0 4px 10px rgba(76, 175, 80, 0.4);
 }
@@ -1668,7 +1668,7 @@ button,
   align-items: center;
   padding: 18px 20px;
   border-bottom: 1px solid var(--border-color);
-  background: var(--primary-gradient);
+  background: var(--primary-color);
   color: white;
 }
 
@@ -2346,4 +2346,26 @@ button,
 .selection-menu .menu-item:hover {
   background-color: #f0f7ff;
   color: #1890ff;
+}
+
+.add-btn {
+  padding: 6px 12px;
+  background-color: var(--primary-dark);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.tab.active {
+  color: var(--primary-dark);
+}
+
+.tab-indicator {
+  position: absolute;
+  bottom: 0;
+  height: 3px;
+  width: 50%;
+  background-color: var(--primary-dark);
+  transition: transform 0.3s;
 }

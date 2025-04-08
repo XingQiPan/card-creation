@@ -105,11 +105,21 @@
       <button class="close-btn" @click="$emit('close')">关闭</button>
       <button class="generate-btn" @click="generateOpening">灵感开篇 生成</button>
     </div>
+    
+    <!-- 提示词选择弹窗 -->
+    <PromptSelectionDialog
+      :visible="promptSelectionVisible"
+      :categories="categories"
+      :prompts="prompts"
+      @close="promptSelectionVisible = false"
+      @select="handlePromptSelect"
+    />
   </div>
 </template>
 
 <script setup>
-import { reactive } from 'vue';
+import { reactive, ref, watch } from 'vue';
+import PromptSelectionDialog from '../Prompt/PromptSelectionDialog.vue';
 
 const props = defineProps({
   availableModels: {
@@ -119,26 +129,76 @@ const props = defineProps({
   aiSettings: {
     type: Object,
     required: true
+  },
+  categories: {
+    type: Array,
+    required: true
+  },
+  prompts: {
+    type: Array,
+    required: true
+  },
+  panelState: {
+    type: Object,
+    required: false,
+    default: () => ({
+      novelName: '',
+      novelDescription: '',
+      selectedCategory: '',
+      selectedPrompt: '',
+      customContent: ''
+    })
   }
 });
 
 // 使用传入的 aiSettings
 const aiSettings = reactive(props.aiSettings);
 
-// 小说信息
+// 提示词选择弹窗状态
+const promptSelectionVisible = ref(false);
+
+// 小说信息 - 使用传入的 panelState 初始化
 const novelInfo = reactive({
-  title: '',
-  genre: '都市修真',
-  summary: '',
+  title: props.panelState.novelName || '',
+  genre: props.panelState.selectedCategory || '都市修真',
+  summary: props.panelState.novelDescription || '',
   tags: '',
+});
+
+// 监听数据变化并通知父组件
+const emit = defineEmits(['close', 'showPromptSelection', 'update:state']);
+
+// 监视数据变化
+watch(novelInfo, (newValue) => {
+  emit('update:state', {
+    novelName: newValue.title,
+    novelDescription: newValue.summary,
+    selectedCategory: newValue.genre,
+    customContent: aiSettings.customPrompt,
+    selectedPrompt: aiSettings.selectedPrompt
+  });
+}, { deep: true });
+
+watch(() => [aiSettings.customPrompt, aiSettings.selectedPrompt], () => {
+  emit('update:state', {
+    novelName: novelInfo.title,
+    novelDescription: novelInfo.summary,
+    selectedCategory: novelInfo.genre,
+    customContent: aiSettings.customPrompt,
+    selectedPrompt: aiSettings.selectedPrompt
+  });
 });
 
 // 显示提示词选择
 const showPromptSelection = () => {
-  console.log('显示提示词选择');
-  // 这里可以添加展示提示词选择界面的逻辑
-  // 示例：临时设置一个提示词
-  aiSettings.selectedPrompt = '开篇-奇幻世界';
+  promptSelectionVisible.value = true;
+};
+
+// 处理提示词选择
+const handlePromptSelect = (prompt) => {
+  aiSettings.selectedPrompt = prompt.title;
+  aiSettings.selectedPromptId = prompt.id;
+  aiSettings.selectedPromptContent = prompt.systemPrompt;
 };
 
 // 生成开篇
@@ -165,8 +225,6 @@ const generateOpening = () => {
   
   // 这里可以添加生成开篇的逻辑
 };
-
-const emit = defineEmits(['close']);
 </script>
 
 <style scoped>
@@ -352,27 +410,6 @@ h3 {
   position: relative;
 }
 
-.tooltip-text {
-  visibility: hidden;
-  width: 200px;
-  background-color: #333;
-  color: #fff;
-  text-align: center;
-  border-radius: 6px;
-  padding: 5px;
-  position: absolute;
-  z-index: 1;
-  bottom: 125%;
-  left: 50%;
-  transform: translateX(-50%);
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.tooltip-container:hover .tooltip-text {
-  visibility: visible;
-  opacity: 1;
-}
 
 /* 操作按钮 */
 .panel-actions {

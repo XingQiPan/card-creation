@@ -1,8 +1,15 @@
 <template>
   <div class="entry-card-panel">
     <div class="entry-card-content">
-      <!-- 分类管理部分 -->
-      <div class="panel-section">
+      <!-- 添加tab切换 -->
+      <div class="panel-tabs">
+        <div class="tab" :class="{ 'active': currentTab === 'category' }" @click="switchTab('category')">词条分类</div>
+        <div class="tab" :class="{ 'active': currentTab === 'all' }" @click="switchTab('all')">全部词条</div>
+        <div class="tab-indicator" :style="{ transform: currentTab === 'all' ? 'translateX(100%)' : 'translateX(0)' }"></div>
+      </div>
+
+      <!-- 词条分类视图 -->
+      <div v-if="currentTab === 'category'" class="panel-section">
         <div class="section-header-row">
           <div class="section-header">词条分类</div>
           <button class="add-btn" @click="showGroupModal('add')">
@@ -24,23 +31,63 @@
             <div class="group-name">{{ group.name }}</div>
             <div class="group-info">{{ group.entryCount || 0 }} 个词条</div>
           </div>
+        </div>
+
+        <!-- 选中分类下的词条列表 -->
+        <div v-if="selectedGroup" class="panel-section">
+          <div class="section-header-row">
+            <div class="section-header">{{ selectedGroup.name }} - 词条列表</div>
+            <button class="add-btn" @click="showEntryModal('add')">
+              <i class="fas fa-plus"></i> 添加词条
+            </button>
+          </div>
           
-          <div 
-            :class="['entry-group', { active: showingAllEntries }]"
-            @click="showAllEntries"
-          >
-            <div class="group-name">全部词条</div>
-            <div class="group-info">{{ entries.length }} 个词条</div>
+          <div class="entry-filter">
+            <input 
+              type="text" 
+              class="search-input" 
+              v-model="searchQuery" 
+              placeholder="搜索词条..." 
+            />
+          </div>
+          
+          <div v-if="filteredEntries.length === 0" class="empty-state">
+            {{ searchQuery ? '未找到匹配的词条' : '暂无词条，点击上方按钮添加' }}
+          </div>
+          
+          <div v-else class="entry-items">
+            <div 
+              v-for="entry in filteredEntries" 
+              :key="entry.id"
+              class="entry-card"
+              @click="openEntryDetail(entry)"
+            >
+              <div class="entry-header">
+                <h4>{{ entry.title }}</h4>
+                <div class="entry-actions">
+                  <button class="edit-btn" @click.stop="showEntryModal('edit', entry)">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button class="delete-btn" @click.stop="showDeleteConfirmModal(entry)">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </div>
+              
+              <div class="entry-info">
+                <div class="entry-description">
+                  {{ truncateText(entry.description, 50) }}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
       
-      <!-- 词条列表部分 -->
-      <div class="panel-section">
+      <!-- 全部词条视图 -->
+      <div v-if="currentTab === 'all'" class="panel-section">
         <div class="section-header-row">
-          <div class="section-header">
-            {{ selectedGroup ? selectedGroup.name + ' 词条列表' : '全部词条' }}
-          </div>
+          <div class="section-header">全部词条</div>
           <button class="add-btn" @click="showEntryModal('add')">
             <i class="fas fa-plus"></i> 添加词条
           </button>
@@ -61,16 +108,16 @@
           </select>
         </div>
         
-        <div v-if="filteredEntries.length === 0" class="empty-state">
+        <div v-if="filteredAllEntries.length === 0" class="empty-state">
           {{ searchQuery ? '未找到匹配的词条' : '暂无词条，点击上方按钮添加' }}
         </div>
         
         <div v-else class="entry-items">
           <div 
-            v-for="entry in filteredEntries" 
+            v-for="entry in filteredAllEntries" 
             :key="entry.id"
             class="entry-card"
-            @click="selectEntry(entry)"
+            @click="openEntryDetail(entry)"
           >
             <div class="entry-header">
               <h4>{{ entry.title }}</h4>
@@ -84,11 +131,6 @@
               </div>
             </div>
             
-            <div class="entry-icon" :class="{ 'placeholder': !entry.icon }">
-              <img v-if="entry.icon" :src="entry.icon" :alt="entry.title" />
-              <i v-else class="fas fa-file-alt"></i>
-            </div>
-            
             <div class="entry-info">
               <div v-if="getGroupById(entry.groupId)" class="tag">
                 {{ getGroupById(entry.groupId).name }}
@@ -100,56 +142,66 @@
           </div>
         </div>
       </div>
-      
-      <!-- 词条详情部分 -->
-      <div v-if="selectedEntry" class="panel-section">
-        <div class="entry-detail">
-          <div class="detail-header">
-            <div class="detail-icon" :class="{ 'placeholder': !selectedEntry.icon }">
-              <img v-if="selectedEntry.icon" :src="selectedEntry.icon" :alt="selectedEntry.title" />
-              <i v-else class="fas fa-file-alt"></i>
-            </div>
-            <div class="detail-title">
-              <h3>{{ selectedEntry.title }}</h3>
-              <div v-if="getGroupById(selectedEntry.groupId)" class="detail-group">
-                {{ getGroupById(selectedEntry.groupId).name }}
-              </div>
-            </div>
-          </div>
-          
-          <div class="detail-content">
-            <div class="detail-row">
-              <div class="detail-label">描述</div>
-              <div class="detail-text">{{ selectedEntry.description || '无描述' }}</div>
-            </div>
-            
-            <div class="detail-row">
-              <div class="detail-label">详细内容</div>
-              <div class="detail-text markdown">{{ selectedEntry.content || '无内容' }}</div>
-            </div>
-            
-            <div v-if="selectedEntry.relatedEntries && selectedEntry.relatedEntries.length > 0" class="detail-row">
-              <div class="detail-label">相关词条</div>
-              <div class="related-entries">
-                <div 
-                  v-for="entryId in selectedEntry.relatedEntries" 
-                  :key="entryId"
-                  class="related-entry"
-                  @click="selectEntryById(entryId)"
-                >
-                  {{ getEntryById(entryId)?.title || '未知词条' }}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
     
     <!-- 面板底部按钮 -->
     <div class="panel-actions">
       <button class="close-btn" @click="$emit('close')">关闭</button>
       <button class="primary-btn" @click="selectEntriesForCurrentChapter">为当前章节选择词条</button>
+    </div>
+    
+    <!-- 词条详情弹窗 -->
+    <div v-if="showDetailModal" class="modal-overlay" @click.self="closeDetailModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>词条详情</h3>
+          <button class="close-modal-btn" @click="closeDetailModal">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="entry-detail">
+            <div class="detail-header">
+              <div class="detail-title">
+                <h3>{{ selectedEntry ? selectedEntry.title : '' }}</h3>
+                <div v-if="selectedEntry && getGroupById(selectedEntry.groupId)" class="detail-group">
+                  {{ getGroupById(selectedEntry.groupId).name }}
+                </div>
+              </div>
+            </div>
+            
+            <div class="detail-content">
+              <div class="detail-row">
+                <div class="detail-label">描述</div>
+                <div class="detail-text">{{ selectedEntry ? (selectedEntry.description || '无描述') : '' }}</div>
+              </div>
+              
+              <div class="detail-row">
+                <div class="detail-label">详细内容</div>
+                <div class="detail-text markdown">{{ selectedEntry ? (selectedEntry.content || '无内容') : '' }}</div>
+              </div>
+              
+              <div v-if="selectedEntry && selectedEntry.relatedEntries && selectedEntry.relatedEntries.length > 0" class="detail-row">
+                <div class="detail-label">相关词条</div>
+                <div class="related-entries">
+                  <div 
+                    v-for="entryId in selectedEntry.relatedEntries" 
+                    :key="entryId"
+                    class="related-entry"
+                    @click="selectEntryById(entryId)"
+                  >
+                    {{ getEntryById(entryId)?.title || '未知词条' }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="cancel-btn" @click="closeDetailModal">关闭</button>
+          <button class="primary-btn" @click="editSelectedEntry">编辑</button>
+        </div>
+      </div>
     </div>
     
     <!-- 添加/编辑词条分类的模态框 -->
@@ -296,91 +348,56 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
 import { v4 as uuidv4 } from 'uuid';
 import { showToast } from '../../utils/common';
 
+// 数据存储键
+const STORAGE_KEY_ENTRY_GROUPS = 'entry-card-groups';
+const STORAGE_KEY_ENTRIES = 'entry-card-entries';
+
 // 词条分类数据
-const entryGroups = ref([
-  { id: 'g1', name: '人物', description: '小说中的人物词条', entryCount: 3 },
-  { id: 'g2', name: '地点', description: '小说中的地点词条', entryCount: 2 },
-  { id: 'g3', name: '事件', description: '小说中的事件词条', entryCount: 1 },
-  { id: 'g4', name: '物品', description: '小说中的物品词条', entryCount: 1 }
-]);
+const entryGroups = ref([]);
 
 // 词条数据
-const entries = ref([
-  { 
-    id: 'e1', 
-    title: '主角', 
-    groupId: 'g1', 
-    description: '小说的主要人物', 
-    content: '# 主角\n\n小说的主要人物，具有以下特点：\n* 勇敢\n* 正义\n* 坚韧',
-    relatedEntries: ['e2', 'e7'],
-    createdAt: new Date('2023-01-01').toISOString()
-  },
-  { 
-    id: 'e2', 
-    title: '反派', 
-    groupId: 'g1', 
-    description: '小说的反面角色', 
-    content: '# 反派\n\n小说的反面角色，与主角对立。',
-    relatedEntries: ['e1'],
-    createdAt: new Date('2023-01-02').toISOString()
-  },
-  { 
-    id: 'e3', 
-    title: '王国', 
-    groupId: 'g2', 
-    description: '故事发生的王国', 
-    content: '# 王国\n\n故事发生的主要地点，一个古老的王国。',
-    relatedEntries: ['e4'],
-    createdAt: new Date('2023-01-03').toISOString()
-  },
-  { 
-    id: 'e4', 
-    title: '古堡', 
-    groupId: 'g2', 
-    description: '王国中的古堡', 
-    content: '# 古堡\n\n王国中的一座古老城堡，是故事中的重要场景。',
-    relatedEntries: ['e3'],
-    createdAt: new Date('2023-01-04').toISOString()
-  },
-  { 
-    id: 'e5', 
-    title: '战役', 
-    groupId: 'g3', 
-    description: '决定性的战役', 
-    content: '# 战役\n\n故事中的决定性战役，主角与反派的最终对决。',
-    relatedEntries: ['e1', 'e2'],
-    createdAt: new Date('2023-01-05').toISOString()
-  },
-  { 
-    id: 'e6', 
-    title: '宝剑', 
-    groupId: 'g4', 
-    description: '主角的宝剑', 
-    content: '# 宝剑\n\n主角使用的神奇宝剑，具有特殊能力。',
-    relatedEntries: ['e1'],
-    createdAt: new Date('2023-01-06').toISOString()
-  },
-  { 
-    id: 'e7', 
-    title: '配角', 
-    groupId: 'g1', 
-    description: '主角的朋友', 
-    content: '# 配角\n\n主角的朋友，忠实的伙伴。',
-    relatedEntries: ['e1'],
-    createdAt: new Date('2023-01-07').toISOString()
-  },
-]);
+const entries = ref([]);
+
+// 加载数据
+const loadData = () => {
+  try {
+    const savedGroups = localStorage.getItem(STORAGE_KEY_ENTRY_GROUPS);
+    if (savedGroups) {
+      entryGroups.value = JSON.parse(savedGroups);
+    }
+    
+    const savedEntries = localStorage.getItem(STORAGE_KEY_ENTRIES);
+    if (savedEntries) {
+      entries.value = JSON.parse(savedEntries);
+    }
+  } catch (error) {
+    console.error('加载数据出错:', error);
+    showToast('加载数据出错', 'error');
+  }
+};
+
+// 保存数据
+const saveData = () => {
+  try {
+    localStorage.setItem(STORAGE_KEY_ENTRY_GROUPS, JSON.stringify(entryGroups.value));
+    localStorage.setItem(STORAGE_KEY_ENTRIES, JSON.stringify(entries.value));
+  } catch (error) {
+    console.error('保存数据出错:', error);
+    showToast('保存数据出错', 'error');
+  }
+};
 
 // 状态变量
+const currentTab = ref('category');
 const selectedGroup = ref(null);
-const showingAllEntries = ref(true);
 const selectedEntry = ref(null);
 const searchQuery = ref('');
 const sortMethod = ref('nameAsc');
+const showDetailModal = ref(false);
 
 // 分类模态框状态
 const groupModal = reactive({
@@ -416,14 +433,25 @@ const groupToDelete = ref(null);
 
 // 计算属性
 const filteredEntries = computed(() => {
-  let result = entries.value;
+  if (!selectedGroup.value) return [];
   
-  // 按分类筛选
-  if (selectedGroup.value && !showingAllEntries.value) {
-    result = result.filter(entry => entry.groupId === selectedGroup.value.id);
+  let result = entries.value.filter(entry => entry.groupId === selectedGroup.value.id);
+  
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase();
+    result = result.filter(entry => 
+      entry.title.toLowerCase().includes(query) || 
+      entry.description.toLowerCase().includes(query) ||
+      entry.content.toLowerCase().includes(query)
+    );
   }
   
-  // 按搜索词筛选
+  return result;
+});
+
+const filteredAllEntries = computed(() => {
+  let result = entries.value;
+  
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase();
     result = result.filter(entry => 
@@ -468,26 +496,38 @@ const getEntryById = (entryId) => {
   return entries.value.find(entry => entry.id === entryId);
 };
 
+const switchTab = (tab) => {
+  currentTab.value = tab;
+  if (tab === 'all') {
+    selectedGroup.value = null;
+  }
+};
+
 const selectGroup = (group) => {
   selectedGroup.value = group;
-  showingAllEntries.value = false;
   searchQuery.value = '';
 };
 
-const showAllEntries = () => {
-  showingAllEntries.value = true;
-  selectedGroup.value = null;
-  searchQuery.value = '';
-};
-
-const selectEntry = (entry) => {
+const openEntryDetail = (entry) => {
   selectedEntry.value = entry;
+  showDetailModal.value = true;
 };
 
-const selectEntryById = (id) => {
-  const entry = getEntryById(id);
+const closeDetailModal = () => {
+  showDetailModal.value = false;
+};
+
+const editSelectedEntry = () => {
+  if (selectedEntry.value) {
+    showEntryModal('edit', selectedEntry.value);
+    closeDetailModal();
+  }
+};
+
+const selectEntryById = (entryId) => {
+  const entry = getEntryById(entryId);
   if (entry) {
-    selectEntry(entry);
+    openEntryDetail(entry);
   }
 };
 
@@ -549,6 +589,7 @@ const saveGroup = () => {
     showToast('分类已添加', 'success');
   }
   
+  saveData(); // 保存数据
   closeGroupModal();
 };
 
@@ -658,6 +699,7 @@ const saveEntry = () => {
     showToast('词条已添加', 'success');
   }
   
+  saveData(); // 保存数据
   closeEntryModal();
 };
 
@@ -735,13 +777,13 @@ const confirmDelete = () => {
       // 如果当前选中的是该分类，重置选中的分类
       if (selectedGroup.value && selectedGroup.value.id === deletedGroup.id) {
         selectedGroup.value = null;
-        showingAllEntries.value = true;
       }
       
       showToast('分类已删除', 'success');
     }
   }
   
+  saveData(); // 保存数据
   closeDeleteConfirmModal();
 };
 
@@ -749,4 +791,442 @@ const confirmDelete = () => {
 const selectEntriesForCurrentChapter = () => {
   showToast('为当前章节关联词条功能待实现', 'info');
 };
+
+// 在 mounted 中加载数据
+onMounted(() => {
+  loadData();
+});
+
+// 定义 emit 事件
+defineEmits(['close']);
+
+// 将方法暴露给父组件
+defineExpose({
+  showEntryModal
+});
 </script>
+
+<style scoped>
+.entry-card-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.entry-card-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px;
+}
+
+/* 标签页样式 */
+.panel-tabs {
+  display: flex;
+  position: relative;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.tab {
+  flex: 1;
+  text-align: center;
+  padding: 12px 0;
+  cursor: pointer;
+  font-weight: 500;
+  color: #666;
+  transition: color 0.3s;
+  position: relative;
+  z-index: 1;
+}
+
+.panel-section {
+  margin-bottom: 20px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 16px;
+  background-color: #fff;
+}
+
+.section-header {
+  font-weight: bold;
+  margin-bottom: 12px;
+  font-size: 1.1em;
+}
+
+.section-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  margin-bottom: 12px;
+}
+
+.sort-select {
+  width: 100%;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  margin-bottom: 12px;
+}
+
+.entry-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.entry-group {
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.entry-group:hover {
+  background-color: #f5f5f5;
+}
+
+.entry-group.active {
+  background-color: #e8f5e9;
+  border-color: #4caf50;
+}
+
+.group-name {
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.group-info {
+  font-size: 0.85em;
+  color: #666;
+}
+
+.entry-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.entry-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.entry-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.entry-header {
+  padding: 12px;
+  background-color: #f5f5f5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.entry-header h4 {
+  margin: 0;
+}
+
+.entry-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.edit-btn, .delete-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.delete-btn {
+  color: #f44336;
+}
+
+.entry-info {
+  padding: 12px;
+}
+
+.tag {
+  display: inline-block;
+  background-color: #e8f5e9;
+  color: #4caf50;
+  border: 1px solid #4caf50;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.85em;
+  margin-bottom: 8px;
+}
+
+.entry-description {
+  font-size: 0.9em;
+  color: #666;
+  line-height: 1.4;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 20px;
+  color: #666;
+}
+
+.panel-actions {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid #e0e0e0;
+  background-color: #f8f8f8;
+}
+
+.close-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  background-color: #f5f5f5;
+  cursor: pointer;
+}
+
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background-color: white;
+  border-radius: 4px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  padding: 16px;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.close-modal-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.modal-body {
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.modal-footer {
+  padding: 16px;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.form-row {
+  margin-bottom: 16px;
+}
+
+.form-row label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: bold;
+}
+
+.required {
+  color: #f44336;
+}
+
+.form-input, .form-textarea {
+  width: 100%;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+.form-textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.cancel-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  background-color: #f5f5f5;
+  cursor: pointer;
+}
+
+.save-btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid #388e3c;
+  background-color: #4caf50;
+  color: white;
+  cursor: pointer;
+}
+
+.delete-btn.danger {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid #d32f2f;
+  background-color: #f44336;
+  color: white;
+  cursor: pointer;
+}
+
+.entry-detail {
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.detail-header {
+  padding: 16px;
+  background-color: #f0f0f0;
+}
+
+.detail-title h3 {
+  margin: 0 0 4px 0;
+}
+
+.detail-group {
+  color: #666;
+  font-size: 0.9em;
+}
+
+.detail-content {
+  padding: 16px;
+}
+
+.detail-row {
+  margin-bottom: 16px;
+}
+
+.detail-label {
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: #444;
+}
+
+.detail-text {
+  line-height: 1.5;
+}
+
+.detail-text.markdown {
+  white-space: pre-wrap;
+}
+
+.related-entries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.related-entry {
+  background-color: #e8f5e9;
+  color: #4caf50;
+  border: 1px solid #4caf50;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.related-entry:hover {
+  background-color: #c8e6c9;
+}
+
+.icon-upload {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.icon-preview {
+  width: 60px;
+  height: 60px;
+  border-radius: 4px;
+  background-color: #f0f0f0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+.icon-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: cover;
+}
+
+.icon-preview.placeholder {
+  color: #999;
+  font-size: 24px;
+}
+
+.upload-btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  background-color: #f5f5f5;
+  cursor: pointer;
+}
+
+.related-entries-selector {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.related-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.related-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.warning {
+  color: #f44336;
+  font-weight: bold;
+}
+</style>

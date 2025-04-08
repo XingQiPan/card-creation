@@ -50,9 +50,6 @@
         <button class="function-btn" @click="openPanel('editing')">
           <i class="fas fa-tools"></i> AI编辑
         </button>
-        <button class="function-btn" @click="openPanel('inspiration')">
-          <i class="fas fa-lightbulb"></i> 灵感风暴
-        </button>
         <button class="function-btn" @click="openPanel('character')">
           <i class="fas fa-id-card"></i> 人物卡
         </button>
@@ -102,15 +99,15 @@
               </div>
               
               <div class="chapter-content" v-if="expandedChapters.includes(chapter.id)">
-                <div class="chapter-title">章节大纲</div>
+                <div class="chapter-title">章纲</div>
                 
                 <div class="chapter-outline-editor">
                   <div class="outline-actions">
                     <button class="ai-generate-btn" @click.stop="openAIOutlineGenerator(chapter)">
-                      <i class="fas fa-robot"></i> 正文AI生成
+                      <i class="fas fa-robot"></i> 提取本章章纲
                     </button>
                   </div>
-                  <textarea placeholder="在这里写下《{{ chapter.title }}》的大纲..." v-model="chapter.outline"></textarea>
+                  <textarea placeholder="在这里写下本章的章纲..." v-model="chapter.outline"></textarea>
                 </div>
                 
                 <div class="chapter-footer">
@@ -283,19 +280,15 @@
           </div>
         </div>
         
-        <!-- AI灵感风暴面板 -->
-        <AIInspiration 
-          v-if="currentPanel === 'inspiration'" 
-          :availableModels="availableModels" 
-          :aiSettings="aiSettings" 
-          @close="closeAiPanel" 
-        />
-        
         <!-- AI写作面板 -->
         <AIWrit 
           v-if="currentPanel === 'writing'" 
           :availableModels="availableModels" 
           :aiSettings="aiSettings" 
+          :panelState="aiPanelStates.writing"
+          :categories="categories"
+          :prompts="prompts"
+          @update:state="updatePanelState('writing', $event)"
           @close="closeAiPanel" 
         />
         
@@ -304,6 +297,11 @@
           v-if="currentPanel === 'continuation'" 
           :availableModels="availableModels" 
           :aiSettings="aiSettings" 
+          :panelState="aiPanelStates.continuation"
+          :categories="categories"
+          :prompts="prompts"
+          :chapters="chapters"
+          @update:state="updatePanelState('continuation', $event)"
           @close="closeAiPanel" 
         />
         
@@ -312,6 +310,8 @@
           v-if="currentPanel === 'editing'" 
           :availableModels="availableModels" 
           :aiSettings="aiSettings" 
+          :panelState="aiPanelStates.editing"
+          @update:state="updatePanelState('editing', $event)"
           @close="closeAiPanel" 
         />
         
@@ -319,17 +319,27 @@
         <AIOpen 
           v-if="currentPanel === 'opening'" 
           :availableModels="availableModels" 
-          :aiSettings="aiSettings" 
+          :aiSettings="aiSettings"
+          :categories="categories"
+          :prompts="prompts"
+          :panelState="aiPanelStates.opening"
+          @update:state="updatePanelState('opening', $event)"
           @close="closeAiPanel" 
         />
 
         <!-- 人物卡面板 -->
         <CharacterCardPanel 
-        v-if="currentPanel === 'character'" @close="closeCharacterCardPanel" />
+          v-if="currentPanel === 'character'" 
+          @close="closeCharacterCardPanel"
+          @editEntry="handleEditEntry"
+        />
         
         <!-- 词条卡面板 -->
         <EntryCardPanel 
-        v-if="currentPanel === 'entry'" @close="closeEntryCardPanel" />
+          v-if="currentPanel === 'entry'" 
+          ref="entryCardPanelRef"
+          @close="closeEntryCardPanel" 
+        />
       </div>
     </div>
   </div>
@@ -547,11 +557,14 @@ import { debounce, showToast } from '../utils/common'
 import { debugLog } from '../utils/debug'
 import AIOpen from './Editors/AIOpen.vue'
 import AIWrit from './Editors/AIWrit.vue'
-import AIInspiration from './Editors/AIInspiration.vue'
 import AIContinuation from './Editors/AIContinuation.vue'
 import AIEdit from './Editors/AIEdit.vue'
 import CharacterCardPanel from './Editors/CharacterCardPanel.vue'
 import EntryCardPanel from './Editors/EntryCardPanel.vue'
+import { DataService } from '../utils/services/dataService'
+
+// 创建dataService实例
+const dataService = new DataService();
 
 // Props 定义
 const props = defineProps({
@@ -561,7 +574,15 @@ const props = defineProps({
   },
   selectedModel: {
     type: Object,
-    required: true
+    required: false,
+    default: () => ({ 
+      id: 'default-model',
+      name: '默认模型'
+    })
+  },
+  sectionId: {
+    type: String,
+    required: false
   }
 })
 
@@ -690,7 +711,6 @@ const currentPanel = ref('')
 const currentPanelTitle = computed(() => {
   console.log(currentPanel.value)
   switch(currentPanel.value) {
-    case 'inspiration': return '灵感风暴';
     case 'writing': return 'AI写作';
     case 'continuation': return 'AI续写';
     case 'editing': return 'AI编辑';
@@ -738,6 +758,52 @@ const selectionMenuRef = ref(null)
 
 // 添加一个标记来追踪最近是否保存过
 const recentlySaved = ref(false)
+
+// 提示词相关数据
+const categories = ref(['扩写', '润色', '续写', '改写', '大纲相关', '细纲生成', '概要生成', '优化建议', '灵感迸发', '拆书', '金手指生成', '黄金开篇生成', '写作要求', '简介生成', '书名生成', '取名生成', '人设生成', '审稿'])
+const prompts = ref([])
+
+// 在其他 ref 变量附近添加以下代码
+const isLoading = ref(false)
+
+// 添加各个AI面板的数据状态
+const aiPanelStates = reactive({
+  opening: {
+    novelName: '',
+    novelDescription: '',
+    selectedCategory: '',
+    selectedPrompt: '',
+    customContent: ''
+  },
+  writing: {
+    content: '',
+    prompt: '',
+    selectedTemplate: ''
+  },
+  continuation: {
+    content: '',
+    prompt: '',
+    useOutline: true
+  },
+  editing: {
+    content: '',
+    editMode: 'polish',
+    customRequest: ''
+  },
+  inspiration: {
+    theme: '',
+    direction: '',
+    customPrompt: ''
+  }
+})
+
+// 更新AI面板状态的方法
+const updatePanelState = (panel, data) => {
+  if (aiPanelStates[panel]) {
+    console.log(`更新${panel}面板状态:`, data);
+    Object.assign(aiPanelStates[panel], data);
+  }
+}
 
 // 函数定义
 // 键盘快捷键处理
@@ -836,7 +902,7 @@ const saveCurrentChapter = async () => {
   try {
     if (!currentChapterId.value) return
     
-    currentChapter.content = currentChapter.content.trim()
+    isLoading.value = true  // 开始保存时设置为 true
     
     const index = chapters.value.findIndex(c => c.id === currentChapterId.value)
     if (index === -1) return
@@ -864,6 +930,8 @@ const saveCurrentChapter = async () => {
   } catch (error) {
     console.error('保存章节失败:', error)
     showToast('保存章节失败', 'error')
+  } finally {
+    isLoading.value = false  // 无论成功或失败都设置为 false
   }
 }
 
@@ -1125,11 +1193,6 @@ const closeAiPanel = () => {
   currentPanel.value = ''
 }
 
-// AI生成功能
-const generateIdea = () => {
-  showToast('AI功能示例：已触发灵感生成功能', 'success')
-}
-
 // 侧边栏功能
 const switchSidebarTab = (tab) => {
   sidebarTab.value = tab
@@ -1375,6 +1438,18 @@ onMounted(async () => {
   
   // 启动自动保存
   setupAutoSave()
+
+  try {
+    // 加载所有数据
+    const data = await dataService.loadAllData()
+    
+    // 如果data中有prompts数据，则更新prompts
+    if (data && data.prompts) {
+      prompts.value = data.prompts
+    }
+  } catch (error) {
+    console.error('加载提示词数据失败:', error)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -1523,6 +1598,23 @@ const handleSelectionAction = (action) => {
   selectionMenu.show = false
   document.removeEventListener('click', hideSelectionMenuOnClick)
 }
+
+// 在 script setup 中添加
+const entryCardPanelRef = ref(null);
+
+// 处理词条编辑
+const handleEditEntry = (entry) => {
+  // 切换到词条卡面板
+  openPanel('entry');
+  
+  // 等待词条卡面板组件挂载完成
+  nextTick(() => {
+    // 调用词条卡面板的编辑方法
+    if (entryCardPanelRef.value) {
+      entryCardPanelRef.value.showEntryModal('edit', entry);
+    }
+  });
+};
 </script>
 
 <style>

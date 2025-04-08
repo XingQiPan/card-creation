@@ -1,5 +1,5 @@
 <template>
-  <div class="scene">
+  <div class="scene" v-if="scene">
     <!-- 添加快速删除提示 -->
     <div v-if="isCtrlPressed" class="quick-delete-hint">
       <i class="fas fa-exclamation-circle"></i>
@@ -22,7 +22,7 @@
       @drop="handleDrop"
     >
       <div class="panel-header">
-        <h2>{{ scene.name }}</h2>
+        <h2>{{ scene.name || '未命名场景' }}</h2>
         <div class="header-actions">
           <div class="create-buttons">
             <button @click="createNewCard">
@@ -45,7 +45,7 @@
           </button>
         </div>
       </div>
-      <div class="drop-zone" v-if="scene.cards.length === 0">
+      <div class="drop-zone" v-if="!scene.cards || scene.cards.length === 0">
         <div class="drop-message">
           <i class="fas fa-file-upload"></i>
           <p>拖放文件到这里，或点击上方按钮选择文件</p>
@@ -57,6 +57,7 @@
         item-key="id"
         @start="drag=true" 
         @end="drag=false"
+        v-if="scene && scene.cards"
       >
         <template #item="{ element: card }">
           <div v-if="card.type === 'group'"
@@ -126,6 +127,59 @@
                     <i class="fas fa-times"></i>
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-else-if="card.type === 'character'"
+            class="character-card"
+            :class="{
+              'is-dragging': drag
+            }"
+            draggable="true"
+            @dragstart="handleDragStart($event, card)"
+            @dblclick="$emit('view-card', card)"
+          >
+            <div class="character-card-header">
+              <input 
+                v-model="card.title" 
+                placeholder="角色名称..."
+                class="character-card-title"
+                :style="{ color: card.titleColor || '#333333' }"
+                @input="$emit('update-card', card)"
+              />
+            </div>
+            <div class="character-card-content">
+              <div class="character-card-info">
+                <!-- 格式化显示内容 -->
+                <div v-if="card.content" class="character-attributes">
+                  <template v-for="(line, index) in parseCharacterContent(card.content)" :key="index">
+                    <div class="character-attribute-row">
+                      <span class="attribute-label">{{ line.label }}</span>
+                      <span class="attribute-value">{{ line.value }}</span>
+                    </div>
+                  </template>
+                </div>
+                <div v-else class="character-empty-content">
+                  角色信息为空，请在角色面板中编辑
+                </div>
+              </div>
+            </div>
+            <div class="character-card-footer">
+              <div class="character-role" v-if="getCharacterRole(card.content)">
+                {{ getCharacterRole(card.content) }}
+              </div>
+              <div class="character-card-actions">
+                <button @click.stop="$emit('view-card', card)" title="查看角色详情">
+                  <i class="fas fa-eye"></i>
+                </button>
+                <button @click.stop="showMoveCardModal(card)" title="移动到其他场景">
+                  <i class="fas fa-exchange-alt"></i>
+                </button>
+                <button @click.stop="handleDeleteCard(card)" class="delete-btn" title="删除角色卡片">
+                  <i class="fas fa-times"></i>
+                </button>
               </div>
             </div>
           </div>
@@ -401,6 +455,21 @@
           </button>
           <button @click="closeAddToGroupModal" class="cancel-btn">取消</button>
         </div>
+      </div>
+    </div>
+  </div>
+  <div class="scene-error" v-else>
+    <div class="error-container">
+      <i class="fas fa-exclamation-triangle"></i>
+      <h3>无法加载场景</h3>
+      <p>场景数据不存在或加载失败，请尝试刷新页面或创建新场景。</p>
+      <div class="error-actions">
+        <button @click="$emit('create-new-scene')" class="create-new-btn">
+          <i class="fas fa-plus"></i> 创建新场景
+        </button>
+        <button @click="reloadPage" class="reload-btn">
+          <i class="fas fa-sync"></i> 刷新页面
+        </button>
       </div>
     </div>
   </div>
@@ -1782,6 +1851,48 @@ const handleKeywordClick = (event, cardId) => {
     }
   }
 }
+
+// 解析角色卡片内容
+const parseCharacterContent = (content) => {
+  if (!content) return [];
+  
+  const result = [];
+  const lines = content.split('\n');
+  
+  lines.forEach(line => {
+    // 尝试匹配【标签：】内容格式
+    const match = line.match(/【(.+?)：】(.+)/);
+    if (match) {
+      result.push({
+        label: match[1],
+        value: match[2].trim()
+      });
+    }
+  });
+  
+  // 仅返回前3个属性，避免卡片过长
+  return result.slice(0, 3);
+};
+
+// 获取角色身份信息
+const getCharacterRole = (content) => {
+  if (!content) return '';
+  
+  const lines = content.split('\n');
+  for (const line of lines) {
+    const match = line.match(/【角色身份：】(.+)/);
+    if (match) {
+      return match[1].trim();
+    }
+  }
+  
+  return '';
+};
+
+// 添加刷新页面方法
+const reloadPage = () => {
+  window.location.reload();
+};
 </script>
 
 <style scoped>
@@ -2518,5 +2629,192 @@ const handleKeywordClick = (event, cardId) => {
   gap: 4px;
   /* margin-top: 4px; */ /* 移除顶部外边距 */
   margin-left: auto; /* 将其推到右侧 */
+}
+
+/* 添加样式 */
+.character-card {
+  background-color: #fdf8e9;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin: 8px;
+  padding: 12px;
+  position: relative;
+  transition: all 0.2s ease;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 4px solid #e6c069;
+  min-width: 220px;
+}
+
+.character-card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+
+.character-card-header {
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(230, 192, 105, 0.3);
+  padding-bottom: 4px;
+}
+
+.character-card-title {
+  font-weight: bold;
+  font-size: 16px;
+  border: none;
+  background: transparent;
+  width: 100%;
+  padding: 4px;
+}
+
+.character-card-content {
+  flex: 1;
+  overflow-y: auto;
+  font-size: 14px;
+}
+
+.character-attributes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.character-attribute-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attribute-label {
+  font-weight: bold;
+  color: #8c7851;
+  font-size: 12px;
+}
+
+.attribute-value {
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.character-empty-content {
+  color: #999;
+  font-style: italic;
+  font-size: 12px;
+  text-align: center;
+  padding: 10px 0;
+}
+
+.character-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  border-top: 1px solid rgba(230, 192, 105, 0.3);
+  padding-top: 4px;
+}
+
+.character-role {
+  font-size: 12px;
+  color: #8c7851;
+  font-style: italic;
+}
+
+.character-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.character-card:hover .character-card-actions {
+  opacity: 1;
+}
+
+.character-card-actions button {
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 3px;
+}
+
+.character-card-actions button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: #333;
+}
+
+.character-card-actions .delete-btn:hover {
+  color: #e74c3c;
+}
+
+/* 添加新的错误样式 */
+.scene-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  background-color: #f9f9f9;
+  color: #666;
+}
+
+.error-container {
+  text-align: center;
+  padding: 30px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  max-width: 500px;
+}
+
+.error-container i {
+  font-size: 48px;
+  color: #e74c3c;
+  margin-bottom: 20px;
+}
+
+.error-container h3 {
+  margin-bottom: 10px;
+  font-size: 20px;
+  color: #444;
+}
+
+.error-container p {
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.error-actions {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+}
+
+.error-actions button {
+  padding: 8px 15px;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.error-actions .reload-btn {
+  background-color: #7f8c8d;
+}
+
+.error-actions button:hover {
+  opacity: 0.9;
 }
 </style>

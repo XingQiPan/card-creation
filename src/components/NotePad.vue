@@ -411,7 +411,6 @@ onBeforeUnmount(() => {
   font-size: 14px;
   margin-bottom: 12px;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

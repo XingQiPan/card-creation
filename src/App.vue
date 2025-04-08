@@ -926,7 +926,7 @@ import AIDetector from './components/AIDetector.vue'
 import KnowledgeBase from './components/KnowledgeBase.vue'
 import { useRoute, useRouter } from 'vue-router'
 
-setDebugMode(false)
+setDebugMode(true)
 
 
 // 添加版本号
@@ -1043,7 +1043,6 @@ const insertMdSyntax = (prefix, suffix) => {
 // 使用组合式API
 const {
   isLoading,
-  loadFromStorage,
   truncateText,
   createDebounce
 } = useCommon()

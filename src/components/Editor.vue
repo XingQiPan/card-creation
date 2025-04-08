@@ -330,8 +330,12 @@
         <!-- 人物卡面板 -->
         <CharacterCardPanel 
           v-if="currentPanel === 'character'" 
+          :appScenes="appScenes"
+          :currentAppScene="currentAppScene"
           @close="closeCharacterCardPanel"
           @editEntry="handleEditEntry"
+          @updateCharacter="handleCharacterUpdate"
+          @character-scene-changed="handleCharacterSceneChanged"
         />
         
         <!-- 词条卡面板 -->
@@ -709,7 +713,7 @@ const searchState = reactive({
 const showAiPanel = ref(false)
 const currentPanel = ref('')
 const currentPanelTitle = computed(() => {
-  console.log(currentPanel.value)
+  debugLog(currentPanel.value)
   switch(currentPanel.value) {
     case 'writing': return 'AI写作';
     case 'continuation': return 'AI续写';
@@ -800,7 +804,7 @@ const aiPanelStates = reactive({
 // 更新AI面板状态的方法
 const updatePanelState = (panel, data) => {
   if (aiPanelStates[panel]) {
-    console.log(`更新${panel}面板状态:`, data);
+    debugLog(`更新${panel}面板状态:`, data);
     Object.assign(aiPanelStates[panel], data);
   }
 }
@@ -1418,54 +1422,248 @@ const setupAutoSave = () => {
   }, 30000) // 30秒
 }
 
+// 在onMounted中加载App场景数据
+const loadAppScenes = async () => {
+  // 尝试从dataService加载场景数据
+  try {
+    // 保存当前选中的场景ID，以便刷新后可以恢复选中状态
+    const currentSceneId = currentAppScene.value?.id;
+    
+    let allData;
+    try {
+      // 尝试从后端加载数据
+      allData = await dataService.loadAllData();
+    } catch (error) {
+      console.warn('从后端加载场景数据失败，使用本地数据:', error);
+      // 从localStorage获取备份数据
+      const savedScenes = localStorage.getItem('app-scenes');
+      if (savedScenes) {
+        allData = { scenes: JSON.parse(savedScenes) };
+      } else {
+        return; // 如果没有任何数据可用，直接返回
+      }
+    }
+    
+    if (allData && allData.scenes && Array.isArray(allData.scenes)) {
+      // 检查场景数据是否有实质性变化，以避免不必要的刷新
+      const hasSceneChanges = !appScenes.value.length || 
+        JSON.stringify(appScenes.value.map(s => ({id: s.id, name: s.name}))) !== 
+        JSON.stringify(allData.scenes.map(s => ({id: s.id, name: s.name})));
+      
+      if (hasSceneChanges) {
+        // 保存当前状态下的场景引用
+        let currentSceneAfterUpdate = null;
+        
+        // 批量更新场景，但不改变当前选中场景
+        appScenes.value = allData.scenes.map(newScene => {
+          // 如果这是当前选中的场景，保存更新后的引用
+          if (currentSceneId && newScene.id === currentSceneId) {
+            currentSceneAfterUpdate = newScene;
+          }
+          return newScene;
+        });
+        
+        // 如果找到当前场景的更新版本，保持选中
+        if (currentSceneId && currentSceneAfterUpdate) {
+          currentAppScene.value = currentSceneAfterUpdate;
+        }
+        
+        // 保存到localStorage以备份
+        localStorage.setItem('app-scenes', JSON.stringify(appScenes.value));
+        
+        // 如果有当前场景，也保存它
+        if (currentAppScene.value) {
+          localStorage.setItem('current-app-scene', JSON.stringify(currentAppScene.value));
+        }
+        
+        debugLog('App场景数据已更新，保持当前选中场景');
+        
+        // 如果有当前场景，确保加载其卡片
+        if (currentAppScene.value && currentAppScene.value.id) {
+          await loadSceneCards(currentAppScene.value.id);
+        }
+        
+        // 已处理场景更新，直接返回
+        return;
+      }
+      
+      // 如果到这里，说明场景数据没有变化，但可能有选中场景需要处理
+      
+      // 当前没有选中场景，但有场景数据
+      if (!currentAppScene.value && appScenes.value.length > 0) {
+        // 用户之前可能选过场景，尝试从localStorage恢复
+        const savedCurrentScene = localStorage.getItem('current-app-scene');
+        if (savedCurrentScene) {
+          try {
+            const parsedScene = JSON.parse(savedCurrentScene);
+            const matchedScene = appScenes.value.find(s => s.id === parsedScene.id);
+            if (matchedScene) {
+              currentAppScene.value = matchedScene;
+              await loadSceneCards(currentAppScene.value.id);
+            } else {
+              // 找不到匹配的场景才选第一个
+              currentAppScene.value = appScenes.value[0];
+              await loadSceneCards(currentAppScene.value.id);
+            }
+          } catch (error) {
+            console.warn('解析保存的场景数据失败', error);
+            // 出错时选第一个
+            currentAppScene.value = appScenes.value[0];
+            await loadSceneCards(currentAppScene.value.id);
+          }
+        } else {
+          // 本地没有保存，选第一个
+          currentAppScene.value = appScenes.value[0];
+          await loadSceneCards(currentAppScene.value.id);
+        }
+        
+        // 保存当前场景
+        if (currentAppScene.value) {
+          localStorage.setItem('current-app-scene', JSON.stringify(currentAppScene.value));
+        }
+      }
+    }
+    
+    // 去掉这条打印，避免干扰用户
+    // debugLog('App场景数据已加载, 当前场景:', currentAppScene.value?.id);
+  } catch (error) {
+    console.error('加载App场景数据失败:', error);
+    // 尝试从localStorage恢复数据
+    try {
+      const savedScenes = localStorage.getItem('app-scenes');
+      if (savedScenes) {
+        appScenes.value = JSON.parse(savedScenes);
+        
+        const savedCurrentScene = localStorage.getItem('current-app-scene');
+        if (savedCurrentScene) {
+          currentAppScene.value = JSON.parse(savedCurrentScene);
+        } else if (appScenes.value.length > 0) {
+          currentAppScene.value = appScenes.value[0];
+        }
+        
+        debugLog('已从localStorage恢复场景数据');
+      }
+    } catch (localError) {
+      console.error('从localStorage恢复数据失败:', localError);
+    }
+  }
+}
+
+// 定义interval引用，用于在组件卸载时清除
+let sceneCheckInterval = null
+
 onMounted(async () => {
-  window.addEventListener('beforeunload', beforeUnloadHandler)
-  await loadChapters()
+  // 加载App场景数据
+  await loadAppScenes();
+  
+  // 设置定时器定期检查场景数据更新
+  sceneCheckInterval = setInterval(async () => {
+    await loadAppScenes();
+  }, 30000); // 每30秒检查一次
+  
+  // 添加场景更新事件监听器
+  window.addEventListener('scene-updated', handleSceneUpdated);
+  
+  // 添加场景卡片加载事件监听器
+  window.addEventListener('load-scene-cards', handleLoadSceneCards);
+  
+  // 以下是原有的功能
+  window.addEventListener('beforeunload', beforeUnloadHandler);
+  await loadChapters();
   
   if (chapters.value.length > 0 && !currentChapterId.value) {
-    openChapter(chapters.value[0].id)
+    openChapter(chapters.value[0].id);
   }
   
-  window.addEventListener('keydown', handleKeyDown)
+  window.addEventListener('keydown', handleKeyDown);
   
-  const latestModelInfo = loadModelInfo()
-  modelInfo.value = latestModelInfo
+  const latestModelInfo = loadModelInfo();
+  modelInfo.value = latestModelInfo;
   
   if (latestModelInfo[0]?.id) {
-    aiSettings.model = latestModelInfo[0].id
-    aiOutlineModal.model = latestModelInfo[0].id
+    aiSettings.model = latestModelInfo[0].id;
+    aiOutlineModal.model = latestModelInfo[0].id;
   }
   
   // 启动自动保存
-  setupAutoSave()
+  setupAutoSave();
 
   try {
     // 加载所有数据
-    const data = await dataService.loadAllData()
+    const data = await dataService.loadAllData();
     
     // 如果data中有prompts数据，则更新prompts
     if (data && data.prompts) {
-      prompts.value = data.prompts
+      prompts.value = data.prompts;
     }
   } catch (error) {
-    console.error('加载提示词数据失败:', error)
+    console.error('加载提示词数据失败:', error);
   }
-})
+  
+  document.addEventListener('click', closeContextMenuOnOutsideClick);
+});
+
+// 处理场景更新事件
+const handleSceneUpdated = async (event) => {
+  debugLog('接收到场景更新事件:', event.detail);
+  if (event.detail && event.detail.sceneId) {
+       // 防止重复加载
+       const currentSceneId = currentAppScene.value?.id;
+       if (currentSceneId === event.detail.sceneId) {
+         await loadSceneCards(event.detail.sceneId);
+       }
+     }
+};
+
+// 添加处理场景卡片加载事件的函数
+const handleLoadSceneCards = (event) => {
+  if (event.detail && event.detail.sceneId) {
+    const sceneId = event.detail.sceneId;
+    debugLog('接收到场景卡片加载事件:', sceneId);
+    
+    // 直接从本地appScenes找到对应场景
+    const scene = appScenes.value.find(s => s.id === sceneId);
+    if (scene) {
+      // 更新当前场景（如果是当前选中的）
+      if (currentAppScene.value && currentAppScene.value.id === sceneId) {
+        // 创建一个新对象以触发响应式更新
+        currentAppScene.value = { ...scene };
+        
+        // 保存到本地存储
+        localStorage.setItem('current-app-scene', JSON.stringify(currentAppScene.value));
+        
+        debugLog('已从本地数据刷新场景:', sceneId);
+      }
+    } else {
+      console.warn('场景不存在:', sceneId);
+    }
+  }
+};
 
 onBeforeUnmount(() => {
   if (contentChanged.value || titleChanged.value) {
-    saveCurrentChapter()
+    saveCurrentChapter();
   }
   
-  window.removeEventListener('beforeunload', beforeUnloadHandler)
-  document.removeEventListener('click', closeContextMenuOnOutsideClick)
+  // 清除场景检查定时器
+  if (sceneCheckInterval) {
+    clearInterval(sceneCheckInterval);
+    sceneCheckInterval = null;
+  }
+  
+  // 移除场景更新事件监听器
+  window.removeEventListener('scene-updated', handleSceneUpdated);
+  window.removeEventListener('load-scene-cards', handleLoadSceneCards);
+  
+  window.removeEventListener('beforeunload', beforeUnloadHandler);
+  document.removeEventListener('click', closeContextMenuOnOutsideClick);
   
   if (autoSaveTimeout.value) {
-    clearInterval(autoSaveTimeout.value)
+    clearInterval(autoSaveTimeout.value);
   }
   
-  window.removeEventListener('keydown', handleKeyDown)
-})
+  window.removeEventListener('keydown', handleKeyDown);
+});
 
 // 添加人物卡和词条卡的状态变量
 const isCharacterCardPanelOpen = ref(false)
@@ -1615,6 +1813,238 @@ const handleEditEntry = (entry) => {
     }
   });
 };
+
+// App场景相关数据
+const appScenes = ref([])
+const currentAppScene = ref(null)
+
+// 处理人物卡更新
+const handleCharacterUpdate = (character) => {
+  debugLog('角色已更新:', character);
+  // 这里可以添加额外的处理逻辑
+};
+
+// 加载指定场景的卡片
+const loadSceneCards = async (sceneId) => {
+  if (!sceneId) return;
+  
+  try {
+    debugLog('加载场景卡片:', sceneId);
+    
+    // 尝试从dataService获取最新数据
+    let allData;
+    try {
+      allData = await dataService.loadAllData();
+    } catch (error) {
+      console.error('从后端加载数据失败，尝试使用本地数据:', error);
+      // 使用本地数据作为备份
+      allData = { scenes: appScenes.value };
+    }
+    
+    // 找到指定的场景
+    const scene = allData.scenes?.find(s => s.id === sceneId);
+    if (!scene) {
+      console.error('场景不存在:', sceneId);
+      return null;
+    }
+    
+    // 确保场景有cards数组
+    if (!scene.cards) {
+      scene.cards = [];
+    }
+    
+    // 更新本地场景数据
+    const sceneIndex = appScenes.value.findIndex(s => s.id === sceneId);
+    if (sceneIndex !== -1) {
+      // 创建新数组以触发响应式更新
+      appScenes.value = [
+        ...appScenes.value.slice(0, sceneIndex),
+        scene,
+        ...appScenes.value.slice(sceneIndex + 1)
+      ];
+    }
+    
+    // 更新当前场景
+    if (currentAppScene.value && currentAppScene.value.id === sceneId) {
+      currentAppScene.value = scene;
+      
+      // 保存到本地存储
+      localStorage.setItem('current-app-scene', JSON.stringify(currentAppScene.value));
+    }
+    
+    // 保存到localStorage以备份
+    localStorage.setItem('app-scenes', JSON.stringify(appScenes.value));
+    
+    debugLog('场景卡片加载完成:', sceneId);
+    return scene;
+  } catch (error) {
+    console.error('加载场景卡片失败:', error);
+    return null;
+  }
+};
+
+// 处理人物卡场景变化
+const handleCharacterSceneChanged = async (character, oldSceneId, newSceneId) => {
+  debugLog('角色场景变化:', character?.id, '从', oldSceneId, '到', newSceneId);
+  
+  // 检查参数是否存在
+  if (!character) {
+    console.error('角色对象为空');
+    return;
+  }
+  
+  try {
+    // 检查新场景是否存在，如果不存在且newSceneId非空，则创建一个新场景
+    if (newSceneId && !appScenes.value.find(s => s.id === newSceneId)) {
+      debugLog('目标场景不存在，创建新场景:', newSceneId);
+      const newScene = {
+        id: newSceneId,
+        name: `场景 ${newSceneId}`,
+        cards: [],
+        characterCount: 0
+      };
+      appScenes.value.push(newScene);
+      // 保存新场景到本地存储
+      localStorage.setItem('app-scenes', JSON.stringify(appScenes.value));
+    }
+    
+    // 如果当前没有选中场景，切换到新场景
+    if (!currentAppScene.value && newSceneId) {
+      currentAppScene.value = appScenes.value.find(s => s.id === newSceneId);
+      // 保存当前场景到本地
+      if (currentAppScene.value) {
+        localStorage.setItem('current-app-scene', JSON.stringify(currentAppScene.value));
+      }
+    }
+    
+    // 触发场景更新事件
+    const updateEvent = new CustomEvent('scene-updated', { 
+      detail: { sceneId: newSceneId || oldSceneId } 
+    });
+    window.dispatchEvent(updateEvent);
+    
+    // 如果当前正在编辑相关场景，刷新其卡片
+    if (currentAppScene.value?.id === newSceneId || currentAppScene.value?.id === oldSceneId) {
+      // 触发一个事件让视图更新
+      const refreshEvent = new CustomEvent('load-scene-cards', {
+        detail: { sceneId: currentAppScene.value.id }
+      });
+      window.dispatchEvent(refreshEvent);
+    }
+    
+  } catch (error) {
+    console.error('处理角色场景变更失败:', error);
+  }
+};
+
+// 只刷新当前场景数据，不切换选择的场景
+const refreshCurrentSceneOnly = async () => {
+  try {
+    // 保存当前选中的场景ID
+    const currentSceneId = currentAppScene.value?.id;
+    if (!currentSceneId) return;
+    
+    // 尝试从dataService加载最新数据
+    let latestData;
+    try {
+      latestData = await dataService.loadAllData();
+    } catch (error) {
+      console.warn('从后端加载场景数据失败，使用本地数据:', error);
+      // 如果后端加载失败，使用本地存储数据
+      return;
+    }
+    
+    // 如果找到当前场景，只更新它
+    if (latestData && latestData.scenes) {
+      const updatedSceneIndex = latestData.scenes.findIndex(s => s.id === currentSceneId);
+      if (updatedSceneIndex !== -1) {
+        const updatedScene = latestData.scenes[updatedSceneIndex];
+        
+        // 在本地场景中找到并更新
+        const localSceneIndex = appScenes.value.findIndex(s => s.id === currentSceneId);
+        if (localSceneIndex !== -1) {
+          // 只更新卡片数据，保留其他属性
+          appScenes.value[localSceneIndex].cards = updatedScene.cards;
+          
+          // 更新当前场景引用
+          if (currentAppScene.value.id === currentSceneId) {
+            currentAppScene.value = appScenes.value[localSceneIndex];
+          }
+          
+          // 保存到localStorage
+          localStorage.setItem('app-scenes', JSON.stringify(appScenes.value));
+          if (currentAppScene.value) {
+            localStorage.setItem('current-app-scene', JSON.stringify(currentAppScene.value));
+          }
+          
+          debugLog('当前场景数据已刷新:', currentSceneId);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('刷新当前场景数据失败:', error);
+  }
+};
+
+// 刷新场景数据
+const refreshSceneData = async () => {
+  try {
+    // 尝试从dataService加载最新数据
+    let latestData;
+    try {
+      latestData = await dataService.loadAllData();
+    } catch (error) {
+      console.warn('从后端加载场景数据失败，使用本地数据:', error);
+      // 如果后端加载失败，使用本地存储数据
+      const savedScenes = localStorage.getItem('app-scenes');
+      if (savedScenes) {
+        latestData = { scenes: JSON.parse(savedScenes) };
+      } else {
+        latestData = { scenes: appScenes.value };
+      }
+    }
+    
+    // 更新本地场景数据
+    if (latestData && latestData.scenes) {
+      appScenes.value = latestData.scenes;
+      
+      // 同步到localStorage
+      localStorage.setItem('app-scenes', JSON.stringify(appScenes.value));
+    } else {
+      // 如果dataService没有数据，则从localStorage加载
+      const savedScenes = localStorage.getItem('app-scenes');
+      if (savedScenes) {
+        appScenes.value = JSON.parse(savedScenes);
+      }
+    }
+    
+    // 确保当前选中的场景仍然有效
+    if (currentAppScene.value) {
+      const sceneStillExists = appScenes.value.some(scene => scene.id === currentAppScene.value.id);
+      if (!sceneStillExists) {
+        currentAppScene.value = null;
+      } else {
+        // 找到当前场景并更新
+        const updatedScene = appScenes.value.find(scene => scene.id === currentAppScene.value.id);
+        if (updatedScene) {
+          currentAppScene.value = updatedScene;
+        }
+      }
+    }
+    
+    // 触发自定义事件，通知App组件刷新场景
+    const event = new CustomEvent('scene-updated', { 
+      detail: { 
+        sceneId: currentAppScene.value?.id 
+      } 
+    });
+    window.dispatchEvent(event);
+    
+    debugLog('场景数据已刷新，当前场景:', currentAppScene.value?.id);
+  } catch (error) {
+    console.error('刷新场景数据失败:', error);
+  }
+};
 </script>
 
 <style>
@@ -1677,6 +2107,10 @@ const handleEditEntry = (entry) => {
 
 .selection-menu .menu-item:hover {
   background-color: #f0f7ff;
+  color: #1890ff;
+}
+
+.user-text {
   color: #1890ff;
 }
 </style>

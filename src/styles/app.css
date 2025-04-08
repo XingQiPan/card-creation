@@ -463,8 +463,15 @@
   .save-btn:hover {
     background: #059669;
   }
-
   
+  .modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #eee;
+    top: 0;
+    background: white;
+    z-index: 1;
+  }
+
   .modal-header h3 {
     margin: 0;
     font-size: 1.1rem;

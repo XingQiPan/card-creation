@@ -184,6 +184,14 @@ export class DataService {
     console.warn('从本地备份加载数据 - 这应该只在后端不可用时发生')
     
     try {
+      // 首先尝试从allData恢复完整数据
+      const allData = this.loadFromLocalStorage('allData', null)
+      if (allData) {
+        console.log('从allData本地备份恢复成功')
+        return allData
+      }
+      
+      // 单独恢复各个组件数据
       const models = this.loadFromLocalStorage('models', []).map(model => ({
         ...model,
         provider: model.provider || 'custom',
@@ -193,7 +201,17 @@ export class DataService {
 
       const prompts = this.loadFromLocalStorage('prompts', [])
       const tags = this.loadFromLocalStorage('tags', [])
-      const scenes = this.loadFromLocalStorage('scenes', [])
+      
+      // 尝试从app-scenes恢复场景数据（Editor组件使用的键）
+      let scenes = this.loadFromLocalStorage('scenes', [])
+      const appScenes = this.loadFromLocalStorage('app-scenes', null)
+      
+      // 如果app-scenes存在，优先使用它
+      if (appScenes && Array.isArray(appScenes)) {
+        scenes = appScenes
+        console.log('从app-scenes本地备份恢复场景数据')
+      }
+      
       const config = this.loadFromLocalStorage('config', {
         currentView: 'main',
         selectedTags: [],

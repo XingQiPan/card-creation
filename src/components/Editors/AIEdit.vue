@@ -261,9 +261,9 @@ watch(() => [aiSettings.editMode, aiSettings.customEditRequest], () => {
 }
 
 .mode-btn.active, .range-btn.active {
-  background-color: #4caf50;
+  background-color: var(--primary-color);
   color: white;
-  border-color: #388e3c;
+  border-color: var(--primary-color);
 }
 
 .range-selector {

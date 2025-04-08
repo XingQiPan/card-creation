@@ -1138,7 +1138,6 @@ onMounted(() => {
   height: 4px;
   background: #e0e0e0;
   outline: none;
-  -webkit-appearance: none;
 }
 
 .slider::-webkit-slider-thumb {

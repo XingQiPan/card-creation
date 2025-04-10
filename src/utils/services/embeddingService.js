@@ -2,16 +2,35 @@ import { dataService } from './dataService';
 import { showToast } from '../common';
 import { debugLog } from '../debug';
 
-class EmbeddingService {
+export class EmbeddingService {
   constructor() {
-    this.knowledgeBases = this.loadKnowledgeBases();
+    // 初始化为空数组，然后异步加载
+    this.knowledgeBases = [];
     this.defaultConfig = {
       chunkSize: 500,
       overlapSize: 50,
       similarityThreshold: 0.5,
       maxChunks: 15,
-      maxResults: 10, // Added maxResults to defaultConfig
+      maxResults: 10
     };
+    // 异步初始化
+    this.initializeAsync();
+  }
+  
+  /**
+   * 异步初始化，从后端加载知识库数据
+   */
+  async initializeAsync() {
+    try {
+      // 尝试从后端加载知识库
+      this.knowledgeBases = await this.loadKnowledgeBasesFromBackend();
+      console.log('成功从后端加载知识库数据');
+    } catch (error) {
+      console.error('从后端加载知识库失败，尝试使用本地缓存:', error);
+      // 如果后端加载失败，尝试使用本地缓存
+      const allData = await dataService.loadAllData();
+      this.knowledgeBases = allData.knowledgeBases || [];
+    }
   }
 
   // Utility function to handle errors
@@ -21,107 +40,197 @@ class EmbeddingService {
     throw error;
   }
 
-  // Load all knowledge bases
-  loadKnowledgeBases() {
+  /**
+   * 加载知识库 - 从后端数据库加载
+   */
+  async loadKnowledgeBasesFromBackend() {
     try {
-      const kbs = dataService.loadFromLocalStorage('knowledgeBases', []);
-      return Array.isArray(kbs) ? kbs : [];
+      // 使用dataService加载全部数据，提取knowledgeBases
+      const allData = await dataService.loadAllData();
+      return allData.knowledgeBases || [];
     } catch (error) {
-      return this.handleError('加载知识库失败', error); //Consistent handling
+      console.error('加载知识库失败:', error);
+      throw error;
     }
   }
 
-  // Save knowledge base list
-  saveKnowledgeBases() {
+  /**
+   * 保存知识库 - 使用dataService保存到后端
+   */
+  async saveKnowledgeBases() {
     try {
-      dataService.saveToLocalStorage('knowledgeBases', this.knowledgeBases);
-      dataService.saveAllData({ knowledgeBases: this.knowledgeBases });
+      await dataService.saveItem('knowledgeBases', this.knowledgeBases);
+      return true;
     } catch (error) {
-      this.handleError('保存知识库失败', error);
+      console.error('保存知识库失败:', error);
+      return false;
     }
   }
 
-  // Get all knowledge bases
+  /**
+   * 获取所有知识库
+   */
   getAllKnowledgeBases() {
-    this.knowledgeBases = this.loadKnowledgeBases(); // Ensure fresh data
+    // 直接返回内存中的数据，不再重新加载
     return this.knowledgeBases;
   }
 
-  // Get a single knowledge base
+  /**
+   * 获取指定ID的知识库
+   */
   getKnowledgeBase(id) {
-    this.knowledgeBases = this.loadKnowledgeBases(); // Ensure fresh data
+    // 不再重新加载数据，直接从内存中查找
     return this.knowledgeBases.find(kb => kb.id === id);
   }
 
-  // Delete a knowledge base
-  deleteKnowledgeBase(id) {
-    this.knowledgeBases = this.loadKnowledgeBases();
+  /**
+   * 添加知识库
+   */
+  async addKnowledgeBase(name, description = '') {
+    const id = Date.now().toString();
+    const newKnowledgeBase = {
+      id,
+      name,
+      description,
+      embeddings: [],
+      config: { ...this.defaultConfig },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    this.knowledgeBases.push(newKnowledgeBase);
+    await this.saveKnowledgeBases();
+    return newKnowledgeBase;
+  }
+
+  /**
+   * 更新知识库
+   */
+  async updateKnowledgeBase(id, data) {
+    const index = this.knowledgeBases.findIndex(kb => kb.id === id);
+    if (index === -1) {
+      throw new Error(`知识库 ${id} 不存在`);
+    }
+
+    // 确保配置有效
+    if (data.config) {
+      this.validateConfig(data.config);
+    }
+
+    const updatedKnowledgeBase = {
+      ...this.knowledgeBases[index],
+      ...data,
+      updatedAt: new Date().toISOString()
+    };
+
+    this.knowledgeBases[index] = updatedKnowledgeBase;
+    await this.saveKnowledgeBases();
+    return updatedKnowledgeBase;
+  }
+
+  /**
+   * 删除知识库
+   */
+  async deleteKnowledgeBase(id) {
+    // 直接使用内存中的数据，从数组中过滤掉要删除的知识库
     this.knowledgeBases = this.knowledgeBases.filter(kb => kb.id !== id);
-    this.saveKnowledgeBases();
+    await this.saveKnowledgeBases();
+    return true;
   }
 
-  // Update a knowledge base
-  async updateKnowledgeBase(kbId, updateData) {
-    try {
-      const kb = this.getKnowledgeBase(kbId);
-      if (!kb) throw new Error('知识库不存在');
-
-      // 更新基本信息
-      kb.name = updateData.name || kb.name;
-      
-      // 确保 config 对象存在
-      kb.config = kb.config || {};
-      
-      // 更新所有配置项
-      if (updateData.config) {
-        kb.config = {
-          ...kb.config,
-          model: updateData.config.model,
-          chunkSize: Number(updateData.config.chunkSize),
-          overlapSize: Number(updateData.config.overlapSize),
-          similarityThreshold: Number(updateData.config.threshold),
-          maxChunks: Number(updateData.config.maxChunks),
-          maxResults: Number(updateData.config.maxResults)
-        };
-      }
-
-      // 验证配置有效性
-      this.validateConfig(kb.config);
-
-      // 保存到本地存储
-      this.saveKnowledgeBases();
-
-      return kb;
-    } catch (error) {
-      throw new Error(`更新知识库失败: ${error.message}`);
+  /**
+   * 添加嵌入向量到知识库
+   */
+  async addEmbedding(knowledgeBaseId, text, vector, metadata = {}) {
+    const knowledgeBase = this.getKnowledgeBase(knowledgeBaseId);
+    if (!knowledgeBase) {
+      throw new Error(`知识库 ${knowledgeBaseId} 不存在`);
     }
+
+    const id = Date.now().toString();
+    const embedding = {
+      id,
+      text,
+      vector,
+      metadata,
+      createdAt: new Date().toISOString()
+    };
+
+    knowledgeBase.embeddings = knowledgeBase.embeddings || [];
+    knowledgeBase.embeddings.push(embedding);
+    await this.saveKnowledgeBases();
+    return embedding;
   }
 
-  // Validate configuration
-  validateConfig(config) {
-    if (!config) throw new Error('配置不能为空');
-    
-    if (!config.model) throw new Error('必须选择模型');
-    
-    if (config.chunkSize < 100 || config.chunkSize > 2000) {
-      throw new Error('分段大小必须在 100-2000 之间');
+  /**
+   * 从知识库中删除嵌入向量
+   */
+  async removeEmbedding(knowledgeBaseId, embeddingId) {
+    const knowledgeBase = this.getKnowledgeBase(knowledgeBaseId);
+    if (!knowledgeBase) {
+      throw new Error(`知识库 ${knowledgeBaseId} 不存在`);
     }
-    
-    if (config.overlapSize < 0 || config.overlapSize >= config.chunkSize) {
-      throw new Error('重叠大小必须大于等于 0 且小于分段大小');
+
+    const embeddings = knowledgeBase.embeddings || [];
+    const index = embeddings.findIndex(e => e.id === embeddingId);
+    if (index === -1) {
+      throw new Error(`嵌入向量 ${embeddingId} 不存在`);
     }
-    
-    if (config.similarityThreshold < 0.1 || config.similarityThreshold > 0.9) {
-      throw new Error('相似度阈值必须在 0.1-0.9 之间');
+
+    knowledgeBase.embeddings.splice(index, 1);
+    await this.saveKnowledgeBases();
+    return true;
+  }
+
+  /**
+   * 计算两个向量之间的余弦相似度
+   */
+  cosineSimilarity(a, b) {
+    if (!a || !b || a.length !== b.length) {
+      return 0;
     }
-    
-    if (config.maxChunks < 5 || config.maxChunks > 50) {
-      throw new Error('最大分段数量必须在 5-50 之间');
+
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+
+    for (let i = 0; i < a.length; i++) {
+      dotProduct += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
     }
-    
-    if (config.maxResults < 10 || config.maxResults > 100) {
-      throw new Error('最大返回结果数必须在 10-100 之间');
+
+    if (normA === 0 || normB === 0) {
+      return 0;
     }
+
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+
+  /**
+   * 在知识库中搜索最相似的嵌入向量
+   */
+  async searchSimilar(knowledgeBaseId, queryVector, topK = 5, similarityThreshold = 0.7) {
+    const knowledgeBase = this.getKnowledgeBase(knowledgeBaseId);
+    if (!knowledgeBase) {
+      throw new Error(`知识库 ${knowledgeBaseId} 不存在`);
+    }
+
+    const { embeddings } = knowledgeBase;
+    if (!embeddings || embeddings.length === 0) {
+      return [];
+    }
+
+    const results = embeddings
+      .map(embedding => ({
+        ...embedding,
+        similarity: this.cosineSimilarity(queryVector, embedding.vector)
+      }))
+      .filter(item => item.similarity >= similarityThreshold)
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, topK);
+
+    return results;
   }
 
   // Get default config
@@ -652,6 +761,34 @@ class EmbeddingService {
   generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2);
   }
+
+  // Validate configuration
+  validateConfig(config) {
+    if (!config) throw new Error('配置不能为空');
+    
+    if (!config.model) throw new Error('必须选择模型');
+    
+    if (config.chunkSize < 100 || config.chunkSize > 2000) {
+      throw new Error('分段大小必须在 100-2000 之间');
+    }
+    
+    if (config.overlapSize < 0 || config.overlapSize >= config.chunkSize) {
+      throw new Error('重叠大小必须大于等于 0 且小于分段大小');
+    }
+    
+    if (config.similarityThreshold < 0.1 || config.similarityThreshold > 0.9) {
+      throw new Error('相似度阈值必须在 0.1-0.9 之间');
+    }
+    
+    if (config.maxChunks < 5 || config.maxChunks > 50) {
+      throw new Error('最大分段数量必须在 5-50 之间');
+    }
+    
+    if (config.maxResults < 10 || config.maxResults > 100) {
+      throw new Error('最大返回结果数必须在 10-100 之间');
+    }
+  }
 }
 
+// 导出单例实例
 export const embeddingService = new EmbeddingService();

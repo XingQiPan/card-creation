@@ -393,7 +393,6 @@ const renderedOutput = computed(() => {
 
 .task-actions {
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
 }
@@ -518,6 +517,11 @@ const renderedOutput = computed(() => {
 .task-status.failed {
   background: #fff2f0;
   color: #ff4d4f;
+}
+
+.task-content{
+  display: flex;
+  align-items: center;
 }
 
 .is-root > .task-content {

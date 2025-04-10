@@ -6,6 +6,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { AIDetector } from './ai-detector.js'
 import { v4 as uuidv4 } from 'uuid'
+import { initDb, closeDb, getDb, DataManager, dbUtils } from './db.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -50,153 +51,12 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR)
 }
 
-// 数据文件路径
-const SCENES_FILE = path.join(DATA_DIR, 'scenes.json')
-const BOOK_SCENES_FILE = path.join(DATA_DIR, 'book-scenes.json')
-const PROMPTS_FILE = path.join(DATA_DIR, 'prompts.json')
-const TAGS_FILE = path.join(DATA_DIR, 'tags.json')
-const CONFIG_FILE = path.join(DATA_DIR, 'config.json')
-const AGENTS_FILE = path.join(DATA_DIR, 'agents.json')
-const TASKS_FILE = path.join(DATA_DIR, 'tasks.json')
-
-// 添加内置提示词文件路径
-const BUILT_IN_PROMPTS_FILE = path.join(DATA_DIR, 'built-in-prompts.json')
-
 // 定义存储书籍章节的目录
 const BOOKS_DIR = path.join(DATA_DIR, 'books')
 
 // 确保书籍目录存在
 if (!fs.existsSync(BOOKS_DIR)) {
   fs.mkdirSync(BOOKS_DIR, { recursive: true })
-}
-
-// 封装文件操作相关的工具函数
-const FileUtils = {
-  ensureDirectory(dir) {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
-    }
-  },
-
-  saveData(filePath, data) {
-    try {
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
-      return true
-    } catch (error) {
-      console.error(`Error saving to ${filePath}:`, error)
-      return false
-    }
-  },
-
-  loadData(filePath, defaultValue = null) {
-    try {
-      if (fs.existsSync(filePath)) {
-        const data = fs.readFileSync(filePath, 'utf8')
-        return JSON.parse(data)
-      }
-      return defaultValue
-    } catch (error) {
-      console.error(`Error loading from ${filePath}:`, error)
-      return defaultValue
-    }
-  }
-}
-
-// 封装数据管理相关的函数
-const DataManager = {
-  initializeDataFiles() {
-    const files = {
-      [SCENES_FILE]: [],
-      [BOOK_SCENES_FILE]: [],
-      [PROMPTS_FILE]: [],
-      [TAGS_FILE]: [],
-      [AGENTS_FILE]: [],
-      [CONFIG_FILE]: {
-        models: [],
-        notepadContent: '',
-        currentSceneId: null,
-        selectedTags: [],
-        currentView: 'main'
-      },
-      [BUILT_IN_PROMPTS_FILE]: [
-        {
-          id: 'built-in-1',
-          title: '文章改写助手',
-          systemPrompt: '你是一个专业的文章改写助手，善于保持原文含义的同时改写文章结构和用词。',
-          userPrompt: '请改写以下文章，保持原意的同时使其更加通顺易读：\n\n{{text}}',
-          category: '写作辅助',
-          tags: ['写作', '改写']
-        },
-        // 可以添加更多内置提示词...
-      ]
-    }
-
-    Object.entries(files).forEach(([file, defaultData]) => {
-      if (!fs.existsSync(file)) {
-        FileUtils.saveData(file, defaultData)
-      }
-    })
-  },
-
-  ensureConfigFile() {
-    if (!fs.existsSync(CONFIG_FILE)) {
-      const defaultConfig = {
-        models: [],
-        agents: []
-      }
-      
-      const existingConfig = FileUtils.loadData(CONFIG_FILE)
-      if (existingConfig?.models) {
-        defaultConfig.models = existingConfig.models
-      }
-      
-      FileUtils.saveData(CONFIG_FILE, defaultConfig)
-      console.log('创建默认配置文件')
-    }
-  },
-
-  getAllData() {
-    return {
-      scenes: FileUtils.loadData(SCENES_FILE, []),
-      prompts: FileUtils.loadData(PROMPTS_FILE, []),
-      tags: FileUtils.loadData(TAGS_FILE, []),
-      agents: FileUtils.loadData(AGENTS_FILE, []),
-      config: FileUtils.loadData(CONFIG_FILE, {
-        models: [],
-        notepadContent: '',
-        currentSceneId: null,
-        selectedTags: [],
-        currentView: 'main'
-      })
-    }
-  }
-}
-
-// 封装代理相关的处理函数
-const AgentService = {
-  getAgent(agentId) {
-    const agents = FileUtils.loadData(AGENTS_FILE, [])
-    return agents.find(a => String(a.id) === String(agentId))
-  },
-
-  saveAgent(agentData) {
-    const agents = FileUtils.loadData(AGENTS_FILE, [])
-    const now = new Date().toISOString()
-
-    if (agentData.id) {
-      const agentIndex = agents.findIndex(a => String(a.id) === String(agentData.id))
-      if (agentIndex !== -1) {
-        const id = agents[agentIndex].id
-        agents[agentIndex] = { ...agentData, id, updatedAt: now }
-      } else {
-        agents.push({ ...agentData, id: Date.now(), createdAt: now, updatedAt: now })
-      }
-    } else {
-      agents.push({ ...agentData, id: Date.now(), createdAt: now, updatedAt: now })
-    }
-
-    return FileUtils.saveData(AGENTS_FILE, agents) ? agentData : null
-  }
 }
 
 // 封装响应处理工具
@@ -219,10 +79,10 @@ const ResponseHandler = {
 
 // 封装通用的路由处理器
 const RouteHandler = {
-  loadData(filePath, defaultValue = []) {
+  getData(getDataFn) {
     return (req, res) => {
       try {
-        const data = FileUtils.loadData(filePath, defaultValue)
+        const data = getDataFn()
         ResponseHandler.success(res, data)
       } catch (error) {
         ResponseHandler.error(res, error)
@@ -230,14 +90,15 @@ const RouteHandler = {
     }
   },
 
-  saveData(filePath) {
+  saveData(saveFn) {
     return (req, res) => {
       try {
         const data = req.body
-        if (FileUtils.saveData(filePath, data)) {
+        const result = saveFn(data)
+        if (result) {
           ResponseHandler.success(res)
         } else {
-          throw new Error(`Failed to save data to ${filePath}`)
+          throw new Error('Failed to save data')
         }
       } catch (error) {
         ResponseHandler.error(res, error)
@@ -245,7 +106,6 @@ const RouteHandler = {
     }
   }
 }
-
 
 function splitIntoChapters(book) {
   const chapters = [];
@@ -256,8 +116,6 @@ function splitIntoChapters(book) {
 
   // 匹配中文数字章节 (第X章)
   let b = book.match(/^第[零一两二三四五六七八九十百千万亿\d]+章.*/gm) || [];
-
-
   
   // 去重并排序（保持原始顺序）
   b = [...new Set(b)].sort((a, b) => 
@@ -303,10 +161,10 @@ function splitIntoChapters(book) {
 
   return chapters;
 }
+
 // 修改文件处理服务
 const FileProcessingService = {
   async processBookFile(file) {
-    
     try {
       // 读取文件内容
       const content = fs.readFileSync(file.path, 'utf8')
@@ -342,7 +200,7 @@ const FileProcessingService = {
 // 封装模型服务
 const ModelService = {
   getAllModels() {
-    const config = FileUtils.loadData(CONFIG_FILE) || { models: [] }
+    const config = DataManager.getConfig()
     let allModels = []
     
     if (config.models && Array.isArray(config.models)) {
@@ -619,11 +477,11 @@ const APIDocService = {
   }
 }
 
-// 初始化数据文件
-DataManager.initializeDataFiles()
+// 初始化数据库
+initDb()
 
-// 在服务器启动时确保配置文件存在
-DataManager.ensureConfigFile()
+// 初始化默认数据
+DataManager.initializeDefaultData()
 
 // 初始化API文档
 APIDocService.initializeDocs()
@@ -631,7 +489,7 @@ APIDocService.initializeDocs()
 // 调试路由 - 查看当前配置
 app.get('/api/debug/config', (req, res) => {
   try {
-    const config = FileUtils.loadData(CONFIG_FILE)
+    const config = DataManager.getConfig()
     res.json({
       success: true,
       data: config
@@ -650,21 +508,51 @@ app.get('/api/test', (req, res) => {
 })
 
 // 使用封装的路由处理器简化路由定义
-app.get('/api/load-scenes', RouteHandler.loadData(SCENES_FILE))
-app.get('/api/load-prompts', RouteHandler.loadData(PROMPTS_FILE))
-app.get('/api/load-tags', RouteHandler.loadData(TAGS_FILE))
-app.get('/api/load-config', RouteHandler.loadData(CONFIG_FILE, {
-  models: [],
-  notepadContent: '',
-  currentSceneId: null,
-  selectedTags: [],
-  currentView: 'main'
-}))
+app.get('/api/load-scenes', RouteHandler.getData(DataManager.getScenes))
+app.get('/api/load-prompts', RouteHandler.getData(DataManager.getPrompts))
+app.get('/api/load-tags', RouteHandler.getData(DataManager.getTags))
+app.get('/api/load-config', RouteHandler.getData(DataManager.getConfig))
 
-app.post('/api/save-scenes', RouteHandler.saveData(SCENES_FILE))
-app.post('/api/save-prompts', RouteHandler.saveData(PROMPTS_FILE))
-app.post('/api/save-tags', RouteHandler.saveData(TAGS_FILE))
-app.post('/api/save-config', RouteHandler.saveData(CONFIG_FILE))
+// 更新路由处理器
+app.post('/api/save-scenes', (req, res) => {
+  try {
+    const scenes = req.body
+    DataManager.syncData({ scenes })
+    ResponseHandler.success(res)
+  } catch (error) {
+    ResponseHandler.error(res, error)
+  }
+})
+
+app.post('/api/save-prompts', (req, res) => {
+  try {
+    const prompts = req.body
+    DataManager.syncData({ prompts })
+    ResponseHandler.success(res)
+  } catch (error) {
+    ResponseHandler.error(res, error)
+  }
+})
+
+app.post('/api/save-tags', (req, res) => {
+  try {
+    const tags = req.body
+    DataManager.syncData({ tags })
+    ResponseHandler.success(res)
+  } catch (error) {
+    ResponseHandler.error(res, error)
+  }
+})
+
+app.post('/api/save-config', (req, res) => {
+  try {
+    const config = req.body
+    DataManager.syncData({ config })
+    ResponseHandler.success(res)
+  } catch (error) {
+    ResponseHandler.error(res, error)
+  }
+})
 
 // 更新文件上传路由
 app.post('/api/split-book', upload.single('file'), async (req, res) => {
@@ -691,12 +579,13 @@ app.get('/health', (req, res) => {
 // 添加新的数据同步路由
 app.post('/api/sync-data', async (req, res) => {
   try {
-    // 保存数据到文件
-    const data = req.body;
-    await fs.promises.writeFile(
-      path.join(DATA_DIR, 'all-data.json'),
-      JSON.stringify(data, null, 2)
-    );
+    // 使用数据库保存数据
+    const result = DataManager.syncData(req.body)
+    
+    if (!result || !result.success) {
+      throw new Error(result.error || '同步数据失败');
+    }
+    
     res.json({ success: true });
   } catch (error) {
     console.error('保存数据失败:', error);
@@ -706,28 +595,9 @@ app.post('/api/sync-data', async (req, res) => {
 
 app.get('/api/get-all-data', async (req, res) => {
   try {
-    // 从文件加载数据
-    const filePath = path.join(DATA_DIR, 'all-data.json');
-    
-    // 检查文件是否存在
-    if (!fs.existsSync(filePath)) {
-      // 如果文件不存在，返回空数据结构
-      return res.json({
-        scenes: [],
-        prompts: [],
-        tags: [],
-        config: {
-          models: [],
-          notepadContent: '',
-          currentSceneId: null,
-          selectedTags: [],
-          currentView: 'main'
-        }
-      });
-    }
-    
-    const data = await fs.promises.readFile(filePath, 'utf8');
-    res.json(JSON.parse(data));
+    // 从数据库加载数据
+    const data = DataManager.getAllData()
+    res.json(data);
   } catch (error) {
     console.error('加载数据失败:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -736,7 +606,7 @@ app.get('/api/get-all-data', async (req, res) => {
 
 app.get('/api/agents/:id', (req, res) => {
   try {
-    const agent = AgentService.getAgent(req.params.id)
+    const agent = DataManager.getAgent(req.params.id)
     if (!agent) {
       return res.status(404).json({
         success: false,
@@ -754,7 +624,7 @@ app.get('/api/agents/:id', (req, res) => {
 
 app.post('/api/agents', (req, res) => {
   try {
-    const savedAgent = AgentService.saveAgent(req.body)
+    const savedAgent = DataManager.saveAgent(req.body)
     if (!savedAgent) {
       throw new Error('保存代理数据失败')
     }
@@ -770,7 +640,7 @@ app.post('/api/agents', (req, res) => {
 // 获取所有代理的API端点
 app.get('/api/agents', (req, res) => {
   try {
-    const agents = FileUtils.loadData(AGENTS_FILE) || []
+    const agents = DataManager.getAgents()
     res.json({
       success: true,
       data: agents
@@ -858,13 +728,58 @@ app.post('/api/detect-ai-file', upload.single('file'), async (req, res) => {
 });
 
 // 添加拆书场景相关的路由
-app.get('/api/load-book-scenes', RouteHandler.loadData(BOOK_SCENES_FILE))
-app.post('/api/save-book-scenes', RouteHandler.saveData(BOOK_SCENES_FILE))
+app.get('/api/load-book-scenes', (req, res) => {
+  try {
+    // 从数据库获取书籍场景数据
+    const bookScenes = dbUtils.query('SELECT * FROM book_scenes')
+    ResponseHandler.success(res, bookScenes)
+  } catch (error) {
+    ResponseHandler.error(res, error)
+  }
+})
+
+app.post('/api/save-book-scenes', (req, res) => {
+  try {
+    const bookScenes = req.body
+    
+    // 使用事务保存数据
+    dbUtils.transaction(() => {
+      const db = getDb()
+      
+      // 清空当前数据
+      db.prepare('DELETE FROM book_scenes').run()
+      
+      // 插入新数据
+      if (Array.isArray(bookScenes)) {
+        const stmt = db.prepare(`
+          INSERT INTO book_scenes (id, title, content, bookId, chapterNumber, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        
+        bookScenes.forEach(scene => {
+          stmt.run(
+            scene.id,
+            scene.title,
+            scene.content,
+            scene.bookId,
+            scene.chapterNumber,
+            scene.createdAt || new Date().toISOString(),
+            scene.updatedAt || new Date().toISOString()
+          )
+        })
+      }
+    })
+    
+    ResponseHandler.success(res)
+  } catch (error) {
+    ResponseHandler.error(res, error)
+  }
+})
 
 // 获取任务
 app.get('/api/tasks', (req, res) => {
   try {
-    const tasks = FileUtils.loadData(TASKS_FILE, null)
+    const tasks = DataManager.getTasks()
     res.json({
       success: true,
       data: tasks
@@ -882,9 +797,9 @@ app.get('/api/tasks', (req, res) => {
 app.post('/api/tasks', (req, res) => {
   try {
     const taskData = req.body
-    const saved = FileUtils.saveData(TASKS_FILE, taskData)
+    const result = DataManager.saveTasks(taskData)
     
-    if (!saved) {
+    if (!result || !result.success) {
       throw new Error('保存任务数据失败')
     }
     
@@ -904,10 +819,7 @@ app.post('/api/tasks', (req, res) => {
 // 删除任务
 app.delete('/api/tasks', (req, res) => {
   try {
-    if (fs.existsSync(TASKS_FILE)) {
-      fs.unlinkSync(TASKS_FILE)
-    }
-    
+    DataManager.deleteTasks()
     res.json({
       success: true
     })
@@ -924,21 +836,13 @@ app.delete('/api/tasks', (req, res) => {
 app.delete('/api/agents/:id', (req, res) => {
   try {
     const agentId = req.params.id
-    const agents = FileUtils.loadData(AGENTS_FILE, [])
+    const result = DataManager.deleteAgent(agentId)
     
-    const filteredAgents = agents.filter(agent => String(agent.id) !== String(agentId))
-    
-    if (filteredAgents.length === agents.length) {
+    if (!result || result.changes === 0) {
       return res.status(404).json({
         success: false,
         error: '未找到指定的 AI 成员'
       })
-    }
-    
-    const saved = FileUtils.saveData(AGENTS_FILE, filteredAgents)
-    
-    if (!saved) {
-      throw new Error('保存 AI 成员数据失败')
     }
     
     res.json({
@@ -956,16 +860,8 @@ app.delete('/api/agents/:id', (req, res) => {
 // 修改内置提示词路由
 app.get('/api/built-in-prompts', (req, res) => {
   try {
-    // 确保返回正确的 JSON 格式
-    const prompts = FileUtils.loadData(BUILT_IN_PROMPTS_FILE, [])
-    if (!prompts) {
-      // 如果文件不存在或为空，返回空数组
-      return res.json({
-        success: true,
-        data: []
-      })
-    }
-    
+    // 从数据库获取内置提示词
+    const prompts = DataManager.getBuiltInPrompts()
     res.json({
       success: true,
       data: prompts
@@ -979,44 +875,27 @@ app.get('/api/built-in-prompts', (req, res) => {
   }
 })
 
-
 // 处理聊天会话数据
 app.get('/api/chat-sessions', (req, res) => {
   try {
-    const chatSessionsPath = path.join(__dirname, 'data', 'chat-sessions.json');
-    if (fs.existsSync(chatSessionsPath)) {
-      const chatSessions = JSON.parse(fs.readFileSync(chatSessionsPath, 'utf8'));
-      res.json(chatSessions);
-    } else {
-      res.json([]);
-    }
+    const chatSessions = DataManager.getChatSessions()
+    res.json(chatSessions)
   } catch (error) {
-    console.error('加载聊天会话失败:', error);
-    res.status(500).json({ error: '加载聊天会话失败' });
+    console.error('加载聊天会话失败:', error)
+    res.status(500).json({ error: '加载聊天会话失败' })
   }
-});
+})
 
 app.post('/api/chat-sessions', (req, res) => {
   try {
-    const chatSessions = req.body;
-    const chatSessionsPath = path.join(__dirname, 'data', 'chat-sessions.json');
-    fs.writeFileSync(chatSessionsPath, JSON.stringify(chatSessions, null, 2));
-    res.json({ success: true });
+    const chatSessions = req.body
+    DataManager.saveChatSessions(chatSessions)
+    res.json({ success: true })
   } catch (error) {
-    console.error('保存聊天会话失败:', error);
-    res.status(500).json({ error: '保存聊天会话失败' });
+    console.error('保存聊天会话失败:', error)
+    res.status(500).json({ error: '保存聊天会话失败' })
   }
-});
-
-// 确保内置提示词文件存在并包含初始数据
-const initializeBuiltInPrompts = () => {
-  if (!fs.existsSync(BUILT_IN_PROMPTS_FILE)) {
-    FileUtils.saveData(BUILT_IN_PROMPTS_FILE, defaultPrompts)
-  }
-}
-
-// 在服务器启动时初始化内置提示词
-initializeBuiltInPrompts()
+})
 
 // 添加调试中间件
 app.use((req, res, next) => {
@@ -1036,15 +915,11 @@ app.use((err, req, res, next) => {
 app.get('/api/books/:bookId/chapters', (req, res) => {
   try {
     const { bookId } = req.params
-    const bookFile = path.join(BOOKS_DIR, `${bookId}.json`)
     
-    // 检查文件是否存在，不存在则返回空数组
-    if (!fs.existsSync(bookFile)) {
-      return res.json([])
-    }
+    // 从数据库获取书籍章节
+    const chapters = dbUtils.query('SELECT * FROM book_scenes WHERE bookId = ? ORDER BY chapterNumber', [bookId])
     
-    const chaptersData = JSON.parse(fs.readFileSync(bookFile, 'utf8'))
-    res.json(chaptersData)
+    res.json(chapters)
   } catch (error) {
     console.error('获取书籍章节失败:', error)
     res.status(500).json({
@@ -1056,86 +931,103 @@ app.get('/api/books/:bookId/chapters', (req, res) => {
 
 app.post('/api/books/:bookId/chapters', (req, res) => {
   try {
-    const { bookId } = req.params;
-    const chapters = req.body;
+    const { bookId } = req.params
+    const chapters = req.body
 
     // 添加更严格的验证
     if (!Array.isArray(chapters)) {
       return res.status(400).json({
         success: false,
         error: '无效的章节数据格式'
-      });
+      })
     }
 
-    // 确保目录存在
-    if (!fs.existsSync(BOOKS_DIR)) {
-      fs.mkdirSync(BOOKS_DIR, { recursive: true });
-    }
+    // 使用事务保存数据
+    dbUtils.transaction(() => {
+      const db = getDb()
+      
+      // 删除当前书籍的所有章节
+      db.prepare('DELETE FROM book_scenes WHERE bookId = ?').run(bookId)
+      
+      // 插入新章节
+      const stmt = db.prepare(`
+        INSERT INTO book_scenes (id, title, content, bookId, chapterNumber, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      
+      chapters.forEach((chapter, index) => {
+        const id = chapter.id || `${bookId}-chapter-${index+1}`
+        stmt.run(
+          id,
+          chapter.title,
+          chapter.content,
+          bookId,
+          chapter.chapterNumber || index + 1,
+          chapter.createdAt || new Date().toISOString(),
+          chapter.updatedAt || new Date().toISOString()
+        )
+      })
+    })
 
-    // 保存章节数据
-    fs.writeFileSync(
-      path.join(BOOKS_DIR, `${bookId}.json`),
-      JSON.stringify(chapters, null, 2),
-      'utf8'
-    );
-
-    res.json({ success: true });
+    res.json({ success: true })
   } catch (error) {
-    console.error('保存失败:', error);
+    console.error('保存失败:', error)
     res.status(500).json({
       success: false,
       error: '保存失败: ' + error.message
-    });
+    })
   }
-});
+})
 
 // 获取所有书籍列表
 app.get('/api/books', (req, res) => {
   try {
-    // 如果目录不存在，创建它
-    if (!fs.existsSync(BOOKS_DIR)) {
-      fs.mkdirSync(BOOKS_DIR, { recursive: true })
-      return res.json([])
-    }
+    // 从数据库获取所有书籍的基本信息
+    const books = dbUtils.query(`
+      SELECT bookId as id, 
+             MIN(title) as title,
+             COUNT(*) as chapterCount,
+             MIN(createdAt) as createdAt,
+             MAX(updatedAt) as updatedAt
+      FROM book_scenes
+      GROUP BY bookId
+    `)
     
-    // 读取books目录下的所有JSON文件
-    const files = fs.readdirSync(BOOKS_DIR).filter(file => file.endsWith('.json'))
-    
-    // 从每个文件中提取基本信息组成书籍列表
-    const books = files.map(file => {
-      const bookId = file.replace('.json', '')
-      try {
-        const bookData = JSON.parse(fs.readFileSync(path.join(BOOKS_DIR, file), 'utf8'))
-        const chapterCount = bookData.length || 0
-        const wordCount = bookData.reduce((total, chapter) => {
-          // 从HTML内容中提取纯文本计算字数
-          const content = chapter.content || ''
-          const textContent = content.replace(/<[^>]*>/g, '')
-          return total + textContent.replace(/\s+/g, '').length
-        }, 0)
+    // 获取每本书的第一章节内容作为预览
+    const booksWithPreview = books.map(book => {
+      const firstChapter = dbUtils.get(
+        'SELECT content FROM book_scenes WHERE bookId = ? ORDER BY chapterNumber LIMIT 1',
+        [book.id]
+      )
+      
+      let preview = ''
+      let wordCount = 0
+      
+      if (firstChapter) {
+        // 从HTML内容中提取纯文本计算字数
+        const content = firstChapter.content || ''
+        const textContent = content.replace(/<[^>]*>/g, '')
+        preview = textContent.substring(0, 100)
         
-        return {
-          id: bookId,
-          title: bookData[0]?.title || '未命名书籍',
-          preview: bookData[0]?.content?.replace(/<[^>]*>/g, '').substring(0, 100) || '',
-          chapterCount,
-          wordCount,
-          updatedAt: bookData[0]?.updatedAt || new Date().toISOString()
-        }
-      } catch (error) {
-        console.error(`读取书籍 ${bookId} 信息失败:`, error)
-        return {
-          id: bookId,
-          title: '损坏的书籍',
-          preview: '',
-          chapterCount: 0,
-          wordCount: 0,
-          updatedAt: new Date().toISOString()
-        }
+        // 计算整本书的字数
+        const countResult = dbUtils.get(`
+          SELECT SUM(LENGTH(REPLACE(REPLACE(content, '<[^>]*>', ''), ' ', ''))) as wordCount
+          FROM book_scenes
+          WHERE bookId = ?
+        `, [book.id])
+        
+        wordCount = countResult?.wordCount || 0
+      }
+      
+      return {
+        ...book,
+        preview,
+        wordCount,
+        updatedAt: book.updatedAt || new Date().toISOString()
       }
     })
     
-    res.json(books)
+    res.json(booksWithPreview)
   } catch (error) {
     console.error('获取书籍列表失败:', error)
     res.status(500).json({
@@ -1148,14 +1040,31 @@ app.get('/api/books', (req, res) => {
 // 添加获取按分类筛选的提示词的路由
 app.get('/api/prompts/category/:category', (req, res) => {
   try {
-    const category = req.params.category;
-    const prompts = FileUtils.loadData(PROMPTS_FILE, []);
-    const filteredPrompts = prompts.filter(prompt => prompt.category === category);
-    ResponseHandler.success(res, filteredPrompts);
+    const category = req.params.category
+    const prompts = dbUtils.query('SELECT * FROM prompts WHERE category = ?', [category])
+    
+    // 处理JSON字段
+    const parsedPrompts = prompts.map(prompt => ({
+      ...prompt,
+      tags: JSON.parse(prompt.tags || '[]')
+    }))
+    
+    ResponseHandler.success(res, parsedPrompts)
   } catch (error) {
-    ResponseHandler.error(res, error);
+    ResponseHandler.error(res, error)
   }
-});
+})
+
+// 优雅关闭数据库连接
+process.on('SIGINT', () => {
+  closeDb()
+  process.exit(0)
+})
+
+process.on('SIGTERM', () => {
+  closeDb()
+  process.exit(0)
+})
 
 // 启动服务器
 const PORT = process.env.PORT || 3000
@@ -1163,12 +1072,12 @@ app.listen(PORT, async () => {
   
   // 测试 AI 检测器
   try {
-    const testResult = await new AIDetector().analyze("这是一个测试文本");
+    const testResult = await new AIDetector().analyze("这是一个测试文本")
   } catch (error) {
-    console.error('AI检测器测试失败:', error);
+    console.error('AI检测器测试失败:', error)
   }
   
   APIDocService.getAllRoutes().forEach(route => {
     console.log(`${route.method.padEnd(6)} ${route.path.padEnd(30)} ${route.description}`)
-  });
-});
+  })
+})

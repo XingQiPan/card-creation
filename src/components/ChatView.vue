@@ -940,6 +940,9 @@ const saveSessions = async () => {
   }
   
   try {
+    // 保存到全局变量，使App.vue能够获取
+    window.chatSessions = chatSessions.value;
+    
     // 使用专用方法保存聊天会话
     await dataService.saveChatSessions(chatSessions.value);
   } catch (error) {
@@ -998,6 +1001,8 @@ onMounted(async () => {
     
     if (Array.isArray(chatSessionsData) && chatSessionsData.length > 0) {
       chatSessions.value = chatSessionsData;
+      // 将聊天会话同步到全局变量，确保 App.vue 能获取到
+      window.chatSessions = chatSessionsData;
       currentChatId.value = chatSessionsData[0]?.id || null;
     } else {
       // 如果后端没有聊天会话数据，创建默认聊天

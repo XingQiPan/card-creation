@@ -911,6 +911,30 @@ const handleDragStart = (event, card) => {
 const startCardResize = (e, card) => {
   e.stopPropagation()
   const textarea = e.target.parentElement.querySelector('textarea')
+  
+  // 检查 textarea 是否存在，如果不存在则使用渲染内容的高度或默认值
+  if (!textarea) {
+    const renderedContent = e.target.parentElement.querySelector('.rendered-content')
+    const startY = e.clientY
+    const startHeight = renderedContent ? renderedContent.offsetHeight : parseInt(card.height || '120')
+
+    const handleMouseMove = (e) => {
+      const diff = e.clientY - startY
+      const newHeight = Math.max(120, startHeight + diff)
+      card.height = `${newHeight}px`
+      emit('update-card', {...card})
+    }
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return
+  }
+  
   const startY = e.clientY
   const startHeight = textarea.offsetHeight
 
@@ -2475,8 +2499,8 @@ const reloadPage = () => {
 
 .card-preview-popup {
   position: fixed;
-  z-index: 1000;
-  background: var(--card-bg-color);
+  z-index: 9999;
+  background: white;
   border: 1px solid var(--border-color);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -2530,7 +2554,6 @@ const reloadPage = () => {
   border: 2px solid white;
 }
 
-/* 添加渲染内容的样式 */
 .rendered-content {
   position: absolute;
   top: 0;

@@ -1,4 +1,5 @@
 import { apiUtils } from '../common'
+import { debugLog } from '../debug'
 
 const API_BASE_URL = 'http://localhost:3000/api'
 
@@ -10,66 +11,67 @@ export class DataService {
   // 同步数据到后端
   async syncToBackend(data) {
     try {
+      debugLog('正在同步数据到后端...')
+      const startTime = performance.now()
+      
       const response = await fetch(`${this.baseUrl}/sync-data`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       })
       
-      return await apiUtils.handleResponse(response)
+      const result = await apiUtils.handleResponse(response)
+      
+      const endTime = performance.now()
+      debugLog(`数据同步完成，耗时: ${endTime - startTime}ms`)
+      
+      return result
     } catch (error) {
       console.error('后端同步失败:', error)
       throw error
     }
   }
 
-  // 保存到本地存储 - 仅作为备份
-  saveToLocalStorage(key, data) {
-    try {
-      localStorage.setItem(key, JSON.stringify(data))
-    } catch (error) {
-      console.error(`保存${key}失败:`, error)
-      // 不抛出错误，因为这只是备份
-    }
-  }
-
-  // 从本地存储加载 - 仅作为备份
-  loadFromLocalStorage(key, defaultValue = null) {
-    try {
-      const data = localStorage.getItem(key)
-      return data ? JSON.parse(data) : defaultValue
-    } catch (error) {
-      console.error(`加载${key}失败:`, error)
-      return defaultValue
-    }
-  }
-
   // 保存所有数据
   async saveAllData(data) {
     try {
+      // 确保数据结构一致性
+      const normalizedData = { ...data }
+      
+      if (!normalizedData.config) {
+        normalizedData.config = {}
+      }
+      
+      // 检查models是否直接挂在data下，而不是在config.models中
+      if (Array.isArray(normalizedData.models) && !Array.isArray(normalizedData.config.models)) {
+        normalizedData.config.models = normalizedData.models
+        delete normalizedData.models
+      } else if (!Array.isArray(normalizedData.config.models)) {
+        normalizedData.config.models = []
+      }
+      
       // 准备同步到后端的数据
       const syncData = {
-        scenes: data.scenes || [],
-        prompts: data.prompts || [],
-        tags: data.tags || [],
+        scenes: normalizedData.scenes || [],
+        prompts: normalizedData.prompts || [],
+        tags: normalizedData.tags || [],
+        knowledgeBases: normalizedData.knowledgeBases || [],
+        chatSessions: normalizedData.chatSessions || [],
         config: {
-          models: data.models || [],
-          notepadContent: data.config?.notepadContent || '',
-          currentSceneId: data.config?.currentSceneId || null,
-          selectedTags: data.config?.selectedTags || [],
-          currentView: data.config?.currentView || 'main'
+          models: normalizedData.config.models || [],
+          notepadContent: normalizedData.config.notepadContent || '',
+          currentSceneId: normalizedData.config.currentSceneId || null,
+          selectedTags: normalizedData.config.selectedTags || [],
+          currentView: normalizedData.config.currentView || 'main',
+          fontSizeLevel: normalizedData.config.fontSizeLevel,
+          cardLayoutMode: normalizedData.config.cardLayoutMode,
+          cardColumns: normalizedData.config.cardColumns,
+          showKeywordDetectionModal: normalizedData.config.showKeywordDetectionModal
         }
       }
 
       // 同步到后端
       const result = await this.syncToBackend(syncData)
-      
-      // 保存到本地存储作为备份
-      Object.entries(data).forEach(([key, value]) => {
-        if (value !== undefined) {
-          this.saveToLocalStorage(key, value)
-        }
-      })
       
       return result
     } catch (error) {
@@ -78,42 +80,12 @@ export class DataService {
     }
   }
 
-  // 加载所有数据 - 现在直接从后端加载
+  // 加载所有数据 - 直接从后端加载
   async loadAllData() {
     try {
-      // 尝试从后端加载数据
-      return await this.loadBackendData()
-    } catch (error) {
-      console.error('加载数据失败:', error)
-      // 从本地存储加载作为备份
-      return this.loadFromLocalBackup()
-    }
-  }
-
-  // 初始化数据
-  async initializeData(data) {
-    const defaultData = {
-      scenes: [],
-      prompts: [],
-      tags: [],
-      config: {
-        models: [],
-        notepadContent: '',
-        currentView: 'main',
-        selectedTags: [],
-        currentSceneId: null
-      }
-    }
-
-    return {
-      ...defaultData,
-      ...data
-    }
-  }
-
-  // 加载后端数据
-  async loadBackendData() {
-    try {
+      debugLog('正在从后端加载数据...')
+      const startTime = performance.now()
+      
       const response = await fetch(`${this.baseUrl}/get-all-data`)
       
       if (!response.ok) {
@@ -122,115 +94,25 @@ export class DataService {
       
       const data = await response.json()
       
-      // 保存到本地存储作为备份
-      this.saveToLocalStorage('allData', data)
+      const endTime = performance.now()
+      debugLog(`数据加载完成，耗时: ${endTime - startTime}ms`)
       
       return data
     } catch (error) {
       console.error('从后端加载数据失败:', error)
-      // 尝试从本地存储加载作为备份
-      return this.loadFromLocalBackup()
-    }
-  }
-
-  // 处理后端数据
-  processBackendData(backendData) {
-    const processedData = {
-      models: [],
-      prompts: [],
-      tags: [],
-      scenes: [],
-      config: {}
-    }
-
-    // 处理模型配置
-    if (backendData.config?.models) {
-      processedData.models = backendData.config.models.map(model => ({
-        ...model,
-        provider: model.provider || 'custom',
-        maxTokens: model.maxTokens || 512,
-        temperature: model.temperature || 0.7
-      }))
-    }
-
-    // 处理其他数据
-    if (Array.isArray(backendData.prompts)) {
-      processedData.prompts = backendData.prompts
-    }
-    
-    if (Array.isArray(backendData.tags)) {
-      processedData.tags = backendData.tags
-    }
-    
-    if (Array.isArray(backendData.scenes)) {
-      processedData.scenes = backendData.scenes
-    }
-
-    // 处理配置
-    if (backendData.config) {
-      processedData.config = {
-        notepadContent: backendData.config.notepadContent || '',
-        currentView: backendData.config.currentView || 'main',
-        selectedTags: backendData.config.selectedTags || [],
-        currentSceneId: backendData.config.currentSceneId
-      }
-    }
-
-    return processedData
-  }
-
-  // 从本地备份加载 - 仅作为后备方案
-  async loadFromLocalBackup() {
-    console.warn('从本地备份加载数据 - 这应该只在后端不可用时发生')
-    
-    try {
-      // 首先尝试从allData恢复完整数据
-      const allData = this.loadFromLocalStorage('allData', null)
-      if (allData) {
-        console.log('从allData本地备份恢复成功')
-        return allData
-      }
-      
-      // 单独恢复各个组件数据
-      const models = this.loadFromLocalStorage('models', []).map(model => ({
-        ...model,
-        provider: model.provider || 'custom',
-        maxTokens: model.maxTokens || 512,
-        temperature: model.temperature || 0.7
-      }))
-
-      const prompts = this.loadFromLocalStorage('prompts', [])
-      const tags = this.loadFromLocalStorage('tags', [])
-      
-      // 尝试从app-scenes恢复场景数据（Editor组件使用的键）
-      let scenes = this.loadFromLocalStorage('scenes', [])
-      const appScenes = this.loadFromLocalStorage('app-scenes', null)
-      
-      // 如果app-scenes存在，优先使用它
-      if (appScenes && Array.isArray(appScenes)) {
-        scenes = appScenes
-        console.log('从app-scenes本地备份恢复场景数据')
-      }
-      
-      const config = this.loadFromLocalStorage('config', {
-        currentView: 'main',
-        selectedTags: [],
-        notepadContent: ''
-      })
-
-      return { models, prompts, tags, scenes, config }
-    } catch (error) {
-      console.error('从本地备份加载失败:', error)
-      // 返回空数据而不是抛出错误
+      // 返回空数据结构
       return {
-        models: [],
+        scenes: [],
         prompts: [],
         tags: [],
-        scenes: [],
+        knowledgeBases: [],
+        chatSessions: [],
         config: {
-          currentView: 'main',
+          models: [],
+          notepadContent: '',
+          currentSceneId: null,
           selectedTags: [],
-          notepadContent: ''
+          currentView: 'main'
         }
       }
     }
@@ -239,125 +121,86 @@ export class DataService {
   // 添加一个方法用于单个数据项的保存
   async saveItem(type, item) {
     try {
-      // 先从后端获取最新数据
-      const allData = await this.loadBackendData()
+      debugLog(`保存${type}数据...`)
       
-      // 更新特定类型的数据
-      if (type === 'model') {
-        const index = allData.models.findIndex(m => m.id === item.id)
-        if (index !== -1) {
-          allData.models[index] = item
-        } else {
-          allData.models.push(item)
-        }
-      } else if (type === 'prompt') {
-        const index = allData.prompts.findIndex(p => p.id === item.id)
-        if (index !== -1) {
-          allData.prompts[index] = item
-        } else {
-          allData.prompts.push(item)
-        }
-      } else if (type === 'tag') {
-        const index = allData.tags.findIndex(t => t.id === item.id)
-        if (index !== -1) {
-          allData.tags[index] = item
-        } else {
-          allData.tags.push(item)
-        }
-      } else if (type === 'scene') {
-        const index = allData.scenes.findIndex(s => s.id === item.id)
-        if (index !== -1) {
-          allData.scenes[index] = item
-        } else {
-          allData.scenes.push(item)
-        }
+      // 根据数据类型构建请求路径
+      let endpoint
+      
+      switch(type) {
+        case 'scene':
+        case 'scenes':
+          endpoint = '/save-scenes'
+          break
+        case 'prompt':
+        case 'prompts':
+          endpoint = '/save-prompts'
+          break
+        case 'tag':
+        case 'tags':
+          endpoint = '/save-tags'
+          break
+        case 'knowledgeBases':
+          // 使用同步API保存知识库数据
+          return this.syncToBackend({ knowledgeBases: item })
+        case 'chatSessions':
+          endpoint = '/chat-sessions'
+          break
+        case 'bookScenes':
+          endpoint = '/save-book-scenes'
+          break
+        case 'config':
+          endpoint = '/save-config'
+          break
+        default:
+          // 对于其他类型，使用通用同步API
+          const data = {}
+          data[type] = item
+          return this.syncToBackend(data)
       }
       
-      // 保存更新后的数据
-      return await this.saveAllData(allData)
+      if (endpoint) {
+        // 对于有专用API的数据类型，使用对应的API
+        const response = await fetch(`${this.baseUrl}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item)
+        })
+        
+        return await apiUtils.handleResponse(response)
+      }
+      
+      return { success: true }
     } catch (error) {
       console.error(`保存${type}失败:`, error)
       throw error
     }
   }
 
-  // 添加 syncData 方法
-  async syncData(data) {
-    try {
-      const response = await fetch(`${this.baseUrl}/sync-data`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API 错误响应:', errorText);
-        
-        try {
-          // 尝试解析错误响应为 JSON
-          const errorJson = JSON.parse(errorText);
-          throw new Error(errorJson.error || `API 请求失败: ${response.status}`);
-        } catch (jsonError) {
-          // 如果不是有效的 JSON，使用原始错误文本
-          throw new Error(`API 请求失败: ${response.status} - ${errorText || response.statusText}`);
-        }
-      }
-      
-      // 尝试解析响应为 JSON
-      try {
-        const result = await response.json();
-        return result;
-      } catch (jsonError) {
-        console.warn('API 响应不是有效的 JSON:', jsonError);
-        // 返回一个简单的成功对象
-        return { success: true };
-      }
-    } catch (error) {
-      console.error('同步数据到后端失败:', error);
-      // 保存到本地存储作为备份
-      this.saveToLocalStorage('allData', data);
-      throw error;
-    }
-  }
-
-  // 添加保存聊天会话的专用方法
-  async saveChatSessions(chatSessions) {
-    try {
-      const response = await fetch(`${this.baseUrl}/chat-sessions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(chatSessions)
-      });
-      
-      if (!response.ok) {
-        throw new Error(`API 请求失败: ${response.status} ${response.statusText}`);
-      }
-      
-      return await response.json();
-    } catch (error) {
-      console.error('保存聊天会话失败:', error);
-      throw error;
-    }
-  }
-
-  // 添加加载聊天会话的专用方法
+  // 加载聊天会话的专用方法
   async loadChatSessions() {
     try {
-      const response = await fetch(`${this.baseUrl}/chat-sessions`);
+      const response = await fetch(`${this.baseUrl}/chat-sessions`)
       
       if (!response.ok) {
-        throw new Error(`API 请求失败: ${response.status} ${response.statusText}`);
+        throw new Error(`API 请求失败: ${response.status} ${response.statusText}`)
       }
       
-      return await response.json();
+      return await response.json()
     } catch (error) {
-      console.error('加载聊天会话失败:', error);
-      throw error;
+      console.error('加载聊天会话失败:', error)
+      throw error
+    }
+  }
+  
+  // 保存聊天会话的专用方法
+  async saveChatSessions(chatSessions) {
+    try {
+      debugLog('正在保存聊天会话...')
+      
+      return await this.saveItem('chatSessions', chatSessions)
+    } catch (error) {
+      console.error('保存聊天会话失败:', error)
+      throw error
     }
   }
 }

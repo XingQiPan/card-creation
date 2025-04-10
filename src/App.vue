@@ -101,7 +101,7 @@
                     <i class="fas fa-trash"></i>
                   </button>
                   <button 
-                    @click.stop="sendPromptRequest(prompt)"
+                    @click.stop="handleSendPrompt(prompt)"
                     :disabled="!canSendRequest(prompt) || !prompt.selectedModel"
                     class="send-btn"
                     :class="{ 'ready': canSendRequest(prompt) && prompt.selectedModel }"
@@ -916,28 +916,40 @@ import BookSplitter from './components/BookSplitter.vue'
 import ChatView from './components/ChatView.vue'
 import NotePad from './components/NotePad.vue'
 import AgentsView from './components/AgentsView.vue'
-import { showToast } from './utils/common.js'
-import { sendToModel } from './utils/modelRequests'
-import { useCommon } from './utils/composables/useCommon'
-import { showToastMessage } from './utils/common'
-import { dataService } from './utils/services/dataService'
+import { showToast } from './utils/common'
+import { useRoute, useRouter } from 'vue-router'
 import { debugLog, setDebugMode } from './utils/debug'
 import AIDetector from './components/AIDetector.vue'
 import KnowledgeBase from './components/KnowledgeBase.vue'
-import { useRoute, useRouter } from 'vue-router'
 
-setDebugMode(false)
-
+import { 
+  useScenes, 
+  useCards, 
+  usePrompts, 
+  useTags, 
+  useModels,
+  useKeywordDetection,
+  useUISettings,
+  useDataManagement
+} from './utils/composables'
 
 // 添加版本号
 const version = __APP_VERSION__
 
+setDebugMode(true)
+
+// 实用函数
+const truncateText = (text, maxLength = 50) => {
+  if (!text) return '';
+  return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+}
 
 const route = useRoute()
 const router = useRouter()
 
 const currentView = ref('main')
 
+// 路由监听
 watch(() => route.path, (newPath) => {
   if (newPath === '/') {
     currentView.value = 'main'
@@ -957,49 +969,196 @@ watch(() => route.path, (newPath) => {
   }
 })
 
-const prompts = ref([])
-const textCards = ref([])
-const selectedCards = ref([])
-const selectedPrompt = ref(null)
-const showPromptModal = ref(false)
-const showPromptSelectModal = ref(false)
-const editingPrompt = ref(null)
-const currentEditingCard = ref(null)
-const notepadInitialContent = ref('')
-const dataLoaded = ref(false) // 添加这一行
-const promptForm = ref({
-  title: '',
-  systemPrompt: '',
-  userPrompt: '',
-  defaultModel: '',
-  detectKeywords: true,
-  category: '' // 新增分类字段
+// 初始化数据管理
+const { 
+  isLoading, 
+  dataLoaded, 
+  createSyncFunction, 
+  loadAllData, 
+  initializeData,
+  handleFilesImport,
+  saveImmediately
+} = useDataManagement()
+
+// 创建防抖的数据同步函数
+const syncData = createSyncFunction(() => {
+  if (!dataLoaded.value) return
+
+  // 验证场景数据的完整性
+  const validatedScenes = scenes.value.map(scene => ({
+    ...scene,
+    cards: (scene.cards || []).map(card => ({
+      ...card,
+      type: card.type || 'normal',
+      cards: card.type === 'group' ? (card.cards || []) : undefined
+    }))
+  }))
+
+  return {
+    scenes: validatedScenes,
+    prompts: prompts.value,
+    tags: tags.value,
+    chatSessions: window.chatSessions || [], // 尝试获取全局变量
+    config: {
+      models: models.value,
+      notepadContent: notepadInitialContent.value,
+      currentSceneId: currentScene.value?.id,
+      selectedTags: selectedTags.value,
+      currentView: currentView.value,
+      fontSizeLevel: fontSizeLevel.value,
+      cardLayoutMode: cardLayoutMode.value,
+      cardColumns: cardColumns.value,
+      showKeywordDetectionModal: showKeywordDetectionModal.value,
+    }
+  }
 })
-const showSettings = ref(false)
-const models = ref([])
-const promptPanelWidth = ref(300)
-const showPromptDetailModal = ref(false)
-const showCardDetailModal = ref(false)
-const selectedCard = ref(null)
-const scenes = ref([])
-const currentScene = ref(null)
-const tags = ref([])
-const selectedTags = ref([])
-const showTagModal = ref(false)
-const newTagName = ref('')
-const dragScene = ref(false)
-const isPreview = ref(false)
+
+// Setup for notepad
+const notepadInitialContent = ref('')
 const editorTextarea = ref(null)
 
-// 在其他 ref 定义附近添加
-const showKeywordDetectionModal = ref(true) // 默认启用关键词检测弹窗
+// Setup for drag
+const dragScene = ref(false)
+const dragOverPromptId = ref(null)
 
-// Toast 相关
-const toast = ref({
-  show: false,
-  message: '',
-  type: 'info'
-})
+// Setup for card groups
+const showGroupCardsModal = ref(false)
+const currentEditingGroup = ref(null)
+const selectedGroupCards = ref([])
+
+// 初始化场景管理
+const { 
+  scenes, 
+  currentScene, 
+  createNewScene, 
+  deleteScene,
+  editSceneName,
+  switchScene,
+  exportScene,
+  processCards,
+  handleSceneUpdate,
+  addCardsToScene
+} = useScenes(syncData)
+
+// 初始化卡片管理
+const { 
+  selectedCard, 
+  showCardDetailModal, 
+  deleteCard, 
+  updateCard,
+  viewCardDetail,
+  moveCardToScene,
+  addToNotepad,
+  insertMdSyntax
+} = useCards(syncData, scenes, currentScene)
+
+// 初始化提示词管理
+const { 
+  prompts, 
+  filteredPrompts,
+  insertablePrompts,
+  showPromptModal, 
+  showPromptSelectModal,
+  showPromptDetailModal,
+  showPlaceholderModal,
+  editingPrompt,
+  selectedPrompt,
+  promptForm,
+  cardToInsert,
+  currentPlaceholders,
+  categories,
+  selectedCategory,
+  showBuiltInPrompts,
+  builtInPrompts,
+  createNewPrompt,
+  editPrompt,
+  closePromptModal,
+  savePrompt,
+  sendPromptRequest,
+  importPrompts,
+  exportPrompts,
+  deletePrompt,
+  insertContentToPrompt,
+  hasInsertedContent,
+  removeInsertedContent,
+  selectPrompt,
+  getInsertCount,
+  canInsertText,
+  canSendRequest,
+  selectPromptAndCheck,
+  handlePlaceholderSelect,
+  closePlaceholderModal,
+  getPlaceholderPreview,
+  fetchBuiltInPrompts,
+  isPromptImported,
+  importBuiltInPrompt
+} = usePrompts(syncData, scenes, currentScene)
+
+// 初始化标签管理
+const { 
+  tags, 
+  selectedTags, 
+  showTagModal, 
+  newTagName,
+  addTag,
+  deleteTag,
+  toggleTagKeyword,
+  toggleTagSelection,
+  isTagSelected,
+  getTagById,
+  getTagNameById,
+  filterCardsByTags
+} = useTags(syncData, scenes)
+
+// 初始化模型管理
+const { 
+  models, 
+  showSettings, 
+  PROVIDERS,
+  createDefaultModel,
+  addModel,
+  deleteModel,
+  saveModels,
+  refreshModelList,
+  findModelById,
+  updateModel
+} = useModels(syncData)
+
+// 初始化关键词检测
+const { 
+  showKeywordModal, 
+  keywordMatches, 
+  showKeywordDetectionModal,
+  isAllSelected,
+  toggleAll,
+  closeKeywordModal,
+  confirmKeywordSelection,
+  processKeywords,
+  handleMatchSelection,
+  toggleKeywordDetectionModal
+} = useKeywordDetection(tags, scenes)
+
+// 初始化 UI 设置
+const { 
+  fontSizeLevel,
+  baseFontSize,
+  cardLayoutMode,
+  cardColumns,
+  promptPanelWidth,
+  isResizing,
+  isPreview,
+  increaseFontSize,
+  decreaseFontSize,
+  applyFontSize,
+  increaseColumns,
+  decreaseColumns,
+  applyCardLayout,
+  startPanelResize,
+  handlePanelResize,
+  stopPanelResize,
+  preventTextSelection,
+  togglePreview
+} = useUISettings(syncData)
 
 // 渲染 Markdown 内容
 const renderedContent = computed(() => {
@@ -1008,361 +1167,50 @@ const renderedContent = computed(() => {
   return DOMPurify.sanitize(rawHtml)
 })
 
-// 切换预览模式
-const togglePreview = () => {
-  isPreview.value = !isPreview.value
-}
-
-// 插入 Markdown 语法
-const insertMdSyntax = (prefix, suffix) => {
-  const textarea = editorTextarea.value
-  if (!textarea) return
-
-  const start = textarea.selectionStart
-  const end = textarea.selectionEnd
-  const text = selectedCard.value.content
-  const selectedText = text.substring(start, end)
-  
-  const newText = text.substring(0, start) + 
-                 prefix + selectedText + suffix +
-                 text.substring(end)
-  
-  selectedCard.value.content = newText
-  
-  // 更新选区位置
-  nextTick(() => {
-    textarea.focus()
-    textarea.setSelectionRange(
-      start + prefix.length,
-      end + prefix.length
-    )
-  })
-}
-
-
-// 使用组合式API
-const {
-  isLoading,
-  loadFromStorage,
-  truncateText,
-  createDebounce
-} = useCommon()
-
-// 防抖的数据同步
-const syncData = createDebounce(async () => {
-  if (!dataLoaded.value) return
-
-  try {
-    isLoading.value = true
-    
-    // 验证场景数据的完整性
-    const validatedScenes = scenes.value.map(scene => ({
-      ...scene,
-      cards: (scene.cards || []).map(card => ({
-        ...card,
-        type: card.type || 'normal',
-        cards: card.type === 'group' ? (card.cards || []) : undefined
-      }))
-    }))
-
-    const dataToSync = {
-      scenes: validatedScenes,
-      prompts: prompts.value,
-      tags: tags.value,
-      config: {
-        models: models.value,
-        notepadContent: notepadInitialContent.value,
-        currentSceneId: currentScene.value?.id,
-        selectedTags: selectedTags.value,
-        currentView: currentView.value,
-        fontSizeLevel: fontSizeLevel.value,
-        cardLayoutMode: cardLayoutMode.value,
-        cardColumns: cardColumns.value,
-        showKeywordDetectionModal: showKeywordDetectionModal.value,
-      }
-    }
-
-    // 使用 dataService 同步数据
-    const result = await dataService.syncData(dataToSync)
-    
-    if (!result.success) {
-      throw new Error(result.error || '同步失败，未知错误')
-    }
-  } catch (error) {
-    console.error('数据同步失败:', error)
-    showToast(`数据同步失败: ${error.message}`, 'error')
-    
-    // 保存到本地存储作为备份
-    localStorage.setItem('allData', JSON.stringify({
-      scenes: scenes.value,
-      prompts: prompts.value,
-      tags: tags.value,
-      config: {
-        models: models.value,
-        notepadContent: notepadInitialContent.value,
-        currentSceneId: currentScene.value?.id,
-        selectedTags: selectedTags.value,
-        currentView: currentView.value,
-        fontSizeLevel: fontSizeLevel.value,
-        cardLayoutMode: cardLayoutMode.value,
-        cardColumns: cardColumns.value,
-        showKeywordDetectionModal: showKeywordDetectionModal.value,
-      }
-    }))
-  } finally {
-    isLoading.value = false
-  }
-}, 500)
-
-// 统一的数据加载函数
-const loadAllData = async () => {
-  try {
-    isLoading.value = true
-    
-    // 使用 dataService 加载所有数据
-    const data = await dataService.loadAllData()
-    
-    // 使用统一的初始化函数处理数据
-    initializeData(data)
-    
-    dataLoaded.value = true
-    return data
-  } catch (error) {
-    console.error('数据加载失败:', error)
-    
-    // 初始化默认数据
-    if (scenes.value.length === 0) {
-      const defaultScene = {
-        id: Date.now(),
-        name: '默认场景',
-        cards: []
-      }
-      scenes.value.push(defaultScene)
-      currentScene.value = defaultScene
-    }
-    
-    showToast('数据加载失败: ' + error.message, 'error')
-    throw error
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// 初始化数据的辅助函数
-const initializeData = (data) => {
-  // 更新场景
-  scenes.value = data.scenes.map(scene => ({
-    ...scene,
-    cards: processCards(scene.cards || [])
-  })) || []
-  
-  // 更新提示词
-  prompts.value = data.prompts || []
-  
-  // 更新标签
-  tags.value = data.tags || []
-
-  if (data.config) {
-    // 更新模型，确保有默认值
-    models.value = (data.config.models || []).map(model => ({
-      ...model,
-      provider: model.provider || 'custom',
-      maxTokens: model.maxTokens || 2048,
-      temperature: model.temperature || 0.7
-    }))
-    
-    // 更新其他配置
-    notepadInitialContent.value = data.config.notepadContent || ''
-    currentView.value = data.config.currentView || 'main'
-    selectedTags.value = data.config.selectedTags || []
-    
-    // 设置当前场景
-    if (scenes.value.length > 0) {
-      const savedSceneId = data.config.currentSceneId
-      currentScene.value = scenes.value.find(s => s.id === savedSceneId) || scenes.value[0]
-    }
-    
-    // 初始化字体大小设置
-    if (data.config.fontSizeLevel) {
-      fontSizeLevel.value = data.config.fontSizeLevel
-      applyFontSize()
-    }
-    
-    // 初始化卡片布局设置
-    if (data.config.cardLayoutMode) {
-      cardLayoutMode.value = data.config.cardLayoutMode
-    }
-    if (data.config.cardColumns) {
-      cardColumns.value = data.config.cardColumns
-    }
-    applyCardLayout()
-
-    // 加载关键词检测模态框设置
-    if (typeof data.config.showKeywordDetectionModal === 'boolean') {
-      showKeywordDetectionModal.value = data.config.showKeywordDetectionModal
-    }
-  }
-}
-
-// 处理关键词匹配和上下文构建
-const processKeywords = async (text) => {
-  const processedCards = new Set()
-  let matches = []
-  const keywordTags = tags.value.filter(tag => tag.isKeyword)
-  
-  // 获取所有场景中的所有卡片
-  const getAllCards = () => {
-    const allCards = []
-    scenes.value.forEach(scene => {
-      if (scene.cards && Array.isArray(scene.cards)) {
-        allCards.push(...scene.cards)
-      }
-    })
-    return allCards
-  }
-
-  // 根据ID查找卡片
-  const findCardById = (cardId) => {
-    return getAllCards().find(card => card.id === cardId)
-  }
-  
-  // 递归处理卡片及其关联卡片
-  const processCard = (card) => {
-    if (!card || processedCards.has(card.id)) return // 避免循环引用和空卡片
-    processedCards.add(card.id)
-    
-    debugLog('Processing card:', card.title)
-    
-    // 检查卡片是否有关键词标签
-    const hasKeywordTag = card.tags?.some(tagId => 
-      keywordTags.some(tag => tag.id === tagId)
-    )
-
-    // 检查文本中是否包含卡片标题（改进匹配逻辑）
-    const titleIncluded = card.title && text.toLowerCase().includes(card.title.toLowerCase())
-    
-    // 添加更多匹配条件：检查文本是否包含卡片内容中的关键句子
-    const contentKeywords = card.content ? extractKeyPhrases(card.content) : []
-    const contentMatched = contentKeywords.some(phrase => 
-      text.toLowerCase().includes(phrase.toLowerCase())
-    )
-    
-    debugLog('titleIncluded', titleIncluded)
-    debugLog('contentMatched', contentMatched)
-    
-    if ((hasKeywordTag && (titleIncluded || contentMatched)) || (titleIncluded && card.title.length > 3)) {
-      // 收集关联卡片的内容
-      const linkedContents = []
-      
-      // 处理关联卡片
-      if (card.links?.length > 0) {
-        debugLog('Found linked cards:', card.links)
-        card.links.forEach(linkedCardId => {
-          const linkedCard = findCardById(linkedCardId)
-          if (linkedCard) {
-            debugLog('Processing linked card:', linkedCard.title)
-            linkedContents.push(`关联内容「${linkedCard.title}」：\n${linkedCard.content || '无内容'}`)
-            processCard(linkedCard) // 继续处理关联卡片的关联
-          }
-        })
-      }
-
-      // 避免重复添加相同的卡片
-      const isDuplicate = matches.some(
-        match => match.title === card.title
-      )
-      
-      if (!isDuplicate) {
-        let content = card.content || '无内容'
-        
-        // 如果有关联内容，添加到主内容后面
-        if (linkedContents.length > 0) {
-          content += '\n\n--- 关联内容 ---\n\n' + linkedContents.join('\n\n')
-        }
-
-        matches.push({
-          keyword: card.title,
-          title: card.title,
-          content: content,
-          type: card.type || 'normal',
-          cards: card.type === 'group' ? card.cards : undefined,
-          selected: false,
-          selectedCards: []
-        })
-      }
-    }
-  }
-
-  // 提取内容中的关键短语
-  const extractKeyPhrases = (content) => {
-    if (!content) return []
-    
-    // 分割成句子
-    const sentences = content.split(/[.!?。！？]/g)
-      .map(s => s.trim())
-      .filter(s => s.length > 5 && s.length < 100) // 过滤太短或太长的句子
-    
-    // 选择最有代表性的句子（这里简单实现，可以根据需要改进）
-    return sentences.slice(0, 5) // 取前5个句子作为关键短语
-  }
-
-  // 遍历所有场景和卡片
-  getAllCards().forEach(card => {
-    processCard(card)
-  })
-
-  // 如果找到关键词匹配，根据设置决定是否显示选择模态框
-  if (matches.length > 0) {
-    // 判断是否显示选择模态框
-    if (showKeywordDetectionModal.value) {
-      keywordMatches.value = matches
-      showKeywordModal.value = true
-      const result = await new Promise(resolve => {
-        keywordModalResolve.value = resolve
-      })
-      
-      if (!result) return text
-
-      // 处理选中的内容
-      const selectedContents = result.map(match => {
-        if (match.type === 'group' && match.selectedCards?.length > 0) {
-          return `关键词[${match.keyword}]：\n`+match.selectedCards.map(card => "【"+card.title+'】：\n```\n'+card.content+'\n```').join('\n\n')
-        } else {
-          return "【"+match.title+'】：\n```\n'+match.content+'\n```'
-        }
-      })
-      
-      const contextInfo = selectedContents.join('\n\n---\n\n')
-      return `有关内容：\n${contextInfo}\n\n---\n\n${text}`
-    } else {
-       // 如果关闭了选择模态框,直接处理所有匹配的内容
-       const allContents = matches.map(match => {
-        if (match.type === 'group') {
-          // 如果是卡组,使用卡组内所有卡片的内容
-          return `关键词[${match.keyword}]：\n`+match.cards?.map(card => "【"+card.title+'】：\n```\n'+card.content+'\n```').join('\n\n') || match.content
-        } else {
-          return "【"+match.title+'】：\n```\n'+match.content+'\n```'
-        }
-      })
-      
-      const contextInfo = allContents.join('\n\n---\n\n')
-      return `有关内容：\n${contextInfo}\n\n---\n\n${text}`
-    }
-  }
-
-  return text
-}
-
 // 生命周期钩子
 onMounted(async () => {
   try {
-    await loadAllData()
+    // 加载数据
+    const data = await loadAllData()
+    
+    // 初始化数据
+    initializeData(data, {
+      setScenes: (newScenes) => { scenes.value = newScenes.map(scene => ({ ...scene, cards: processCards(scene.cards || []) })) },
+      setPrompts: (newPrompts) => { prompts.value = newPrompts },
+      setTags: (newTags) => { tags.value = newTags },
+      setModels: (newModels) => { models.value = newModels },
+      setNotepadContent: (content) => { notepadInitialContent.value = content },
+      setCurrentView: (view) => { currentView.value = view },
+      setSelectedTags: (tags) => { selectedTags.value = tags },
+      setCurrentScene: (scene) => { currentScene.value = scene },
+      setFontSizeLevel: (level) => { 
+        fontSizeLevel.value = level
+        applyFontSize()
+      },
+      setCardLayoutMode: (mode) => { cardLayoutMode.value = mode },
+      setCardColumns: (columns) => { 
+        cardColumns.value = columns
+        applyCardLayout()
+      },
+      setShowKeywordDetectionModal: (show) => { showKeywordDetectionModal.value = show }
+    })
+    
+    // 设置自动同步
+    setInterval(syncData, 10000) // 10秒自动同步一次
+    
+    // 获取内置提示词
+    await fetchBuiltInPrompts()
+    
+    // 确保至少有一个场景
+    if (scenes.value.length === 0) {
+      await createNewScene()
+    }
   } catch (error) {
-    console.error('初始化数据失败:', error)
+    console.error('初始化失败:', error)
   }
 })
 
-// 合并后的数据监听
+// 监听数据变化
 watch(
   [
     () => [...scenes.value], 
@@ -1380,7 +1228,7 @@ watch(
     
     // 保存当前视图到本地存储
     if (currentView) {
-      dataService.saveToLocalStorage('currentView', currentView)
+      localStorage.setItem('currentView', currentView)
     }
     
     // 同步数据到后端
@@ -1389,594 +1237,12 @@ watch(
   { deep: true }
 )
 
-const canInsertText = (prompt) => {
-  if (!prompt?.userPrompt) return false
-  return getInsertCount(prompt.userPrompt) > 0
-}
+// 向子组件提供数据
+provide('scenes', scenes)
+provide('syncData', syncData)
+provide('tags', tags)
 
-const canSendRequest = (prompt) => {
-  if (!prompt?.userPrompt) return false
-  return prompt.userPrompt.trim().length > 0
-}
-
-// 提示词相关方法
-const createNewPrompt = () => {
-  showPromptModal.value = true
-  editingPrompt.value = null // 确保清空编辑状态
-  promptForm.value = {
-    title: '',
-    systemPrompt: '', // 初始化系统提示词
-    userPrompt: '', 
-    defaultModel: '',
-    detectKeywords: true,  // 默认启用关键词检测
-    category: '' // 新增分类字段
-  }
-}
-
-const editPrompt = (prompt) => {
-  editingPrompt.value = prompt
-  promptForm.value = { ...prompt }
-  showPromptModal.value = true
-}
-
-// 修改关闭模态框的方法
-const closePromptModal = () => {
-  showPromptModal.value = false
-  editingPrompt.value = null
-  // 重置表单
-  promptForm.value = {
-    title: '',
-    systemPrompt: '',
-    userPrompt: '{{text}}',
-    defaultModel: '',
-    detectKeywords: true,
-    category: '' // 新增分类字段
-  }
-}
-
-// 修改保存提示词的方法
-const savePrompt = async () => {
-  if (!promptForm.value.title || !promptForm.value.userPrompt) {
-    showToast('请填写标题和用户提示词', 'error')
-    return
-  }
-
-  try {
-    const newPrompt = {
-      id: editingPrompt.value?.id || Date.now(),
-      title: promptForm.value.title,
-      systemPrompt: promptForm.value.systemPrompt || '',
-      userPrompt: promptForm.value.userPrompt,
-      defaultModel: promptForm.value.defaultModel || '',
-      insertedContents: editingPrompt.value?.insertedContents || [],
-      selectedModel: promptForm.value.defaultModel || '',
-      detectKeywords: promptForm.value.detectKeywords,
-      category: promptForm.value.category // 新增分类字段
-    }
-
-    if (editingPrompt.value) {
-      const index = prompts.value.findIndex(p => p.id === editingPrompt.value.id)
-      if (index !== -1) {
-        prompts.value[index] = newPrompt
-      }
-    } else {
-      prompts.value.push(newPrompt)
-    }
-
-    // 使用syncData同步到后端
-      await syncData()
-    
-    closePromptModal()
-    showToast('提示词保存成功', 'success')
-  } catch (error) {
-    console.error('保存提示词失败:', error)
-    showToast('保存提示词失败: ' + error.message, 'error')
-  }
-}
-
-// 定义提供商类型
-const PROVIDERS = {
-  OPENAI: 'openai',
-  GEMINI: 'gemini',
-  OLLAMA: 'ollama',
-  CUSTOM: 'custom',
-  EMBEDDING: 'embedding'
-}
-
-// 修改发送提示词请求的方法
-const sendPromptRequest = async (prompt) => {
-  if (!prompt.userPrompt.trim()) {
-    showToast('请输入提示词内容', 'error')
-    return
-  }
-
-  const model = models.value.find(m => m.id === prompt.selectedModel)
-  if (!model) {
-    showToast('请选择有效的模型', 'error')
-    return
-  }
-
-  try {
-    let processedTemplate = prompt.userPrompt
-
-    // 处理插入内容的替换
-    if (prompt.insertedContents?.length > 0) {
-      const insertedTexts = prompt.insertedContents.map(item => item.content).join('\n')
-      processedTemplate = processedTemplate.replace(/{{text}}/g, insertedTexts)
-    }
-
-    // 只在启用了关键词检测时执行
-    if (prompt.detectKeywords) {
-      processedTemplate = await processKeywords(processedTemplate)
-    }
-    
-    showToast('正在发送请求...')
-    // 使用 sendToModel 发送请求
-    const content = await sendToModel(
-      model,
-      processedTemplate,
-      [], // 空的上下文数组
-      null, // 不需要 abortController
-      prompt.systemPrompt // 系统提示词作为模板
-    )
-
-    debugLog('content', content)
-
-    // 创建新卡片
-    const newCard = {
-      id: Date.now(),
-      content,
-      title: prompt.title ? `来自提示词「${prompt.title}」的回复` : '生成的内容',
-      height: '200px',
-      tags: []
-    }
-    
-    debugLog('newCard', newCard)
-
-    if (currentScene.value) {
-      currentScene.value.cards.push(newCard)
-    }
-
-    showToast('回复成功！')
-
-  } catch (error) {
-    console.error('API 请求错误:', error)
-    showToast(error.message, 'error')
-  }
-}
-
-// 改进导入提示词功能
-const importPrompts = async (event) => {
-  const files = event.target.files
-  if (!files.length) return
-
-  try {
-    let importedCount = 0
-    
-    for (const file of files) {
-      let content = await file.text()
-      
-      if (file.name.endsWith('.json')) {
-        try {
-          const jsonData = JSON.parse(content)
-          
-          // 处理数组格式
-          if (Array.isArray(jsonData)) {
-            for (const item of jsonData) {
-              if (typeof item === 'object') {
-                prompts.value.push({
-                  id: Date.now() + Math.random(),
-                  title: item.title || file.name,
-                  systemPrompt: item.systemPrompt || '',
-                  userPrompt: item.userPrompt || item.template || item.content || '{{text}}',
-                  defaultModel: item.defaultModel || models.value[0]?.id || '',
-                  selectedModel: item.defaultModel || models.value[0]?.id || '',
-                  insertedContents: [],
-                  detectKeywords: item.detectKeywords !== false
-                })
-                importedCount++
-              }
-            }
-          } 
-          // 处理单个对象格式
-          else if (typeof jsonData === 'object') {
-            prompts.value.push({
-              id: Date.now() + Math.random(),
-              title: jsonData.title || file.name,
-              systemPrompt: jsonData.systemPrompt || '',
-              userPrompt: jsonData.userPrompt || jsonData.template || jsonData.content || '{{text}}',
-              defaultModel: jsonData.defaultModel || models.value[0]?.id || '',
-              selectedModel: jsonData.defaultModel || models.value[0]?.id || '',
-              insertedContents: [],
-              detectKeywords: jsonData.detectKeywords !== false
-            })
-            importedCount++
-          }
-        } catch (e) {
-          console.warn('JSON 解析失败，作为普通文本处理', e)
-          // 作为普通文本处理
-          prompts.value.push({
-            id: Date.now() + Math.random(),
-            title: file.name,
-            systemPrompt: '',
-            userPrompt: content.trim(),
-            defaultModel: models.value[0]?.id || '',
-            selectedModel: models.value[0]?.id || '',
-            insertedContents: [],
-            detectKeywords: true
-          })
-          importedCount++
-        }
-      } else {
-        // 处理纯文本文件
-        prompts.value.push({
-          id: Date.now() + Math.random(),
-          title: file.name,
-          systemPrompt: '',
-          userPrompt: content.trim(),
-          defaultModel: models.value[0]?.id || '',
-          selectedModel: models.value[0]?.id || '',
-          insertedContents: [],
-          detectKeywords: true
-        })
-        importedCount++
-      }
-    }
-
-    // 清空文件输入
-    event.target.value = ''
-    
-    // 同步到后端
-    await syncData()
-    
-    showToast(`成功导入 ${importedCount} 个提示词模板`)
-
-  } catch (error) {
-    console.error('提示词导入错误:', error)
-    showToast('提示词导入失败: ' + error.message, 'error')
-    // 清空文件输入
-    event.target.value = ''
-  }
-}
-
-// 新增的插入提示词相关方法
-const insertPromptAtCursor = (card) => {
-  currentEditingCard.value = card
-  showPromptSelectModal.value = true
-}
-
-
-const removeInsertedContent = (prompt, index) => {
-  prompt.insertedContents.splice(index, 1)
-  // 使用 syncData 同步到后端
-  syncData()
-}
-
-const hasInsertedContent = (prompt) => {
-  return Array.isArray(prompt?.insertedContents) && prompt.insertedContents.length > 0
-}
-
-// 计算可插入的提示词
-const insertablePrompts = computed(() => {
-  return prompts.value.filter(prompt => getInsertCount(prompt.userPrompt) > 0)
-})
-
-// 模型管理方法
-const addModel = () => {
-  const newModel = createDefaultModel()
-  models.value.push(newModel)
-}
-
-const deleteModel = (id) => {
-  models.value = models.value.filter(model => model.id !== id)
-  saveModels()
-}
-
-const saveModels = async () => {
-  try {
-    // 同步到后端
-    await syncData()
-    showToast('模型配置保存成功')
-  } catch (error) {
-    console.error('保存模型失败:', error)
-    showToast('保存模型失败: ' + error.message, 'error')
-  }
-}
-
-
-
-// 添加获取模型列表的方法
-const fetchModelList = async (model) => {
-  try {
-    if (model.provider === 'ollama') {
-      const response = await fetch(`${model.apiUrl}/api/tags`)
-      
-      if (!response.ok) {
-        throw new Error(`请求失败: ${response.status}`)
-      }
-      
-      const result = await response.json()
-      // Ollama 返回的是一个对象数组，需要正确解析
-      return result.models.map(model => {
-        // 处理可能是字符串或对象的情况
-        if (typeof model === 'string') {
-        return {
-            id: model,
-            name: model
-          }
-        }
-        // 如果是对象格式，解析其中的信息
-        return {
-          id: model.name || model.model,
-          name: model.name || model.model,
-          digest: model.digest,
-          size: model.size,
-          modified_at: model.modified_at
-        }
-      })
-    }
-    else if(model.provider === 'openai'){
-      debugLog('openai', model.apiUrl)
-      const response = await fetch(`${model.apiUrl}/v1/models`, {
-        headers: {
-          'Authorization': `Bearer ${model.apiKey}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      if (!response.ok) {
-        throw new Error(`请求失败: ${response.status}`)
-      }
-      
-      const result = await response.json()
-      // OpenAI 返回的是一个对象数组，需要正确解析
-      return result.data.map(model => {
-        // 处理可能是字符串或对象的情况
-        if (typeof model === 'string') {
-      return {
-            id: model,
-            name: model
-          }
-        }
-        // 如果是对象格式，返回正确的模型信息
-        return {
-          id: model.id,
-          name: model.id,
-          created: model.created,
-          owned_by: model.owned_by
-        }
-      })
-    }
-  } catch (error) {
-    console.error('获取模型列表失败:', error)
-    showToast('获取模型列表失败: ' + error.message, 'error')
-    return []
-  }
-}
-
-// 修改创建默认模型的方法，添加自定义类型
-const createDefaultModel = () => ({
-  id: Date.now().toString(), // 确保 ID 是字符串类型
-  name: '新模型',
-  provider: 'custom',
-  apiUrl: '',
-  apiKey: '',
-  modelId: '',
-  maxTokens: 2048,
-  temperature: 0.7,
-  availableModels: [],
-  organizationId: ''
-})
-
-// 修改刷新模型列表的方法
-const refreshModelList = async (model) => {
-  try {
-    // 自定义类型不需要验证 API Key
-    if (model.provider !== 'ollama' && model.provider !== 'custom' && !model.apiKey) {
-      throw new Error('请先填写 API Key')
-    }
-    
-    // 自定义类型必须填写模型ID
-    if (model.provider === 'custom') {
-      if (!model.modelId) {
-        throw new Error('请填写模型ID')
-      }
-      // 直接使用手动填写的模型ID
-      model.availableModels = [{
-        id: model.modelId,
-        name: model.modelId
-      }]
-      showToast('已设置自定义模型')
-      return
-    }
-
-    // 其他类型需要验证 API URL
-    if (!model.apiUrl) {
-      throw new Error('请先填写 API 地址')
-    }
-    
-    // 确保 API URL 格式正确
-    let apiUrl = model.apiUrl.trim()
-    apiUrl = apiUrl.replace(/\/$/, '')
-    
-    // Ollama 和自定义类型不需要移除 v1 路径
-    if (model.provider !== 'ollama' && model.provider !== 'custom') {
-      apiUrl = apiUrl.replace(/\/(?:api\/)?v1$/, '')
-    }
-    
-    model.apiUrl = apiUrl
-
-    const modelList = await fetchModelList(model)
-    if (modelList.length > 0) {
-      model.availableModels = modelList
-      showToast('获取模型列表成功主人~')
-    } else {
-      throw new Error('未获取到任何可用模型')
-    }
-  } catch (error) {
-    console.error('获取模型列表失败:', error)
-    showToast('获取模型列表失败: ' + error.message, 'error')
-  }
-}
-
-// 面板宽度调整
-const startPanelResize = (e) => {
-  isResizing = true
-  startX = e.clientX
-  startWidth = promptPanelWidth.value
-
-  document.addEventListener('mousemove', handlePanelResize)
-  document.addEventListener('mouseup', stopPanelResize)
-}
-
-const handlePanelResize = (e) => {
-  if (!isResizing) return
-  const diff = e.clientX - startX
-  promptPanelWidth.value = Math.max(200, Math.min(600, startWidth + diff))
-}
-
-const stopPanelResize = () => {
-  isResizing = false
-  document.removeEventListener('mousemove', handlePanelResize)
-  document.removeEventListener('mouseup', stopPanelResize)
-}
-
-// 显示卡片详情
-const viewCardDetail = (card) => {
-  selectedCard.value = card
-  showCardDetailModal.value = true
-}
-
-// 场景操作方法
-const createNewScene = async () => {
-  try {
-    const newScene = {
-      id: Date.now(),
-      name: `场景 ${scenes.value.length + 1}`,
-      cards: []
-    }
-    
-    scenes.value.push(newScene)
-    
-    // 直接切换到新场景
-    switchScene(newScene)
-    
-    // 保存更改
-    await syncData() // 使用 syncData 同步到后端
-    showToast('新场景创建成功', 'success')
-  } catch (error) {
-    console.error('创建场景失败:', error)
-    showToast('创建场景失败: ' + error.message, 'error')
-  }
-}
-
-const deleteScene = async (sceneId) => {
-  if (!confirm('确定要删除这个场景吗？')) return
-  
-  try {
-    const index = scenes.value.findIndex(s => s.id === sceneId)
-    if (index === -1) {
-      throw new Error('场景不存在')
-    }
-    
-    // 如果只剩一个场景，不允许删除
-    if (scenes.value.length <= 1) {
-      throw new Error('至少需要保留一个场景')
-    }
-    
-    // 如果要删除的是当前场景，先切换到其他场景
-    if (currentScene.value?.id === sceneId) {
-      const nextScene = scenes.value[index + 1] || scenes.value[index - 1]
-      switchScene(nextScene)
-    }
-    
-    // 删除场景
-    scenes.value.splice(index, 1)
-    
-    // 保存更改
-    await saveImmediately()
-    showToast('场景删除成功', 'success')
-  } catch (error) {
-    console.error('删除场景失败:', error)
-    showToast('删除场景失败: ' + error.message, 'error')
-  }
-}
-
-// 修改场景名称编辑方法
-const editSceneName = async (scene) => {
-  const newName = prompt('请输入新的场景名称:', scene.name)
-  if (newName && newName.trim()) {
-    try {
-      scene.name = newName.trim()
-      await syncData() // 使用 syncData 同步到后端
-      showToast('场景名称修改成功', 'success')
-    } catch (error) {
-      console.error('修改场景名称失败:', error)
-      showToast('修改场景名称失败: ' + error.message, 'error')
-    }
-  }
-}
-
-// 切换标签的关键词状态
-const toggleTagKeyword = (tagId) => {
-  const tag = tags.value.find(t => t.id === tagId)
-  if (tag) {
-    tag.isKeyword = !tag.isKeyword
-    syncData() // 使用 syncData 同步到后端
-  }
-}
-
-// 在 prompts 相关方法中添加删除提示词的方法
-const deletePrompt = async (promptId) => {
-  try {
-    if (!confirm('确定要删除这个提示词吗？')) return
-    
-    prompts.value = prompts.value.filter(p => p.id !== promptId)
-    await syncData()
-    showToast('提示词删除成功', 'success')
-  } catch (error) {
-    console.error('删除提示词失败:', error)
-    showToast('删除提示词失败: ' + error.message, 'error')
-  }
-}
-
-// 修改处理移动卡片的方法
-const handleMoveCard = ({ card, sourceSceneId, targetSceneId }) => {
-  try {
-    const sourceSceneIndex = scenes.value.findIndex(s => s.id === sourceSceneId)
-    const targetSceneIndex = scenes.value.findIndex(s => s.id === targetSceneId)
-    
-    if (sourceSceneIndex === -1 || targetSceneIndex === -1) {
-      throw new Error('场景不存在')
-    }
-    
-    // 创建新的场景数组以保持响应性
-    const newScenes = [...scenes.value]
-    
-    // 从源场景移除卡片
-    newScenes[sourceSceneIndex].cards = newScenes[sourceSceneIndex].cards.filter(c => c.id !== card.id)
-    
-    // 添加到目标场景
-    newScenes[targetSceneIndex].cards.push({ ...card })
-    
-    // 更新场景数组
-    scenes.value = newScenes
-    
-    // 如果当前场景是源场景，更新 currentScene
-    if (currentScene.value?.id === sourceSceneId) {
-      currentScene.value = newScenes[sourceSceneIndex]
-    }
-    
-    // 保存更改
-    syncData() // 使用 syncData 同步到后端
-    
-    showToast(`已将卡片移动到「${newScenes[targetSceneIndex].name}」`)
-  } catch (error) {
-    console.error('移动卡片失败:', error)
-    showToast('移动卡片失败: ' + error.message, 'error')
-  }
-}
-
-// 修改提供的移动到场景方法
+// 向子组件提供移动到场景的方法
 provide('moveToScene', (cardData, targetSceneId) => {
   const targetScene = scenes.value.find(s => s.id === targetSceneId)
   if (!targetScene) {
@@ -1995,985 +1261,27 @@ provide('moveToScene', (cardData, targetSceneId) => {
   showToast(`已添加到场景「${targetScene.name}」`)
 })
 
-// 添加处理添加卡片到场景的方法
-const handleAddCardsToScene = ({ sceneId, cards }) => {
-  try {
-    // 找到目标场景
-    const targetScene = scenes.value.find(s => Number(s.id) === Number(sceneId))
-    if (!targetScene) {
-      throw new Error(`目标场景不存在 (ID: ${sceneId})`)
-    }
-
-    // 确保场景有 cards 数组
-    if (!Array.isArray(targetScene.cards)) {
-      targetScene.cards = []
-    }
-
-    // 添加卡片到目标场景
-    targetScene.cards.push(...cards)
-
-    // 保存更改
-    syncData() // 使用 syncData 同步到后端
-
-    showToast(`成功添加 ${cards.length} 个卡片到场景：${targetScene.name}`, 'success')
-  } catch (error) {
-    console.error('添加卡片到场景失败:', error)
-    showToast('添加卡片失败: ' + error.message, 'error')
-  }
-}
-
-// 添加合并卡片的方法
-const handleMergeCards = (cards) => {
-  debugLog('Merging cards:', cards)
-}
-
-const preventTextSelection = (prevent) => {
-  document.body.style.userSelect = prevent ? 'none' : ''
-}
-
-
-
-onUnmounted(() => {
-  preventTextSelection(false)
-})
-
-// 修改处理添加到笔记本的方法
-const handleAddToNotepad = (cardData) => {
-  // 先切换到笔记本视图
-  
-  showToast('已添加到记事本')
-  currentView.value = 'note'
-  // 使用 nextTick 确保视图更新后再设置内容
-  nextTick(() => {
-    // 设置笔记本初始内容，包含标题和完整信息
-    const formattedContent = `# ${cardData.title}\n\n${cardData.content}`
-    
-    // 重置后设置新值
-    notepadInitialContent.value = ''
-    setTimeout(() => {
-      notepadInitialContent.value = formattedContent
-    }, 10)
-  })
-}
-
-// 修改删除场景的方法
-const handleDeleteScene = async (sceneId) => {
-  try {
-    // 找到要删除的场景索引
-    const index = scenes.value.findIndex(s => s.id === sceneId)
-    if (index === -1) {
-      throw new Error('场景不存在')
-    }
-
-    // 如果只剩一个场景，不允许删除
-    if (scenes.value.length <= 1) {
-      throw new Error('至少需要保留一个场景')
-    }
-
-    // 如果要删除的是当前场景，先切换到其他场景
-    if (currentScene.value.id === sceneId) {
-      // 如果有下一个场景就切换到下一个，否则切换到上一个
-      const nextScene = scenes.value[index + 1] || scenes.value[index - 1]
-      switchScene(nextScene)
-    }
-
-    // 从数组中移除场景
-    scenes.value.splice(index, 1)
-
-    // 保存更改到本地存储
-    saveScenes()
-
-    // 显示成功提示
-    showToast('场景已删除')
-  } catch (error) {
-    console.error('删除场景失败:', error)
-    showToast(error.message, 'error')
-  }
-}
-
-
-
-// 修改关键操作的保存方法
-const deleteCard = async (id) => {
-  try {
-    if (!currentScene.value) return
-
-    // 从当前场景中删除卡片
-    currentScene.value.cards = currentScene.value.cards.filter(card => card.id !== id)
-
-    // 更新scenes数组中的场景
-    const sceneIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
-    if (sceneIndex !== -1) {
-      scenes.value[sceneIndex] = {
-        ...currentScene.value,
-        cards: [...currentScene.value.cards]
-      }
-    }
-
-    // 关闭卡片详情模态框
-    if (selectedCard.value?.id === id) {
-      showCardDetailModal.value = false
-      selectedCard.value = null
-    }
-
-    // 同步到后端
-    await syncData()
-    
-    showToast('卡片删除成功', 'success')
-  } catch (error) {
-    console.error('删除卡片失败:', error)
-    showToast('删除卡片失败: ' + error.message, 'error')
-  }
-}
-
-
-// 减少自动同步间隔到10秒
-onMounted(async () => {
-  await loadAllData()
-  setInterval(syncData, 10000) // 10秒自动同步一次
-})
-
-// 处理插入卡片到提示词
-const handleInsertToPrompt = (card) => {
-  try {
-    if (!selectedPrompt.value) {
-      showToast('请先选择一个提示词模板', 'error')
-      return
-    }
-
-    // 初始化提示词的insertedContents数组
-    if (!selectedPrompt.value.insertedContents) {
-      selectedPrompt.value.insertedContents = []
-    }
-
-    // 添加新的插入内容
-    selectedPrompt.value.insertedContents.push(card.content)
-
-    // 更新提示词
-    const promptIndex = prompts.value.findIndex(p => p.id === selectedPrompt.value.id)
-    if (promptIndex !== -1) {
-      prompts.value[promptIndex] = { ...selectedPrompt.value }
-    }
-
-    // 初始化卡片的insertedContents数组
-    if (!card.insertedContents) {
-      card.insertedContents = []
-    }
-
-    // 添加到卡片的已插入记录
-    card.insertedContents.push({
-      promptId: selectedPrompt.value.id,
-      content: card.content
-    })
-
-    // 更新卡片
-    updateCard(card)
-
-    // 保存提示词数据
-    syncData()
-    
-    showToast('内容已插入到提示词', 'success')
-  } catch (error) {
-    console.error('插入内容失败:', error)
-    showToast('插入内容失败: ' + error.message, 'error')
-  }
-}
-
-// 处理移除已插入的内容
-const handleRemoveInsertedContent = ({ card, index }) => {
-  try {
-    if (!card.insertedContents) return
-
-    // 获取要移除的内容信息
-    const removedContent = card.insertedContents[index]
-    
-    // 从卡片中移除
-    card.insertedContents.splice(index, 1)
-    
-    // 从提示词中移除
-    const prompt = prompts.value.find(p => p.id === removedContent.promptId)
-    if (prompt && prompt.insertedContents) {
-      const promptContentIndex = prompt.insertedContents.indexOf(card.content)
-      if (promptContentIndex !== -1) {
-        prompt.insertedContents.splice(promptContentIndex, 1)
-      }
-    }
-
-    // 更新卡片和提示词
-    updateCard(card)
-    syncData() // 使用 syncData 同步到后端
-    
-    showToast('已移除插入的内容', 'success')
-  } catch (error) {
-    console.error('移除内容失败:', error)
-    showToast('移除内容失败: ' + error.message, 'error')
-  }
-}
-
-// 更新卡片方法
-const updateCard = async (card) => {
-  if (!currentScene.value) return
-
-  const cardIndex = currentScene.value.cards.findIndex(c => c.id === card.id)
-  if (cardIndex !== -1) {
-    currentScene.value.cards[cardIndex] = {
-      ...card,
-      insertedContents: card.insertedContents || []
-    }
-
-    // 更新场景
-    const sceneIndex = scenes.value.findIndex(s => s.id === currentScene.value.id)
-    if (sceneIndex !== -1) {
-      scenes.value[sceneIndex] = {
-        ...currentScene.value,
-        cards: [...currentScene.value.cards]
-      }
-    }
-
-    // 同步到后端
-    await syncData()
-  }
-}
-
-// 处理选择提示词
-const selectPrompt = (prompt) => {
-  selectedPrompt.value = prompt
-}
-
-const cardToInsert = ref(null)
-
-// 修改处理插入提示词的方法
-const handleInsertPrompt = (card) => {
-  // 如果没有可用的提示词，显示错误提示
-  if (!prompts.value || prompts.value.length === 0) {
-    showToast('请先创建提示词模板', 'error')
+// 处理发送提示词请求
+const handleSendPrompt = (prompt) => {
+  if (!prompt) {
+    showToast('提示词不存在', 'error')
     return
   }
-
-  // 保存要插入的卡片并显示模态框
-  cardToInsert.value = card
-  showPromptSelectModal.value = true
-}
-
-// 修改选择提示词并插入的方法
-const selectPromptAndInsert = async (prompt) => {
-  if (!cardToInsert.value) return
-
-  try {
-    // 检查提示词是否已有插入内容
-    if (prompt.insertedContents?.length > 0) {
-      // 显示确认替换的提示
-      if (!confirm('该提示词已有插入内容，是否替换？')) {
-        return
-      }
-      // 清空现有内容
-      prompt.insertedContents = []
-    }
-
-    // 收集卡片及其关联卡片的内容
-    const allContent = []
-    const processedCards = new Set()
-
-    const collectCardContent = (card) => {
-      if (processedCards.has(card.id)) return
-      processedCards.add(card.id)
-
-      // 添加当前卡片内容
-      allContent.push(card.content)
-
-      // 处理关联卡片
-      if (card.links?.length > 0) {
-        scenes.value.forEach(scene => {
-          scene.cards.forEach(linkedCard => {
-            if (card.links.includes(linkedCard.id)) {
-              collectCardContent(linkedCard)
-            }
-          })
-        })
-      }
-    }
-
-    // 处理主卡片及其关联卡片
-    collectCardContent(cardToInsert.value)
-
-    // 合并所有内容
-    const combinedContent = allContent.join('\n\n--- 关联内容 ---\n\n')
-
-    // 添加新的插入内容
-    prompt.insertedContents.push({
-      id: Date.now(),
-      content: combinedContent,
-      cardId: cardToInsert.value.id
-    })
-
-    // 更新提示词
-    const index = prompts.value.findIndex(p => p.id === prompt.id)
-    if (index !== -1) {
-      prompts.value[index] = { ...prompt }
-    }
-
-    // 同步到后端
-    await syncData()
-    
-    // 关闭模态框
-    showPromptSelectModal.value = false
-    cardToInsert.value = null
-    
-    showToast('内容已插入到提示词')
-  } catch (error) {
-    console.error('插入内容错误:', error)
-    showToast('插入失败: ' + error.message, 'error')
-  }
-}
-
-// 添加一个辅助函数来计算提示词中的占位符数量
-const getInsertCount = (promptTemplate) => {
-  if (!promptTemplate) return 0
-  return (promptTemplate.match(/{{text}}/g) || []).length
-}
-
-// 修改添加标签的方法
-const addTag = async () => {
-  if (newTagName.value.trim()) {
-    const tag = {
-      id: Date.now(),
-      name: newTagName.value.trim(),
-      isKeyword: false
-    }
-    tags.value.push(tag)
-    await syncData() // 使用 syncData 同步到后端
-    newTagName.value = '' // 清空输入
-    showToast('标签添加成功', 'success')
-  }
-}
-
-// 添加删除标签的方法
-const deleteTag = async (tagId) => {
-  try {
-    // 确认是否删除
-    if (!confirm('确定要删除这个标签吗？')) return
-    
-    // 从标签列表中删除
-    tags.value = tags.value.filter(tag => tag.id !== tagId)
-    
-    // 从所有场景中的卡片标签中删除引用
-    scenes.value.forEach(scene => {
-      if (scene.cards && Array.isArray(scene.cards)) {
-        scene.cards.forEach(card => {
-          if (card.tags && Array.isArray(card.tags)) {
-            card.tags = card.tags.filter(id => id !== tagId)
-          }
-          // 处理卡组内的卡片
-          if (card.type === 'group' && card.cards && Array.isArray(card.cards)) {
-            card.cards.forEach(groupCard => {
-              if (groupCard.tags && Array.isArray(groupCard.tags)) {
-                groupCard.tags = groupCard.tags.filter(id => id !== tagId)
-              }
-            })
-          }
-        })
-      }
-    })
-    
-    // 从已选标签中移除
-    selectedTags.value = selectedTags.value.filter(id => id !== tagId)
-    
-    // 同步数据
-    await syncData()
-    
-    showToast('标签删除成功', 'success')
-  } catch (error) {
-    console.error('删除标签失败:', error)
-    showToast('删除标签失败: ' + error.message, 'error')
-  }
-}
-
-// 修复导出提示词功能
-const exportPrompts = () => {
-  try {
-    if (prompts.value.length === 0) {
-      showToast('没有可导出的提示词', 'error')
-      return
-    }
-
-    // 准备导出数据
-    const exportData = prompts.value.map(prompt => ({
-      title: prompt.title || '',
-      systemPrompt: prompt.systemPrompt || '',
-      userPrompt: prompt.userPrompt || '',
-      defaultModel: prompt.defaultModel || '',
-      detectKeywords: prompt.detectKeywords !== false
-    }))
-
-    // 转换为JSON字符串
-    const jsonStr = JSON.stringify(exportData, null, 2)
-    
-    // 创建下载链接
-    const blob = new Blob([jsonStr], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `prompts_export_${new Date().toISOString().slice(0, 10)}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-
-    showToast('提示词导出成功')
-  } catch (error) {
-    console.error('导出提示词失败:', error)
-    showToast('导出提示词失败: ' + error.message, 'error')
-  }
-}
-
-
-
-// 在组件挂载时加载标签
-onMounted(async () => {
-  try {
-    // 使用 dataService 加载标签数据
-    const data = await dataService.loadAllData()
-    
-    // 更新标签数据
-    if (Array.isArray(data.tags)) {
-      tags.value = data.tags
-    } else {
-      console.warn('加载的标签数据格式不正确:', data.tags)
-      tags.value = []
-    }
-  } catch (error) {
-    console.error('加载标签失败:', error)
-    tags.value = []
-  }
-})
-
-// 修改导入文件处理方法
-const handleFilesImport = async (event) => {
-  const files = event.target.files
-  if (!files.length) return
-
-  try {
-    isLoading.value = true
-    
-    for (const file of files) {
-      let content = await file.text()
-      
-      if (file.name.endsWith('.json')) {
-        try {
-          const jsonData = JSON.parse(content)
-          if (Array.isArray(jsonData.cards)) {
-            // 创建新场景
-            const newScene = {
-              id: Date.now(),
-              name: jsonData.name || file.name.replace('.json', ''),
-              cards: jsonData.cards.map(card => ({
-                ...card,
-                id: Date.now() + Math.random(),
-                height: card.height || '120px',
-                tags: Array.isArray(card.tags) ? card.tags : []
-              }))
-            }
-            scenes.value.push(newScene)
-            currentScene.value = newScene
-          } else if (Array.isArray(jsonData)) {
-            // 处理普通JSON数组
-            const newCards = jsonData.map(item => ({
-              id: Date.now() + Math.random(),
-              title: typeof item === 'object' ? truncateText(item.title || '') : '',
-              content: typeof item === 'object' ? (item.content || JSON.stringify(item)) : String(item),
-              height: '120px',
-              tags: []
-            }))
-            if (currentScene.value) {
-              currentScene.value.cards.push(...newCards)
-            }
-          } else {
-            // 处理单个JSON对象
-            const newCard = {
-              id: Date.now() + Math.random(),
-              title: '',
-              content: JSON.stringify(jsonData, null, 2),
-              height: '120px',
-              tags: []
-            }
-            if (currentScene.value) {
-              currentScene.value.cards.push(newCard)
-            }
-          }
-        } catch (e) {
-          console.warn('JSON解析失败，作为文本处理')
-          if (currentScene.value) {
-            currentScene.value.cards.push({
-              id: Date.now() + Math.random(),
-              title: file.name,
-              content: content,
-              height: '120px',
-              tags: []
-            })
-          }
-        }
-      }
-    }
-    
-    await syncData() // 使用 syncData 同步到后端
-    showToastMessage('文件导入成功', 'success')
-  } catch (error) {
-    console.error('文件导入失败:', error)
-    showToastMessage('文件导入失败: ' + error.message, 'error')
-  } finally {
-    isLoading.value = false
-    event.target.value = ''
-  }
-}
-
-// 将函数名改为 exportScene，避免与其他地方的 exportToJsonl 冲突
-const exportScene = () => {
-  try {
-    if (!currentScene.value) {
-      showToast('没有可导出的场景', 'error')
-      return
-    }
-
-    const sceneData = {
-      name: currentScene.value.name,
-      cards: currentScene.value.cards.map(card => ({
-        title: card.title || '',
-        content: card.content || '',
-        tags: card.tags || [],
-        height: card.height || '120px'
-      }))
-    }
-
-    const jsonStr = JSON.stringify(sceneData, null, 2)
-    const blob = new Blob([jsonStr], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${currentScene.value.name || 'scene'}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-
-    showToast('场景导出成功')
-  } catch (error) {
-    console.error('导出失败:', error)
-    showToast('导出失败: ' + error.message, 'error')
-  }
-}
-
-
-defineExpose({
-  handleFilesImport,
-  exportScene // 更新导出的函数名
-})
-
-
-
-// 处理场景更新
-const handleSceneUpdate = async (updatedScene) => {
-  try {
-    // 更新本地场景数据
-    const index = scenes.value.findIndex(s => s.id === updatedScene.id)
-    if (index !== -1) {
-      // 创建新的场景数组以触发响应式更新
-      scenes.value = [
-        ...scenes.value.slice(0, index),
-        updatedScene,
-        ...scenes.value.slice(index + 1)
-      ]
-    }
-    
-    await syncData()
-    // 触发视图更新
-    nextTick(() => {
-      // 如果需要，可以在这里添加额外的更新逻辑
-    })
-  } catch (error) {
-    console.error('更新场景失败:', error)
-    showToast('更新场景失败: ' + error.message, 'error')
-  }
-}
-
-// 初始化数据
-onMounted(async () => {
-  try {
-    isLoading.value = true
-    
-    // 使用 dataService 加载所有数据
-    await loadAllData()
-    
-    // 如果没有场景，创建一个默认场景
-    if (scenes.value.length === 0) {
-      const defaultScene = {
-        id: Date.now(),
-        name: '默认场景',
-        cards: []
-      }
-      scenes.value.push(defaultScene)
-      currentScene.value = defaultScene
-      
-      await syncData()
-    }
-    
-    dataLoaded.value = true
-  } catch (error) {
-    console.error('初始化数据失败:', error)
-    showToast('初始化数据失败: ' + error.message, 'error')
-  } finally {
-    isLoading.value = false
-  }
-})
-
-
-// 修改场景保存逻辑
-const saveScenes = async () => {
-  try {
-    // 在保存之前处理场景数据
-    scenes.value = scenes.value.map(scene => ({
-        ...scene,
-      cards: processCards(scene.cards || [])
-    }))
-    
-    // 使用 syncData 同步到后端
-    await syncData()
-    showToast('场景保存成功', 'success')
-  } catch (error) {
-    console.error('保存场景失败:', error)
-    showToast('保存场景失败: ' + error.message, 'error')
-  }
-}
-
-const handleBatchConvertToCards = ({ cards, targetSceneId }) => {
-  try {
-    const targetScene = scenes.value.find(s => Number(s.id) === Number(targetSceneId));
-    
-    if (!targetScene) {
-      throw new Error(`目标场景不存在 (ID: ${targetSceneId})`);
-    }
-    
-    if (!Array.isArray(targetScene.cards)) {
-      targetScene.cards = [];
-    }
-    
-    targetScene.cards.push(...cards);
-    
-    syncData(); // 使用 syncData 同步到后端
-    
-    currentView.value = 'main';
-    currentScene.value = targetScene;
-    
-    showToast(`成功添加 ${cards.length} 个卡片到场景：${targetScene.name}`, 'success');
-  } catch (error) {
-    console.error('转换卡片失败:', error);
-    showToast('转换卡片失败: ' + error.message, 'error');
-  }
-};
-
-// 添加立即保存的方法
-const saveImmediately = async () => {
-  try {
-    isLoading.value = true
-
-    const dataToSync = {
-      scenes: scenes.value.map(scene => ({
-        ...scene,
-        cards: processCards(scene.cards || [])
-      })),
-      prompts: prompts.value,
-      tags: tags.value,
-      config: {
-        models: models.value,
-        notepadContent: notepadInitialContent.value,
-        currentSceneId: currentScene.value?.id,
-        selectedTags: selectedTags.value,
-        currentView: currentView.value,
-        fontSizeLevel: fontSizeLevel.value,
-        cardLayoutMode: cardLayoutMode.value,
-        cardColumns: cardColumns.value,
-        showKeywordDetectionModal: showKeywordDetectionModal.value,
-      }
-    }
-    
-    // 使用 dataService 同步数据，而不是直接使用 fetch
-    const result = await dataService.syncData(dataToSync)
-    
-    if (!result.success) {
-      throw new Error(result.error || '同步失败，未知错误')
-    }
-
-    showToast('保存成功', 'success')
-    return true
-  } catch (error) {
-    console.error('立即保存失败:', error)
-    showToast('保存失败: ' + error.message, 'error')
-    return false
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// 修改场景切换方法
-const switchScene = (scene) => {
-  try {
-    if (!scene || !scene.id) {
-      throw new Error('无效的场景')
-    }
-    
-    // 创建深拷贝并确保卡片数据的完整性
-    const clonedScene = JSON.parse(JSON.stringify({
-      ...scene,
-      cards: processCards(scene.cards || [])
-    }))
-    
-    // 更新当前场景
-    currentScene.value = clonedScene
-    
-    // 同步数据
-    syncData()
-    
-    return true
-  } catch (error) {
-    console.error('切换场景失败:', error)
-    showToast('切换场景失败: ' + error.message, 'error')
-    return false
-  }
-}
-
-// 添加新的响应式变量
-const showBuiltInPrompts = ref(false)
-const builtInPrompts = ref([])
-
-// 检查提示词是否已导入
-const isPromptImported = (builtInId) => {
-  return prompts.value.some(p => p.builtInId === builtInId)
-}
-
-// 导入内置提示词
-const importBuiltInPrompt = (builtInPrompt) => {
-  if (isPromptImported(builtInPrompt.id)) return
   
-  const newPrompt = {
-    ...builtInPrompt,
-    id: Date.now(),
-    builtInId: builtInPrompt.id,
-    selectedModel: '',
-    insertedContents: []
+  // 确保models和processKeywords都可用
+  if (!Array.isArray(models.value)) {
+    showToast('模型列表不可用', 'error')
+    return
   }
   
-  prompts.value.push(newPrompt)
-  showToast(`已导入提示词：${builtInPrompt.title}`, 'success')
-}
-
-// 获取内置提示词列表
-const fetchBuiltInPrompts = async () => {
-  try {
-    // 使用完整的 API URL
-    const response = await fetch('http://localhost:3000/api/built-in-prompts')
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    const data = await response.json()
-    if (data.success) {
-      builtInPrompts.value = data.data
-    } else {
-      throw new Error(data.error || '获取数据失败')
-    }
-  } catch (error) {
-    console.error('获取内置提示词失败:', error)
-    showToast('获取内置提示词失败: ' + error.message, 'error')
+  if (typeof processKeywords !== 'function') {
+    console.error('processKeywords不是一个函数', processKeywords)
+    showToast('关键词处理函数不可用', 'error')
+    return
   }
-}
-
-onMounted(async () => {
-  await fetchBuiltInPrompts()
-})
-
-const fontSizeLevel = ref(3) // 默认为3级（中等大小）
-const baseFontSize = computed(() => {
-  // 基础字体大小，从14px到22px，共5个级别
-  const sizes = {
-    1: 14, // 最小
-    2: 16, // 小
-    3: 18, // 中等（默认）
-    4: 20, // 大
-    5: 22, // 最大
-    6: 32, // 超大
-    7: 48, // 巨大
-    8: 64, // 巨大
-    9: 96, // 巨大
-    10: 128, // 巨大
-  }
-  return sizes[fontSizeLevel.value] || 18
-})
-
-const increaseFontSize = () => {
-  if (fontSizeLevel.value < 10) {
-    fontSizeLevel.value++
-    applyFontSize()
-  }
-}
-
-const decreaseFontSize = () => {
-  if (fontSizeLevel.value > 1) {
-    fontSizeLevel.value--
-    applyFontSize()
-  }
-}
-
-const applyFontSize = () => {
-  document.documentElement.style.setProperty('--base-font-size', `${baseFontSize.value}px`)
-  syncData()
-}
-
-onMounted(() => {
-  applyFontSize()
-})
-
-// 添加卡片布局相关的响应式变量
-const cardLayoutMode = ref('auto') // 默认为自适应布局
-const cardColumns = ref(3) // 默认为3列
-
-// 增加列数
-const increaseColumns = () => {
-  if (cardColumns.value < 6) { // 设置最大列数为6
-    cardColumns.value++
-    applyCardLayout()
-  }
-}
-
-// 减少列数
-const decreaseColumns = () => {
-  if (cardColumns.value > 1) { // 最小列数为1
-    cardColumns.value--
-    applyCardLayout()
-  }
-}
-
-// 应用卡片布局设置
-const applyCardLayout = () => {
-  document.documentElement.style.setProperty('--card-layout-mode', cardLayoutMode.value)
-  document.documentElement.style.setProperty('--card-columns', cardColumns.value)
-  // 保存设置
-  syncData()
-}
-
-// 在组件挂载时应用卡片布局
-onMounted(() => {
-  applyCardLayout()
-})
-
-// 导航方法
-const navigateTo = (view) => {
-  if (view === 'main') {
-    router.push('/')
-  } else if (view === 'editor') {
-    // 如果有当前选中的书籍，导航到该书籍
-    const currentBookId = localStorage.getItem('currentBookId') || 'default'
-    router.push(`/editor/${currentBookId}`)
-  } else {
-    // 导航到对应的路由
-    router.push(`/${view}`)
-  }
-}
-
-// 添加新的响应式变量
-const showKeywordModal = ref(false)
-const keywordMatches = ref([])
-const keywordModalResolve = ref(null)
-
-// 计算是否全选
-const isAllSelected = computed(() => {
-  return keywordMatches.value.length > 0 && 
-         keywordMatches.value.every(match => match.selected)
-})
-
-// 全选/取消全选
-const toggleAll = (e) => {
-  const checked = e.target.checked
-  keywordMatches.value.forEach(match => match.selected = checked)
-}
-
-// 关闭关键词模态框
-const closeKeywordModal = () => {
-  showKeywordModal.value = false
-  if (keywordModalResolve.value) {
-    keywordModalResolve.value(null)
-  }
-}
-
-// 确认关键词选择
-const confirmKeywordSelection = () => {
-  showKeywordModal.value = false
-  if (keywordModalResolve.value) {
-    const selectedMatches = keywordMatches.value.filter(match => match.selected)
-    keywordModalResolve.value(selectedMatches)
-  }
-}
-
-// 添加拖放相关的响应式变量
-const dragOverPromptId = ref(null)
-
-// 添加拖放相关的处理方法
-const handlePromptDragOver = (prompt, event) => {
-  event.preventDefault()
-  dragOverPromptId.value = prompt.id
-}
-
-const handlePromptDragLeave = () => {
-  dragOverPromptId.value = null
-}
-
-const handlePromptDrop = async (prompt, event) => {
-  event.preventDefault()
-  dragOverPromptId.value = null
-}
-
-// 添加新的卡片处理函数
-const processCards = (cards) => {
-  return cards.map(card => {
-    // 如果是卡组类型
-    if (card.type === 'group') {
-      return {
-        ...card,
-        // 递归处理卡组内的卡片
-        cards: card.cards ? processCards(card.cards) : [],
-        // 确保卡组内的卡片ID不会出现在外层
-        containedCardIds: (card.cards || []).map(c => c.id)
-      }
-    }
-    // 普通卡片
-    return {
-      ...card,
-      type: 'normal'
-    }
-  }).filter((card, index, self) => {
-    // 过滤掉已经在卡组内的卡片
-    if (card.type === 'normal') {
-      const isContainedInGroup = self.some(c => 
-        c.type === 'group' && 
-        c.containedCardIds && 
-        c.containedCardIds.includes(card.id)
-      )
-      return !isContainedInGroup
-    }
-    return true
-  })
-}
-
-// 添加新的响应式变量
-const showGroupCardsModal = ref(false)
-const currentEditingGroup = ref(null)
-const selectedGroupCards = ref([])
-
-// 处理卡片选择
-const handleMatchSelection = (match) => {
-  if (match.type === 'group' && match.selected) {
-    // 如果是选中卡组且没有编辑过，默认选中所有卡片
-    if (!match.selectedCards || match.selectedCards.length === 0) {
-      match.selectedCards = [...(match.cards || [])]
-    }
-  }
+  
+  // 调用sendPromptRequest并传递所需参数
+  return sendPromptRequest(prompt, processKeywords, models.value)
 }
 
 // 编辑卡组卡片
@@ -3013,132 +1321,67 @@ const closeGroupCardsModal = () => {
   selectedGroupCards.value = []
 }
 
-const categories = ref(['扩写', '润色', '续写', '改写', '大纲相关', '细纲生成', '概要生成', '优化建议', '灵感迸发', '拆书', '金手指生成', '黄金开篇生成', '写作要求', '简介生成', '书名生成', '取名生成', '人设生成', '审稿']);
-const selectedCategory = ref('');
-const filteredPrompts = computed(() => {
-  return prompts.value.filter(prompt => {
-    return selectedCategory.value ? prompt.category === selectedCategory.value : true;
-  });
-});
-
-// 添加新的响应式变量
-const showPlaceholderModal = ref(false)
-const currentPlaceholders = ref([])
-
-// 修改选择提示词的处理方法
-const selectPromptAndCheck = async (prompt) => {
-  selectedPrompt.value = prompt
-  const placeholders = findPlaceholders(prompt.userPrompt)
-  
-  if (placeholders.length === 0) {
-    showToast('该提示词模板中没有可插入的占位符', 'error')
-    return
-  }
-  
-  if (placeholders.length === 1) {
-    // 单个占位符的情况
-    const existingContent = prompt.insertedContents?.[0]
-    if (existingContent) {
-      if (await confirmReplace()) {
-        handleInsertContent(prompt, 0)
-      }
-    } else {
-      handleInsertContent(prompt, 0)
-    }
+// 导航方法
+const navigateTo = (view) => {
+  if (view === 'main') {
+    router.push('/')
+  } else if (view === 'editor') {
+    // 如果有当前选中的书籍，导航到该书籍
+    const currentBookId = localStorage.getItem('currentBookId') || 'default'
+    router.push(`/editor/${currentBookId}`)
   } else {
-    // 多个占位符的情况
-    currentPlaceholders.value = placeholders.map((_, index) => ({
-      hasContent: !!prompt.insertedContents?.[index],
-      content: prompt.insertedContents?.[index]?.content || ''
-    }))
-    showPlaceholderModal.value = true
+    // 导航到对应的路由
+    router.push(`/${view}`)
   }
 }
 
-// 处理占位符选择
-const handlePlaceholderSelect = async (index) => {
-  if (currentPlaceholders.value[index].hasContent) {
-    if (await confirmReplace()) {
-      handleInsertContent(selectedPrompt.value, index)
+// 处理拖放
+const handlePromptDragOver = (prompt, event) => {
+  event.preventDefault()
+  dragOverPromptId.value = prompt.id
+}
+
+const handlePromptDragLeave = () => {
+  dragOverPromptId.value = null
+}
+
+const handlePromptDrop = async (prompt, event) => {
+  event.preventDefault()
+  dragOverPromptId.value = null
+}
+
+// 批量转换为卡片
+const handleBatchConvertToCards = ({ cards, targetSceneId }) => {
+  try {
+    const targetScene = scenes.value.find(s => Number(s.id) === Number(targetSceneId));
+    
+    if (!targetScene) {
+      throw new Error(`目标场景不存在 (ID: ${targetSceneId})`);
     }
-  } else {
-    handleInsertContent(selectedPrompt.value, index)
-  }
-  closePlaceholderModal()
-}
-
-// 确认替换内容
-const confirmReplace = () => {
-  return new Promise(resolve => {
-    if (confirm('该提示词已有插入内容，是否替换？')) {
-      resolve(true)
-    } else {
-      resolve(false)
+    
+    if (!Array.isArray(targetScene.cards)) {
+      targetScene.cards = [];
     }
-  })
-}
-
-// 关闭占位符选择模态框
-const closePlaceholderModal = () => {
-  showPlaceholderModal.value = false
-  currentPlaceholders.value = []
-}
-
-// 查找提示词中的所有占位符
-const findPlaceholders = (template) => {
-  if (!template) return []
-  const matches = template.match(/{{text}}/g) || []
-  return matches
-}
-
-// 获取占位符预览
-const getPlaceholderPreview = (template, index) => {
-  if (!template) return ''
-  const parts = template.split(/{{text}}/)
-  let preview = ''
-  for (let i = 0; i <= index + 1 && i < parts.length; i++) {
-    preview += parts[i]
-    if (i === index) {
-      preview += '【插入位置】'
-    } else if (i < index) {
-      preview += '...'
-    }
+    
+    targetScene.cards.push(...cards);
+    
+    syncData();
+    
+    currentView.value = 'main';
+    currentScene.value = targetScene;
+    
+    showToast(`成功添加 ${cards.length} 个卡片到场景：${targetScene.name}`, 'success');
+  } catch (error) {
+    console.error('转换卡片失败:', error);
+    showToast('转换卡片失败: ' + error.message, 'error');
   }
-  return truncateText(preview, 100)
-}
+};
 
-const handleInsertContent = (prompt, index) => {
-  if (!cardToInsert.value) return
-  
-  if (!prompt.insertedContents) {
-    prompt.insertedContents = []
-  }
-  
-  prompt.insertedContents[index] = {
-    id: Date.now(),
-    content: cardToInsert.value.content,
-    cardId: cardToInsert.value.id
-  }
-  
-  const promptIndex = prompts.value.findIndex(p => p.id === prompt.id)
-  if (promptIndex !== -1) {
-    prompts.value[promptIndex] = { ...prompt }
-  }
-  
-  showPromptSelectModal.value = false
-  showPlaceholderModal.value = false
-  
-  cardToInsert.value = null
-  
-  showToast('内容已插入到提示词')
-  
-  syncData()
-}
-
-provide('scenes', scenes);
-provide('syncData', syncData);
-provide('tags', tags); // 添加这一行
-
+// 对外暴露方法
+defineExpose({
+  handleFilesImport: (event) => handleFilesImport(event, currentScene, scenes, syncData),
+  exportScene
+})
 </script>
 
 <style scoped>

@@ -1658,7 +1658,6 @@ button,
   align-items: center;
   padding: 18px 20px;
   border-bottom: 1px solid var(--border-color);
-  background: var(--primary-color);
   color: white;
 }
 

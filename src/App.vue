@@ -2,6 +2,7 @@
   <div class="container">    
     <!-- 其他视图内容 -->
     <div class="content-area" v-if="currentView !== 'editor'">
+  
       <!-- 主要内容区域 -->
       <div v-if="currentView === 'main'" class="main-content">
         <!-- 左侧提示词模板区 -->
@@ -209,7 +210,8 @@
           />
         </div>
       </div>
-
+          <!-- 暂时解决方案，以后记得修改路由方式，统一使用v-if-->
+      <router-view />
       <BookSplitter 
         v-if="currentView === 'book'"
         :scenes="scenes"
@@ -245,7 +247,15 @@
         v-if="currentView === 'knowledge'"
         :models="models"
       />
+      <KnowledgeGraph
+        v-if="currentView === 'knowledgeGraph'"
+      />
+      <CloudSync
+        v-if="currentView === 'cloudSync'"
+      />
     </div>
+
+
     <router-view v-else />
     <!-- 视图切换按钮 -->
     <div class="view-switcher">
@@ -297,6 +307,20 @@
         title="知识库"
       >
         <i class="fas fa-database"></i>
+      </button>
+      <button 
+        @click="() => { navigateTo('knowledgeGraph'); }" 
+        :class="{ active: currentView === 'knowledgeGraph' }"
+        title="知识图谱"
+      >
+        <i class="fas fa-project-diagram"></i>
+      </button>
+      <button 
+        @click="() => { navigateTo('cloudSync'); }" 
+        :class="{ active: currentView === 'cloudSync' }"
+        title="云同步"
+      >
+        <i class="fas fa-cloud-upload-alt"></i>
       </button>
     </div>
   
@@ -963,7 +987,7 @@ watch(() => route.path, (newPath) => {
   } else {
     // 从路径中提取视图名称
     const viewPath = newPath.substring(1) // 去掉开头的'/'
-    if (['book', 'chat', 'note', 'agents', 'detector', 'knowledge'].includes(viewPath)) {
+    if (['book', 'chat', 'note', 'agents', 'detector', 'knowledge', 'knowledgeGraph', 'cloudSync'].includes(viewPath)) {
       currentView.value = viewPath
     }
   }

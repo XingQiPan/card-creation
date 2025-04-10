@@ -6,6 +6,8 @@ import AgentsView from '../components/AgentsView.vue'
 import KnowledgeView from '../components/KnowledgeBase.vue'
 import BookView from '../components/BookSplitter.vue'
 import MainView from '../App.vue'
+import KnowledgeGraph from '../components/KnowledgeGraph.vue'
+import CloudSync from '../components/CloudSync.vue'
 
 const routes = [
   {
@@ -39,6 +41,16 @@ const routes = [
     component: KnowledgeView
   },
   {
+    path: '/knowledgeGraph',
+    name: 'KnowledgeGraph',
+    component: KnowledgeGraph
+  },
+  {
+    path: '/cloudSync',
+    name: 'CloudSync',
+    component: CloudSync
+  },
+  {
     path: '/editor/:bookId/section/:sectionId',
     name: 'EditorSection',
     component: Editor,
@@ -65,4 +77,4 @@ router.beforeEach((to, from, next) => {
   }
 })
 
-export default router 
+export default router

@@ -7,6 +7,14 @@ import { fileURLToPath } from 'url'
 import { AIDetector } from './ai-detector.js'
 import { v4 as uuidv4 } from 'uuid'
 import { initDb, closeDb, getDb, DataManager, dbUtils } from './db.js'
+import dotenv from 'dotenv'
+// 导入知识图谱模块
+import KnowledgeGraph from './memory_js/knowledge_graph.js'
+// 导入云同步服务模块
+import CloudSyncService from './cloud-sync-service.js'
+
+// 加载环境变量
+dotenv.config()
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -44,6 +52,47 @@ const DATA_DIR = path.join(__dirname, 'data')
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR)
 }
+
+// 添加知识图谱数据目录路径
+const KNOWLEDGE_GRAPH_DIR = path.join(DATA_DIR, 'KnowledgeGraph');
+// 确保知识图谱数据目录存在
+if (!fs.existsSync(KNOWLEDGE_GRAPH_DIR)) {
+  fs.mkdirSync(KNOWLEDGE_GRAPH_DIR, { recursive: true });
+}
+const DEFAULT_GRAPH_FILE = path.join(KNOWLEDGE_GRAPH_DIR, 'knowledge_graph.json');
+
+/**
+ * 初始化知识图谱，支持多种方式指定图谱文件
+ * @param {string|null} graphParam - 知识图谱文件名或路径，可选
+ * @returns {KnowledgeGraph} - 知识图谱实例
+ */
+function initKnowledgeGraph(graphParam = null) {
+  // 未提供参数，使用默认路径
+  if (!graphParam) {
+    console.log(`使用默认知识图谱文件: ${DEFAULT_GRAPH_FILE}`);
+    return new KnowledgeGraph(DEFAULT_GRAPH_FILE);
+  }
+  
+  // 判断参数是文件名还是路径
+  if (!graphParam.includes(path.sep) && !path.isAbsolute(graphParam)) {
+    // 只有文件名，拼接默认目录
+    const filePath = path.join(KNOWLEDGE_GRAPH_DIR, graphParam);
+    // 确保有 .json 扩展名
+    const fullPath = filePath.endsWith('.json') ? filePath : `${filePath}.json`;
+    console.log(`加载知识图谱文件: ${fullPath}`);
+    return new KnowledgeGraph(fullPath);
+  } 
+  
+  // 是完整路径，直接使用
+  console.log(`加载知识图谱文件路径: ${graphParam}`);
+  return new KnowledgeGraph(graphParam);
+}
+
+// 初始化知识图谱
+const kg = initKnowledgeGraph();
+
+// 创建云同步服务实例
+const cloudSyncService = new CloudSyncService(DATA_DIR)
 
 // 确保上传目录存在
 const UPLOADS_DIR = path.join(__dirname, 'uploads')
@@ -1055,6 +1104,495 @@ app.get('/api/prompts/category/:category', (req, res) => {
   }
 })
 
+// 知识图谱API路由
+// 创建多个新实体
+app.post('/api/kg/entities', async (req, res) => {
+  try {
+    const entities = req.body.entities || []
+    const result = await kg.createEntities(entities)
+    res.status(201).json({
+      success: true,
+      data: result
+    })
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 创建多个新关系
+app.post('/api/kg/relations', async (req, res) => {
+  try {
+    const relations = req.body.relations || []
+    const result = await kg.createRelations(relations)
+    res.status(201).json({
+      success: true,
+      data: result
+    })
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 向现有实体添加新观察项
+app.post('/api/kg/observations', async (req, res) => {
+  try {
+    const observations = req.body.observations || []
+    const result = await kg.addObservations(observations)
+    res.status(200).json({
+      success: true,
+      data: result
+    })
+  } catch (error) {
+    if (error.message.includes('不存在')) {
+      res.status(404).json({
+        success: false,
+        error: error.message
+      })
+    } else {
+      res.status(400).json({
+        success: false,
+        error: error.message
+      })
+    }
+  }
+})
+
+// 更新实体的特定观察项
+app.put('/api/kg/observations', async (req, res) => {
+  try {
+    const updates = req.body.updates || [];
+    const result = await kg.updateObservations(updates);
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// 更新实体的所有观察项
+app.put('/api/kg/entity-observations', async (req, res) => {
+  try {
+    const entityName = req.body.entityName;
+    const observations = req.body.observations;
+    
+    if (!entityName) {
+      return res.status(400).json({
+        success: false,
+        error: '必须提供实体名称'
+      });
+    }
+    
+    const result = await kg.setEntityObservations({
+      entityName,
+      observations
+    });
+    
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// 删除实体及其关联关系
+app.delete('/api/kg/entities', async (req, res) => {
+  try {
+    const entityNames = req.body.entityNames || []
+    const result = await kg.deleteEntities(entityNames)
+    res.status(200).json({
+      success: true,
+      data: result
+    })
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 删除实体的特定观察项
+app.delete('/api/kg/observations', async (req, res) => {
+  try {
+    const deletions = req.body.deletions || []
+    const result = await kg.deleteObservations(deletions)
+    res.status(200).json({
+      success: true,
+      data: result
+    })
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 删除图谱中的特定关系
+app.delete('/api/kg/relations', async (req, res) => {
+  try {
+    const relations = req.body.relations || []
+    const result = await kg.deleteRelations(relations)
+    res.status(200).json({
+      success: true,
+      data: result
+    })
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 读取整个知识图谱
+app.get('/api/kg/graph', (req, res) => {
+  try {
+    const result = kg.readGraph()
+    res.status(200).json({
+      success: true,
+      data: result
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 根据查询条件搜索节点
+app.get('/api/kg/search', (req, res) => {
+  try {
+    const query = req.query.query || ''
+    const result = kg.searchNodes(query)
+    res.status(200).json({
+      success: true,
+      data: result
+    })
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 按名称检索特定节点
+app.get('/api/kg/nodes', (req, res) => {
+  try {
+    const namesParam = req.query.names || ''
+    const names = namesParam.split(',').map(name => name.trim()).filter(name => name)
+    const result = kg.openNodes(names)
+    res.status(200).json({
+      success: true,
+      data: result
+    })
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 加载指定的知识图谱文件
+app.post('/api/kg/load-graph', async (req, res) => {
+  try {
+    const fileName = req.body.fileName || ''
+    
+    // 验证文件名/路径
+    if (!fileName || fileName.includes('..')) {
+      return res.status(400).json({
+        success: false,
+        error: '无效的文件名或路径'
+      })
+    }
+    
+    let filePath;
+    if (!fileName.includes(path.sep) && !path.isAbsolute(fileName)) {
+      filePath = path.join(KNOWLEDGE_GRAPH_DIR, fileName);
+      if (!filePath.endsWith('.json')) {
+        filePath += '.json';
+      }
+    } else {
+      filePath = fileName;
+      if (!filePath.endsWith('.json')) {
+        filePath += '.json';
+      }
+    }
+    
+    const success = await kg.loadFromFile(filePath)
+    
+    if (success) {
+      res.status(200).json({
+        success: true,
+        message: `成功加载知识图谱: ${filePath}`,
+        path: filePath
+      })
+    } else {
+      res.status(404).json({
+        success: false,
+        error: `无法加载知识图谱文件: ${filePath}`
+      })
+    }
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 获取可用的知识图谱文件列表
+app.get('/api/kg/graph-files', async (req, res) => {
+  try {
+    if (!fs.existsSync(KNOWLEDGE_GRAPH_DIR)) {
+      fs.mkdirSync(KNOWLEDGE_GRAPH_DIR, { recursive: true });
+    }
+    
+    const files = (await fs.promises.readdir(KNOWLEDGE_GRAPH_DIR)).filter(file => file.endsWith('.json'));
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        files,
+        currentFile: path.basename(kg.storagePath),
+        directory: KNOWLEDGE_GRAPH_DIR
+      }
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// WebDAV云同步相关API端点
+// 检查WebDAV连接状态
+app.get('/api/cloud/status', async (req, res) => {
+  try {
+    const status = await cloudSyncService.checkConnection()
+    res.json(status)
+  } catch (error) {
+    console.error('检查WebDAV状态失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '检查WebDAV状态失败: ' + error.message
+    })
+  }
+})
+
+// 更新WebDAV设置
+app.post('/api/settings/webdav', async (req, res) => {
+  try {
+    const { webdavUrl, webdavUsername, webdavPassword } = req.body
+    
+    if (!webdavUrl || !webdavUsername || !webdavPassword) {
+      return res.status(400).json({
+        success: false,
+        error: 'WebDAV配置不完整，请提供所有必要参数'
+      })
+    }
+    
+    const envPath = path.join(__dirname, '.env')
+    let envContent = ''
+    
+    if (fs.existsSync(envPath)) {
+      envContent = fs.readFileSync(envPath, 'utf8')
+    }
+    
+    const webdavUrlRegex = /WEBDAV_URL=.*/
+    const webdavUsernameRegex = /WEBDAV_USERNAME=.*/
+    const webdavPasswordRegex = /WEBDAV_PASSWORD=.*/
+    
+    if (webdavUrlRegex.test(envContent)) {
+      envContent = envContent.replace(webdavUrlRegex, `WEBDAV_URL=${webdavUrl}`)
+    } else {
+      envContent += `\nWEBDAV_URL=${webdavUrl}`
+    }
+    
+    if (webdavUsernameRegex.test(envContent)) {
+      envContent = envContent.replace(webdavUsernameRegex, `WEBDAV_USERNAME=${webdavUsername}`)
+    } else {
+      envContent += `\nWEBDAV_USERNAME=${webdavUsername}`
+    }
+    
+    if (webdavPasswordRegex.test(envContent)) {
+      envContent = envContent.replace(webdavPasswordRegex, `WEBDAV_PASSWORD=${webdavPassword}`)
+    } else {
+      envContent += `\nWEBDAV_PASSWORD=${webdavPassword}`
+    }
+    
+    fs.writeFileSync(envPath, envContent)
+    
+    process.env.WEBDAV_URL = webdavUrl
+    process.env.WEBDAV_USERNAME = webdavUsername
+    process.env.WEBDAV_PASSWORD = webdavPassword
+    
+    cloudSyncService.initialize()
+    
+    const status = await cloudSyncService.checkConnection()
+    
+    if (status.success) {
+      res.json({
+        success: true,
+        message: 'WebDAV设置已更新，连接测试成功'
+      })
+    } else {
+      res.json({
+        success: false,
+        error: `WebDAV设置已更新，但连接测试失败: ${status.error || '未知错误'}`
+      })
+    }
+  } catch (error) {
+    console.error('更新WebDAV设置失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '更新WebDAV设置失败: ' + error.message
+    })
+  }
+})
+
+// 获取本地备份列表
+app.get('/api/local/backups', async (req, res) => {
+  try {
+    const result = await cloudSyncService.getLocalBackupsList()
+    res.json(result)
+  } catch (error) {
+    console.error('获取本地备份列表失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '获取本地备份列表失败: ' + error.message
+    })
+  }
+})
+
+// 从本地备份恢复数据
+app.post('/api/local/restore', async (req, res) => {
+  try {
+    const { backupPath } = req.body
+    
+    if (!backupPath) {
+      return res.status(400).json({
+        success: false,
+        error: '未指定要恢复的备份路径'
+      })
+    }
+    
+    const result = await cloudSyncService.restoreFromLocal(backupPath)
+    res.json(result)
+  } catch (error) {
+    console.error('从本地备份恢复失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '从本地备份恢复失败: ' + error.message
+    })
+  }
+})
+
+// 手动执行云同步备份
+app.post('/api/cloud/sync', async (req, res) => {
+  try {
+    const result = await cloudSyncService.syncToCloud()
+    res.json(result)
+  } catch (error) {
+    console.error('云同步失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '云同步失败: ' + error.message
+    })
+  }
+})
+
+// 获取云端备份列表
+app.get('/api/cloud/backups', async (req, res) => {
+  try {
+    const result = await cloudSyncService.getBackupsList()
+    res.json(result)
+  } catch (error) {
+    console.error('获取云端备份列表失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '获取云端备份列表失败: ' + error.message
+    })
+  }
+})
+
+// 从云端恢复特定备份
+app.post('/api/cloud/restore', async (req, res) => {
+  try {
+    const { backupPath } = req.body
+    
+    if (!backupPath) {
+      return res.status(400).json({
+        success: false,
+        error: '未指定要恢复的备份路径'
+      })
+    }
+    
+    const result = await cloudSyncService.restoreFromCloud(backupPath)
+    res.json(result)
+  } catch (error) {
+    console.error('从云端恢复备份失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '从云端恢复备份失败: ' + error.message
+    })
+  }
+})
+
+// 删除云端备份
+app.delete('/api/cloud/backups', async (req, res) => {
+  try {
+    const { backupPath } = req.body
+    
+    if (!backupPath) {
+      return res.status(400).json({
+        success: false,
+        error: '未指定要删除的备份路径'
+      })
+    }
+    
+    if (!cloudSyncService.webdavClient) {
+      return res.status(500).json({
+        success: false,
+        error: 'WebDAV客户端未初始化'
+      })
+    }
+    
+    await cloudSyncService.webdavClient.deleteFile(backupPath)
+    
+    res.json({
+      success: true,
+      message: '备份已删除'
+    })
+  } catch (error) {
+    console.error('删除云端备份失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '删除云端备份失败: ' + error.message
+    })
+  }
+})
+
 // 优雅关闭数据库连接
 process.on('SIGINT', () => {
   closeDb()
@@ -1075,6 +1613,47 @@ app.listen(PORT, async () => {
     const testResult = await new AIDetector().analyze("这是一个测试文本")
   } catch (error) {
     console.error('AI检测器测试失败:', error)
+  }
+  
+  // 设置定时自动备份（如果WebDAV配置有效）
+  if (cloudSyncService.webdavClient) {
+    console.log('WebDAV云同步服务已启用')
+    
+    // 每24小时执行一次自动备份
+    const autoBackupInterval = 24 * 60 * 60 * 1000 // 24小时
+    
+    // 设置定时任务
+    setInterval(async () => {
+      try {
+        console.log('执行自动云备份...')
+        const result = await cloudSyncService.syncToCloud()
+        
+        if (result.success) {
+          console.log('自动云备份成功:', result.path)
+        } else {
+          console.error('自动云备份失败:', result.error)
+        }
+      } catch (error) {
+        console.error('自动云备份出错:', error)
+      }
+    }, autoBackupInterval)
+    
+    // 启动时执行一次备份，但使用try-catch捕获错误
+    setTimeout(async () => {
+      try {
+        console.log('启动时执行初始化云备份...')
+        const result = await cloudSyncService.syncToCloud()
+        if (result.success) {
+          console.log('初始化云备份成功:', result.path)
+        } else {
+          console.error('初始化云备份失败，但不影响服务运行:', result.error)
+        }
+      } catch (error) {
+        console.error('初始化云备份失败，但不影响服务运行:', error)
+      }
+    }, 30000) // 延迟30秒执行，确保服务器已完全启动
+  } else {
+    console.warn('WebDAV云同步服务未启用，请检查环境变量配置')
   }
   
   APIDocService.getAllRoutes().forEach(route => {

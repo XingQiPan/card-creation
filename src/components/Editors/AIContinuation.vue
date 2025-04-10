@@ -422,20 +422,6 @@ watch(() => [aiSettings.continuationPlot, aiSettings.customPrompt, aiSettings.us
   width: 100%;
 }
 
-.link-btn.active {
-  background-color: #4caf50;
-  color: white;
-  border-color: #388e3c;
-}
-
-.panel-actions {
-  display: flex;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-top: 1px solid #e0e0e0;
-  background-color: #f8f8f8;
-}
-
 .close-btn {
   padding: 8px 16px;
   border-radius: 4px;
@@ -475,77 +461,6 @@ watch(() => [aiSettings.continuationPlot, aiSettings.customPrompt, aiSettings.us
   padding: 8px;
   border-radius: 4px;
   border: 1px solid #ccc;
-}
-
-.tooltip-container {
-  position: relative;
-}
-
-.tooltip-text {
-  visibility: hidden;
-  width: 200px;
-  background-color: #333;
-  color: #fff;
-  text-align: center;
-  border-radius: 6px;
-  padding: 5px;
-  position: absolute;
-  z-index: 1;
-  bottom: 125%;
-  left: 50%;
-  transform: translateX(-50%);
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.tooltip-container:hover .tooltip-text {
-  visibility: visible;
-  opacity: 1;
-}
-
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 20px;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-switch label {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #ccc;
-  transition: .4s;
-  border-radius: 20px;
-}
-
-.toggle-switch label:before {
-  position: absolute;
-  content: "";
-  height: 16px;
-  width: 16px;
-  left: 2px;
-  bottom: 2px;
-  background-color: white;
-  transition: .4s;
-  border-radius: 50%;
-}
-
-.toggle-switch input:checked + label {
-  background-color: #4caf50;
-}
-
-.toggle-switch input:checked + label:before {
-  transform: translateX(20px);
 }
 
 .selected-cards-preview {

@@ -3,37 +3,92 @@
     <div class="entry-card-content">
       <!-- 添加tab切换 -->
       <div class="panel-tabs">
-        <div class="tab" :class="{ 'active': currentTab === 'category' }" @click="switchTab('category')">词条分类</div>
+        <div class="tab" :class="{ 'active': currentTab === 'category' }" @click="switchTab('category')">场景绑定</div>
         <div class="tab" :class="{ 'active': currentTab === 'all' }" @click="switchTab('all')">全部词条</div>
         <div class="tab-indicator" :style="{ transform: currentTab === 'all' ? 'translateX(100%)' : 'translateX(0)' }"></div>
       </div>
 
-      <!-- 词条分类视图 -->
+      <!-- 场景绑定视图 -->
       <div v-if="currentTab === 'category'" class="panel-section">
         <div class="section-header-row">
-          <div class="section-header">词条分类</div>
-          <button class="add-btn" @click="showGroupModal('add')">
-            <i class="fas fa-plus"></i> 添加分类
+          <div class="section-header">场景列表</div>
+          <div class="action-buttons">
+            <button class="debug-btn" @click="diagnoseScenes" title="诊断场景数据">
+              <i class="fas fa-bug"></i>
+            </button>
+            <button class="refresh-btn" @click="refreshSceneData" title="刷新场景数据">
+              <i class="fas fa-sync-alt"></i>
+            </button>
+          </div>
+        </div>
+        
+        <div class="entry-filter">
+          <input 
+            type="text" 
+            class="search-input" 
+            v-model="sceneSearchKeyword" 
+            placeholder="搜索场景..." 
+          />
+        </div>
+        
+        <div v-if="filteredScenes.length === 0" class="empty-state">
+          暂无场景可用，请先创建场景
+          <button class="refresh-btn" @click="refreshSceneData">
+            <i class="fas fa-sync-alt"></i> 刷新场景数据
           </button>
         </div>
         
-        <div v-if="entryGroups.length === 0" class="empty-state">
-          暂无词条分类，点击上方按钮添加
+        <div v-else class="scene-list">
+          <div 
+            v-for="scene in filteredScenes" 
+            :key="scene.id"
+            :class="['scene-item', { active: selectedScene && selectedScene.id === scene.id }]"
+            @click="selectScene(scene)"
+          >
+            <div class="scene-name">{{ scene.name }}</div>
+            <div class="scene-actions">
+              <div class="scene-info">
+                {{ getSceneGroups(scene).length }} 个卡组
+              </div>
+            </div>
+          </div>
         </div>
         
-        <div v-else class="entry-groups">
-          <div 
-            v-for="group in entryGroups" 
-            :key="group.id"
-            :class="['entry-group', { active: selectedGroup && selectedGroup.id === group.id }]"
-            @click="selectGroup(group)"
-          >
-            <div class="group-name">{{ group.name }}</div>
-            <div class="group-info">{{ group.entryCount || 0 }} 个词条</div>
+        <!-- 选中场景下的卡组列表 -->
+        <div v-if="selectedScene" class="panel-section">
+          <div class="section-header-row">
+            <div class="section-header">{{ selectedScene.name }} - 卡组列表</div>
+            <button class="add-btn" @click="showGroupModal('add')">
+              <i class="fas fa-plus"></i> 添加卡组
+            </button>
+          </div>
+          
+          <div v-if="getSceneGroups(selectedScene).length === 0" class="empty-state">
+            暂无卡组，点击上方按钮添加
+          </div>
+          
+          <div v-else class="entry-groups">
+            <div 
+              v-for="group in getSceneGroups(selectedScene)" 
+              :key="group.id"
+              :class="['entry-group', { active: selectedGroup && selectedGroup.id === group.id }]"
+              @click="selectGroup(group)"
+            >
+              <div class="group-name">{{ group.name }}</div>
+              <div class="group-info">{{ group.entryCount || 0 }} 个词条</div>
+              <div class="group-actions">
+                <button class="edit-btn" @click.stop="showGroupModal('edit', group)">
+                  <i class="fas fa-edit"></i>
+                </button>
+                <button class="delete-btn" @click.stop="showDeleteConfirmModal(group)">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- 选中分类下的词条列表 -->
+        <!-- 选中卡组下的词条列表 -->
         <div v-if="selectedGroup" class="panel-section">
           <div class="section-header-row">
             <div class="section-header">{{ selectedGroup.name }} - 词条列表</div>
@@ -204,11 +259,11 @@
       </div>
     </div>
     
-    <!-- 添加/编辑词条分类的模态框 -->
+    <!-- 添加/编辑卡组的模态框 -->
     <div v-if="groupModal.show" class="modal-overlay">
       <div class="modal-content">
         <div class="modal-header">
-          <h3>{{ groupModal.isEdit ? '编辑词条分类' : '添加词条分类' }}</h3>
+          <h3>{{ groupModal.isEdit ? '编辑卡组' : '添加卡组' }}</h3>
           <button class="close-modal-btn" @click="closeGroupModal">
             <i class="fas fa-times"></i>
           </button>
@@ -216,13 +271,23 @@
         
         <div class="modal-body">
           <div class="form-row">
-            <label>分类名称 <span class="required">*</span></label>
-            <input type="text" class="form-input" v-model="groupModal.name" placeholder="请输入分类名称" />
+            <label>卡组名称 <span class="required">*</span></label>
+            <input type="text" class="form-input" v-model="groupModal.name" placeholder="请输入卡组名称" />
           </div>
           
           <div class="form-row">
-            <label>分类描述</label>
-            <textarea class="form-textarea" v-model="groupModal.description" placeholder="请输入分类描述"></textarea>
+            <label>所属场景 <span class="required">*</span></label>
+            <select class="form-input" v-model="groupModal.sceneId">
+              <option value="">请选择场景</option>
+              <option v-for="scene in appScenes" :key="scene.id" :value="scene.id">
+                {{ scene.name }}
+              </option>
+            </select>
+          </div>
+          
+          <div class="form-row">
+            <label>卡组描述</label>
+            <textarea class="form-textarea" v-model="groupModal.description" placeholder="请输入卡组描述"></textarea>
           </div>
         </div>
         
@@ -251,24 +316,13 @@
           </div>
           
           <div class="form-row">
-            <label>所属分类</label>
+            <label>所属卡组</label>
             <select class="form-input" v-model="entryModal.groupId">
-              <option value="">无分类</option>
+              <option value="">无卡组</option>
               <option v-for="group in entryGroups" :key="group.id" :value="group.id">
-                {{ group.name }}
+                {{ group.name }} ({{ getSceneName(group.sceneId) }})
               </option>
             </select>
-          </div>
-          
-          <div class="form-row">
-            <label>图标</label>
-            <div class="icon-upload">
-              <div class="icon-preview" :class="{ 'placeholder': !entryModal.icon }">
-                <img v-if="entryModal.icon" :src="entryModal.icon" alt="预览" />
-                <i v-else class="fas fa-file-alt"></i>
-              </div>
-              <button class="upload-btn">上传图标</button>
-            </div>
           </div>
           
           <div class="form-row">
@@ -327,9 +381,9 @@
         
         <div class="modal-body">
           <p v-if="groupToDelete">
-            <span class="warning">警告：</span> 确定要删除分类 "{{ groupToDelete.name }}" 吗？
+            <span class="warning">警告：</span> 确定要删除卡组 "{{ groupToDelete.name }}" 吗？
             <br><br>
-            该分类下的词条将被设为无分类，但不会被删除。此操作不可撤销。
+            该卡组下的词条将被设为无卡组，但不会被删除。此操作不可撤销。
           </p>
           <p v-else-if="entryToDelete">
             <span class="warning">警告：</span> 确定要删除词条 "{{ entryToDelete.title }}" 吗？
@@ -348,19 +402,82 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, reactive, computed, onMounted, inject } from 'vue';
 import { v4 as uuidv4 } from 'uuid';
 import { showToast } from '../../utils/common';
+
+// 从App.vue注入scenes数据和数据同步方法
+const appScenes = inject('scenes', ref([]));
+const syncAppData = inject('syncData', async () => {
+  console.error('syncData method not provided by parent component');
+  return false;
+});
+
+// 封装同步方法，添加更多调试信息
+const syncSceneData = async () => {
+  console.log('Synchronizing app data...');
+  try {
+    await syncAppData();
+    console.log('App data synchronized successfully');
+    return true;
+  } catch (error) {
+    console.error('Error synchronizing app data:', error);
+    showToast('保存场景数据失败', 'error');
+    return false;
+  }
+};
+
+// 标签常量
+const ENTRY_TAG = '词条';
 
 // 数据存储键
 const STORAGE_KEY_ENTRY_GROUPS = 'entry-card-groups';
 const STORAGE_KEY_ENTRIES = 'entry-card-entries';
 
-// 词条分类数据
+// 状态变量
+const currentTab = ref('category');
 const entryGroups = ref([]);
-
-// 词条数据
 const entries = ref([]);
+const selectedGroup = ref(null);
+const selectedEntry = ref(null);
+const searchQuery = ref('');
+const sortMethod = ref('nameAsc');
+const showDetailModal = ref(false);
+const sceneSearchKeyword = ref('');
+const selectedScene = ref(null);
+
+// 卡组模态框状态
+const groupModal = reactive({
+  show: false,
+  isEdit: false,
+  group: null,
+  id: '',
+  name: '',
+  description: '',
+  sceneId: ''
+});
+
+// 词条模态框状态
+const entryModal = reactive({
+  show: false,
+  isEdit: false,
+  entry: null,
+  id: '',
+  title: '',
+  groupId: '',
+  icon: '',
+  description: '',
+  content: '',
+  relatedEntries: []
+});
+
+// 删除确认模态框状态
+const deleteConfirmModal = reactive({
+  show: false
+});
+
+const entryToDelete = ref(null);
+const groupToDelete = ref(null);
 
 // 加载数据
 const loadData = () => {
@@ -391,47 +508,47 @@ const saveData = () => {
   }
 };
 
-// 状态变量
-const currentTab = ref('category');
-const selectedGroup = ref(null);
-const selectedEntry = ref(null);
-const searchQuery = ref('');
-const sortMethod = ref('nameAsc');
-const showDetailModal = ref(false);
-
-// 分类模态框状态
-const groupModal = reactive({
-  show: false,
-  isEdit: false,
-  group: null,
-  id: '',
-  name: '',
-  description: ''
-});
-
-// 词条模态框状态
-const entryModal = reactive({
-  show: false,
-  isEdit: false,
-  entry: null,
-  id: '',
-  title: '',
-  groupId: '',
-  icon: '',
-  description: '',
-  content: '',
-  relatedEntries: []
-});
-
-// 删除确认模态框状态
-const deleteConfirmModal = reactive({
-  show: false
-});
-
-const entryToDelete = ref(null);
-const groupToDelete = ref(null);
+// 刷新场景数据
+const refreshSceneData = () => {
+  // 从注入的appScenes中获取最新场景数据
+  console.log('Refreshing scene data, current scenes:', appScenes.value.length);
+  
+  // 检查场景数据结构
+  appScenes.value.forEach(scene => {
+    console.log(`Scene: ${scene.name}, ID: ${scene.id}`);
+    if (scene.cardGroups) {
+      console.log(`- Card groups: ${scene.cardGroups.length}`);
+      scene.cardGroups.forEach(group => {
+        console.log(`  - Group: ${group.name}, type: ${group.type || 'undefined'}, cards: ${group.cards?.length || 0}`);
+      });
+    } else {
+      console.log('- No card groups');
+    }
+  });
+  
+  if (appScenes.value && appScenes.value.length > 0) {
+    showToast('场景数据已刷新', 'success');
+  } else {
+    showToast('未找到场景数据', 'warning');
+  }
+};
 
 // 计算属性
+const filteredScenes = computed(() => {
+  if (!sceneSearchKeyword.value) return appScenes.value;
+  
+  const keyword = sceneSearchKeyword.value.toLowerCase();
+  return appScenes.value.filter(scene => 
+    scene.name.toLowerCase().includes(keyword)
+  );
+});
+
+// 获取场景下的卡组
+const getSceneGroups = (scene) => {
+  if (!scene) return [];
+  return entryGroups.value.filter(group => group.sceneId === scene.id);
+};
+
 const filteredEntries = computed(() => {
   if (!selectedGroup.value) return [];
   
@@ -441,8 +558,8 @@ const filteredEntries = computed(() => {
     const query = searchQuery.value.toLowerCase();
     result = result.filter(entry => 
       entry.title.toLowerCase().includes(query) || 
-      entry.description.toLowerCase().includes(query) ||
-      entry.content.toLowerCase().includes(query)
+      (entry.description && entry.description.toLowerCase().includes(query)) ||
+      (entry.content && entry.content.toLowerCase().includes(query))
     );
   }
   
@@ -456,8 +573,8 @@ const filteredAllEntries = computed(() => {
     const query = searchQuery.value.toLowerCase();
     result = result.filter(entry => 
       entry.title.toLowerCase().includes(query) || 
-      entry.description.toLowerCase().includes(query) ||
-      entry.content.toLowerCase().includes(query)
+      (entry.description && entry.description.toLowerCase().includes(query)) ||
+      (entry.content && entry.content.toLowerCase().includes(query))
     );
   }
   
@@ -469,9 +586,9 @@ const filteredAllEntries = computed(() => {
       case 'nameDesc':
         return b.title.localeCompare(a.title);
       case 'newest':
-        return new Date(b.createdAt) - new Date(a.createdAt);
+        return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
       case 'oldest':
-        return new Date(a.createdAt) - new Date(b.createdAt);
+        return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
       default:
         return 0;
     }
@@ -496,11 +613,28 @@ const getEntryById = (entryId) => {
   return entries.value.find(entry => entry.id === entryId);
 };
 
+const getSceneName = (sceneId) => {
+  const scene = appScenes.value.find(s => s.id === sceneId);
+  return scene ? scene.name : '未知场景';
+};
+
 const switchTab = (tab) => {
   currentTab.value = tab;
   if (tab === 'all') {
     selectedGroup.value = null;
+    selectedScene.value = null;
+  } else if (tab === 'category') {
+    // 默认选择第一个场景
+    if (appScenes.value.length > 0 && !selectedScene.value) {
+      selectedScene.value = appScenes.value[0];
+    }
   }
+};
+
+const selectScene = (scene) => {
+  selectedScene.value = scene;
+  selectedGroup.value = null;
+  searchQuery.value = '';
 };
 
 const selectGroup = (group) => {
@@ -531,7 +665,206 @@ const selectEntryById = (entryId) => {
   }
 };
 
-// 分类操作
+// 更新场景中的卡组
+const updateSceneGroups = (sceneId, group, isDelete = false) => {
+  console.log('Updating scene groups:', { sceneId, group, isDelete });
+  
+  // 找到对应的场景
+  const sceneIndex = appScenes.value.findIndex(s => s.id === sceneId);
+  if (sceneIndex === -1) {
+    console.error('Scene not found:', sceneId);
+    return;
+  }
+
+  // 获取场景对象
+  const scene = appScenes.value[sceneIndex];
+  console.log('Found scene:', scene.name);
+  
+  // 确保场景有cardGroups属性
+  if (!scene.cardGroups) {
+    scene.cardGroups = [];
+    console.log('Created cardGroups array for scene');
+  }
+  
+  if (isDelete) {
+    // 删除卡组
+    console.log('Deleting card group from scene');
+    if (!scene.cardGroups.some(g => g.id === group.id)) {
+      console.log('Card group not found in scene, nothing to delete');
+      return;
+    }
+    scene.cardGroups = scene.cardGroups.filter(g => g.id !== group.id);
+  } else {
+    const existingGroupIndex = scene.cardGroups.findIndex(g => g.id === group.id);
+    
+    if (existingGroupIndex !== -1) {
+      // 更新现有卡组
+      console.log('Updating existing card group in scene');
+      
+      // 保留原有卡片
+      const existingCards = scene.cardGroups[existingGroupIndex].cards || [];
+      
+      scene.cardGroups[existingGroupIndex] = {
+        ...scene.cardGroups[existingGroupIndex],
+        id: group.id, // 确保ID一致
+        name: group.name,
+        description: group.description,
+        type: 'entry', // 标记这是一个词条卡组
+        cards: existingCards // 保留原有卡片
+      };
+    } else {
+      // 添加新卡组
+      console.log('Adding new card group to scene');
+      scene.cardGroups.push({
+        id: group.id,
+        name: group.name,
+        description: group.description,
+        type: 'entry', // 标记这是一个词条卡组
+        cards: [] // 初始化为空卡片数组
+      });
+    }
+  }
+  
+  // 强制更新appScenes，以触发Vue的响应式更新
+  if (Array.isArray(appScenes.value)) {
+    // 创建新的场景对象，确保Vue能检测到变化
+    const updatedScene = JSON.parse(JSON.stringify(scene));
+    // 更新对应索引的场景
+    appScenes.value.splice(sceneIndex, 1, updatedScene);
+    console.log('Updated scene in app scenes array');
+  }
+  
+  // 输出调试信息
+  console.log('Updated scene has cardGroups:', 
+    appScenes.value[sceneIndex].cardGroups ? 
+    appScenes.value[sceneIndex].cardGroups.length : 0);
+  
+  // 同步场景数据
+  syncSceneData();
+};
+
+// 更新场景中的卡片
+const updateSceneCards = (groupId, entry, isDelete = false) => {
+  console.log('Updating scene cards:', { groupId, entry: entry.title, entryId: entry.id, isDelete });
+  
+  // 先找到对应的卡组
+  const group = entryGroups.value.find(g => g.id === groupId);
+  if (!group) {
+    console.error('Group not found:', groupId);
+    return;
+  }
+  
+  console.log('Found group:', group.name, 'in scene:', group.sceneId);
+  
+  // 找到场景
+  const sceneIndex = appScenes.value.findIndex(s => s.id === group.sceneId);
+  if (sceneIndex === -1) {
+    console.error('Scene not found for group:', group.sceneId);
+    return;
+  }
+  
+  // 获取场景对象
+  const scene = appScenes.value[sceneIndex];
+  console.log('Found scene:', scene.name);
+  
+  // 确保场景有cardGroups属性
+  if (!scene.cardGroups) {
+    scene.cardGroups = [];
+    console.log('Created cardGroups array for scene');
+  }
+  
+  // 在场景中找到卡组
+  let cardGroupIndex = scene.cardGroups.findIndex(g => g.id === groupId);
+  
+  // 如果卡组不存在，则先创建卡组
+  if (cardGroupIndex === -1) {
+    console.log('Card group not found in scene, creating it:', group.name);
+    
+    // 创建新卡组对象
+    const newCardGroup = {
+      id: group.id,
+      name: group.name,
+      description: group.description || '',
+      type: 'entry', // 标记为词条卡组
+      cards: [] // 初始化空卡片数组
+    };
+    
+    // 添加到场景
+    scene.cardGroups.push(newCardGroup);
+    
+    // 更新索引
+    cardGroupIndex = scene.cardGroups.length - 1;
+    console.log('Created card group in scene at index:', cardGroupIndex);
+  }
+  
+  // 获取卡组对象
+  const cardGroup = scene.cardGroups[cardGroupIndex];
+  
+  // 确保卡组有cards属性
+  if (!cardGroup.cards) {
+    cardGroup.cards = [];
+    console.log('Created cards array for card group');
+  }
+  
+  if (isDelete) {
+    // 删除卡片
+    console.log('Deleting card from card group');
+    if (!cardGroup.cards.some(c => c.id === entry.id)) {
+      console.log('Card not found in group, nothing to delete');
+      return;
+    }
+    cardGroup.cards = cardGroup.cards.filter(c => c.id !== entry.id);
+  } else {
+    // 检查卡片是否已存在
+    const existingCardIndex = cardGroup.cards.findIndex(c => c.id === entry.id);
+    
+    // 准备卡片数据，确保有tags属性
+    const cardData = {
+      id: entry.id,
+      name: entry.title,
+      description: entry.description || '',
+      content: entry.content || '',
+      tags: entry.tags || []
+    };
+    
+    // 确保有词条标签
+    if (!cardData.tags.includes(ENTRY_TAG)) {
+      cardData.tags.push(ENTRY_TAG);
+    }
+    
+    if (existingCardIndex !== -1) {
+      // 更新现有卡片
+      console.log('Updating existing card in card group at index:', existingCardIndex);
+      cardGroup.cards[existingCardIndex] = {
+        ...cardGroup.cards[existingCardIndex],
+        ...cardData
+      };
+    } else {
+      // 添加新卡片
+      console.log('Adding new card to card group');
+      cardGroup.cards.push(cardData);
+    }
+  }
+  
+  // 强制更新appScenes，以触发Vue的响应式更新
+  if (Array.isArray(appScenes.value)) {
+    // 创建新的场景对象，确保Vue能检测到变化
+    const updatedScene = JSON.parse(JSON.stringify(scene));
+    // 更新对应索引的场景
+    appScenes.value.splice(sceneIndex, 1, updatedScene);
+    console.log('Updated scene in app scenes array');
+  }
+  
+  // 输出调试信息
+  const updatedCardGroup = appScenes.value[sceneIndex].cardGroups[cardGroupIndex];
+  console.log('Updated card group now has cards:', 
+    updatedCardGroup.cards ? updatedCardGroup.cards.length : 0);
+  
+  // 同步场景数据
+  syncSceneData();
+};
+
+// 卡组操作
 const showGroupModal = (mode, group = null) => {
   groupModal.isEdit = mode === 'edit';
   groupModal.group = group;
@@ -540,10 +873,13 @@ const showGroupModal = (mode, group = null) => {
     groupModal.id = group.id;
     groupModal.name = group.name;
     groupModal.description = group.description || '';
+    groupModal.sceneId = group.sceneId;
   } else {
     groupModal.id = '';
     groupModal.name = '';
     groupModal.description = '';
+    // 如果当前选中了场景，使用该场景
+    groupModal.sceneId = selectedScene.value ? selectedScene.value.id : '';
   }
   
   groupModal.show = true;
@@ -555,38 +891,55 @@ const closeGroupModal = () => {
 
 const saveGroup = () => {
   if (!groupModal.name.trim()) {
-    showToast('请输入分类名称', 'error');
+    showToast('请输入卡组名称', 'error');
     return;
   }
   
+  if (!groupModal.sceneId) {
+    showToast('请选择场景', 'error');
+    return;
+  }
+  
+  let savedGroup;
+  
   if (groupModal.isEdit && groupModal.group) {
-    // 编辑现有分类
+    // 编辑现有卡组
     const index = entryGroups.value.findIndex(g => g.id === groupModal.group.id);
     if (index !== -1) {
       entryGroups.value[index] = {
         ...entryGroups.value[index],
         name: groupModal.name,
-        description: groupModal.description
+        description: groupModal.description,
+        sceneId: groupModal.sceneId
       };
       
-      // 如果正在查看此分类，更新选中的分类
+      savedGroup = entryGroups.value[index];
+      
+      // 如果正在查看此卡组，更新选中的卡组
       if (selectedGroup.value && selectedGroup.value.id === groupModal.group.id) {
         selectedGroup.value = entryGroups.value[index];
       }
       
-      showToast('分类已更新', 'success');
+      showToast('卡组已更新', 'success');
     }
   } else {
-    // 添加新分类
+    // 添加新卡组
     const newGroup = {
       id: uuidv4(),
       name: groupModal.name,
       description: groupModal.description,
+      sceneId: groupModal.sceneId,
       entryCount: 0
     };
     
     entryGroups.value.push(newGroup);
-    showToast('分类已添加', 'success');
+    savedGroup = newGroup;
+    showToast('卡组已添加', 'success');
+  }
+  
+  // 更新场景中的卡组数据
+  if (savedGroup) {
+    updateSceneGroups(savedGroup.sceneId, savedGroup);
   }
   
   saveData(); // 保存数据
@@ -630,28 +983,41 @@ const saveEntry = () => {
   }
   
   const now = new Date().toISOString();
+  let savedEntry;
   
   if (entryModal.isEdit && entryModal.entry) {
     // 编辑现有词条
     const index = entries.value.findIndex(e => e.id === entryModal.entry.id);
     if (index !== -1) {
-      // 如果修改了分组，需要更新计数
+      // 保存原始卡组ID，用于场景卡片更新
+      const originalGroupId = entries.value[index].groupId;
+      
+      // 如果修改了卡组，需要更新计数
       if (entryModal.entry.groupId !== entryModal.groupId) {
-        // 减少原分组的计数
+        // 减少原卡组的计数
         if (entryModal.entry.groupId) {
           const oldGroupIndex = entryGroups.value.findIndex(g => g.id === entryModal.entry.groupId);
           if (oldGroupIndex !== -1 && entryGroups.value[oldGroupIndex].entryCount > 0) {
             entryGroups.value[oldGroupIndex].entryCount--;
           }
+          
+          // 从原卡组的场景中删除卡片
+          updateSceneCards(originalGroupId, entryModal.entry, true);
         }
         
-        // 增加新分组的计数
+        // 增加新卡组的计数
         if (entryModal.groupId) {
           const newGroupIndex = entryGroups.value.findIndex(g => g.id === entryModal.groupId);
           if (newGroupIndex !== -1) {
-            entryGroups.value[newGroupIndex].entryCount++;
+            entryGroups.value[newGroupIndex].entryCount = (entryGroups.value[newGroupIndex].entryCount || 0) + 1;
           }
         }
+      }
+      
+      // 确保有tags属性，并添加词条标签
+      let tags = entries.value[index].tags || [];
+      if (!tags.includes(ENTRY_TAG)) {
+        tags = [...tags, ENTRY_TAG];
       }
       
       entries.value[index] = {
@@ -662,8 +1028,11 @@ const saveEntry = () => {
         description: entryModal.description,
         content: entryModal.content,
         relatedEntries: entryModal.relatedEntries,
+        tags: tags,
         updatedAt: now
       };
+      
+      savedEntry = entries.value[index];
       
       // 如果正在查看此词条，更新选中的词条
       if (selectedEntry.value && selectedEntry.value.id === entryModal.entry.id) {
@@ -674,6 +1043,9 @@ const saveEntry = () => {
     }
   } else {
     // 添加新词条
+    // 确保有词条标签
+    const tags = [ENTRY_TAG];
+    
     const newEntry = {
       id: uuidv4(),
       title: entryModal.title,
@@ -682,13 +1054,15 @@ const saveEntry = () => {
       description: entryModal.description,
       content: entryModal.content,
       relatedEntries: entryModal.relatedEntries,
+      tags: tags,
       createdAt: now,
       updatedAt: now
     };
     
     entries.value.push(newEntry);
+    savedEntry = newEntry;
     
-    // 增加分组的计数
+    // 增加卡组的计数
     if (entryModal.groupId) {
       const groupIndex = entryGroups.value.findIndex(g => g.id === entryModal.groupId);
       if (groupIndex !== -1) {
@@ -697,6 +1071,11 @@ const saveEntry = () => {
     }
     
     showToast('词条已添加', 'success');
+  }
+  
+  // 如果词条有卡组，更新场景中的卡片
+  if (savedEntry && savedEntry.groupId) {
+    updateSceneCards(savedEntry.groupId, savedEntry);
   }
   
   saveData(); // 保存数据
@@ -711,7 +1090,7 @@ const showDeleteConfirmModal = (item) => {
   }
   
   if (item && 'name' in item) {
-    // 分类
+    // 卡组
     groupToDelete.value = item;
     entryToDelete.value = null;
   } else if (item && 'title' in item) {
@@ -738,12 +1117,15 @@ const confirmDelete = () => {
       const deletedEntry = entries.value[index];
       entries.value.splice(index, 1);
       
-      // 更新分组的词条计数
+      // 更新卡组的词条计数
       if (deletedEntry.groupId) {
         const groupIndex = entryGroups.value.findIndex(g => g.id === deletedEntry.groupId);
         if (groupIndex !== -1 && entryGroups.value[groupIndex].entryCount > 0) {
           entryGroups.value[groupIndex].entryCount--;
         }
+        
+        // 从场景卡组中删除卡片
+        updateSceneCards(deletedEntry.groupId, deletedEntry, true);
       }
       
       // 清除所有词条中对该词条的引用
@@ -761,25 +1143,28 @@ const confirmDelete = () => {
       showToast('词条已删除', 'success');
     }
   } else if (groupToDelete.value) {
-    // 删除分类
+    // 删除卡组
     const index = entryGroups.value.findIndex(g => g.id === groupToDelete.value.id);
     if (index !== -1) {
       const deletedGroup = entryGroups.value[index];
       entryGroups.value.splice(index, 1);
       
-      // 更新该分类下的词条，将它们设为无分类
+      // 从场景中删除卡组
+      updateSceneGroups(deletedGroup.sceneId, deletedGroup, true);
+      
+      // 更新该卡组下的词条，将它们设为无卡组
       entries.value.forEach(entry => {
         if (entry.groupId === deletedGroup.id) {
           entry.groupId = '';
         }
       });
       
-      // 如果当前选中的是该分类，重置选中的分类
+      // 如果当前选中的是该卡组，重置选中的卡组
       if (selectedGroup.value && selectedGroup.value.id === deletedGroup.id) {
         selectedGroup.value = null;
       }
       
-      showToast('分类已删除', 'success');
+      showToast('卡组已删除', 'success');
     }
   }
   
@@ -792,17 +1177,78 @@ const selectEntriesForCurrentChapter = () => {
   showToast('为当前章节关联词条功能待实现', 'info');
 };
 
-// 在 mounted 中加载数据
-onMounted(() => {
-  loadData();
+// 诊断场景数据
+const diagnoseScenes = () => {
+  console.log('==== 场景数据诊断 ====');
+  console.log(`总场景数: ${appScenes.value.length}`);
+  console.log(`总卡组数: ${entryGroups.value.length}`);
+  console.log(`总词条数: ${entries.value.length}`);
+  
+  // 检查场景是否有cardGroups属性
+  appScenes.value.forEach((scene, index) => {
+    console.log(`\n场景 ${index+1}: ${scene.name} (ID: ${scene.id})`);
+    
+    if (!scene.cardGroups) {
+      console.log('  警告: 场景没有cardGroups属性');
+    } else {
+      console.log(`  卡组数: ${scene.cardGroups.length}`);
+      
+      scene.cardGroups.forEach(group => {
+        console.log(`  - 卡组: ${group.name} (ID: ${group.id}, 类型: ${group.type || '未定义'})`);
+        
+        if (!group.cards) {
+          console.log('    警告: 卡组没有cards属性');
+        } else {
+          console.log(`    卡片数: ${group.cards.length}`);
+          group.cards.forEach(card => {
+            console.log(`    - 卡片: ${card.name} (ID: ${card.id}, 标签: ${card.tags?.join(', ') || '无'})`);
+          });
+        }
+      });
+    }
+  });
+  
+  console.log('\n==== 卡组与场景的关联 ====');
+  entryGroups.value.forEach(group => {
+    const scene = appScenes.value.find(s => s.id === group.sceneId);
+    console.log(`卡组: ${group.name} (ID: ${group.id})`);
+    
+    if (!scene) {
+      console.log('  警告: 卡组关联的场景不存在');
+    } else {
+      console.log(`  关联场景: ${scene.name}`);
+      
+      const sceneGroup = scene.cardGroups?.find(g => g.id === group.id);
+      if (!sceneGroup) {
+        console.log('  警告: 关联场景中未找到此卡组');
+      } else {
+        console.log(`  场景中卡组: ${sceneGroup.name}, 卡片数: ${sceneGroup.cards?.length || 0}`);
+      }
+    }
+  });
+  
+  console.log('==== 诊断完成 ====');
+  return { 
+    scenes: appScenes.value.length,
+    groups: entryGroups.value.length,
+    entries: entries.value.length
+  };
+};
+
+// 暴露方法给父组件
+defineExpose({
+  showEntryModal,
+  diagnoseScenes
 });
 
-// 定义 emit 事件
-defineEmits(['close']);
-
-// 将方法暴露给父组件
-defineExpose({
-  showEntryModal
+// 在mounted阶段加载数据
+onMounted(() => {
+  loadData();
+  
+  // 如果有场景，默认选择第一个
+  if (appScenes.value.length > 0) {
+    selectScene(appScenes.value[0]);
+  }
 });
 </script>
 
@@ -847,7 +1293,7 @@ defineExpose({
 .tab-indicator {
   position: absolute;
   bottom: 0;
-  height: 3px;
+  height: 2px;
   width: 50%;
   background-color: #4caf50;
   transition: transform 0.3s;
@@ -923,6 +1369,13 @@ defineExpose({
   color: #666;
 }
 
+.group-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 8px;
+}
+
 .entry-items {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -996,23 +1449,6 @@ defineExpose({
   color: #666;
 }
 
-.add-btn {
-  padding: 6px 12px;
-  background-color: #4caf50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.panel-actions {
-  display: flex;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-top: 1px solid #e0e0e0;
-  background-color: #f8f8f8;
-}
-
 .close-btn {
   padding: 8px 16px;
   border-radius: 4px;
@@ -1021,12 +1457,26 @@ defineExpose({
   cursor: pointer;
 }
 
+.panel-actions {
+  padding: 16px;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: space-between;
+}
+
 .primary-btn {
   padding: 8px 16px;
   border-radius: 4px;
-  border: 1px solid #388e3c;
+  border: none;
   background-color: #4caf50;
   color: white;
+  cursor: pointer;
+}
+
+.close-modal-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
   cursor: pointer;
 }
 
@@ -1045,10 +1495,12 @@ defineExpose({
 
 .modal-content {
   background-color: white;
-  border-radius: 4px;
+  border-radius: 8px;
   width: 90%;
   max-width: 600px;
   max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
 }
@@ -1063,13 +1515,6 @@ defineExpose({
 
 .modal-header h3 {
   margin: 0;
-}
-
-.close-modal-btn {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
 }
 
 .modal-body {
@@ -1122,7 +1567,7 @@ defineExpose({
 .save-btn {
   padding: 8px 16px;
   border-radius: 4px;
-  border: 1px solid #388e3c;
+  border: none;
   background-color: #4caf50;
   color: white;
   cursor: pointer;
@@ -1137,6 +1582,107 @@ defineExpose({
   cursor: pointer;
 }
 
+.add-btn {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: none;
+  background-color: #4caf50;
+  color: white;
+  cursor: pointer;
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.entry-filter {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+.warning {
+  color: #f44336;
+  font-weight: bold;
+}
+
+.entries-selector {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.entries-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.entry-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.refresh-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  color: #4caf50;
+  font-size: 0.9em;
+  border-radius: 4px;
+}
+
+.refresh-btn:hover {
+  background-color: #f0f0f0;
+}
+
+.scene-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.scene-item {
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.scene-item:hover {
+  background-color: #f5f5f5;
+}
+
+.scene-item.active {
+  background-color: #e8f5e9;
+  border-color: #4caf50;
+}
+
+.scene-name {
+  font-weight: bold;
+}
+
+.scene-actions {
+  display: flex;
+  align-items: center;
+}
+
+.scene-info {
+  font-size: 0.85em;
+  color: #666;
+  margin-right: 4px;
+}
+
+/* 词条详情样式 */
 .entry-detail {
   background-color: #f9f9f9;
   border-radius: 4px;
@@ -1199,12 +1745,6 @@ defineExpose({
   background-color: #c8e6c9;
 }
 
-.icon-upload {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 .icon-preview {
   width: 60px;
   height: 60px;
@@ -1255,8 +1795,22 @@ defineExpose({
   gap: 8px;
 }
 
-.warning {
-  color: #f44336;
-  font-weight: bold;
+.action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.debug-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  color: #007bff;
+  font-size: 0.9em;
+  border-radius: 4px;
+}
+
+.debug-btn:hover {
+  background-color: #f0f0f0;
 }
 </style>

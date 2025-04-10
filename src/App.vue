@@ -302,9 +302,8 @@
   
   </div>
 
-  
-    <!-- 提示词选择模态框 -->
-    <Teleport to="body">
+      <!-- 提示词选择模态框 -->
+      <Teleport to="body">
       <div v-if="showPromptSelectModal" class="modal" @click="showPromptSelectModal = false">
         <div class="modal-content" @click.stop>
           <h3>选择提示词模板</h3>
@@ -328,8 +327,9 @@
       </div>
     </Teleport>
 
-    <!-- 提示词编辑模态框 -->
-    <div v-if="showPromptModal" class="modal" @click.self="closePromptModal">
+
+     <!-- 提示词编辑模态框 -->
+     <div v-if="showPromptModal" class="modal" @click.self="closePromptModal">
       <div class="modal-content">
         <div class="modal-header">
           <h3>{{ editingPrompt ? '编辑提示词' : '新建提示词' }}</h3>
@@ -919,7 +919,7 @@ import AgentsView from './components/AgentsView.vue'
 import { showToast } from './utils/common.js'
 import { sendToModel } from './utils/modelRequests'
 import { useCommon } from './utils/composables/useCommon'
-import { showToastMessage, detectContentType, splitContent } from './utils/common'
+import { showToastMessage } from './utils/common'
 import { dataService } from './utils/services/dataService'
 import { debugLog, setDebugMode } from './utils/debug'
 import AIDetector from './components/AIDetector.vue'
@@ -1083,7 +1083,11 @@ const syncData = createDebounce(async () => {
     }
 
     // 使用 dataService 同步数据
-    await dataService.syncData(dataToSync)
+    const result = await dataService.syncData(dataToSync)
+    
+    if (!result.success) {
+      throw new Error(result.error || '同步失败，未知错误')
+    }
   } catch (error) {
     console.error('数据同步失败:', error)
     showToast(`数据同步失败: ${error.message}`, 'error')
@@ -1157,7 +1161,7 @@ const initializeData = (data) => {
   
   // 更新标签
   tags.value = data.tags || []
-  
+
   if (data.config) {
     // 更新模型，确保有默认值
     models.value = (data.config.models || []).map(model => ({
@@ -1505,7 +1509,8 @@ const sendPromptRequest = async (prompt) => {
     if (prompt.detectKeywords) {
       processedTemplate = await processKeywords(processedTemplate)
     }
-
+    
+    showToast('正在发送请求...')
     // 使用 sendToModel 发送请求
     const content = await sendToModel(
       model,
@@ -1695,7 +1700,7 @@ const fetchModelList = async (model) => {
       return result.models.map(model => {
         // 处理可能是字符串或对象的情况
         if (typeof model === 'string') {
-          return {
+        return {
             id: model,
             name: model
           }
@@ -1727,7 +1732,7 @@ const fetchModelList = async (model) => {
       return result.data.map(model => {
         // 处理可能是字符串或对象的情况
         if (typeof model === 'string') {
-          return {
+      return {
             id: model,
             name: model
           }
@@ -2342,6 +2347,47 @@ const addTag = async () => {
   }
 }
 
+// 添加删除标签的方法
+const deleteTag = async (tagId) => {
+  try {
+    // 确认是否删除
+    if (!confirm('确定要删除这个标签吗？')) return
+    
+    // 从标签列表中删除
+    tags.value = tags.value.filter(tag => tag.id !== tagId)
+    
+    // 从所有场景中的卡片标签中删除引用
+    scenes.value.forEach(scene => {
+      if (scene.cards && Array.isArray(scene.cards)) {
+        scene.cards.forEach(card => {
+          if (card.tags && Array.isArray(card.tags)) {
+            card.tags = card.tags.filter(id => id !== tagId)
+          }
+          // 处理卡组内的卡片
+          if (card.type === 'group' && card.cards && Array.isArray(card.cards)) {
+            card.cards.forEach(groupCard => {
+              if (groupCard.tags && Array.isArray(groupCard.tags)) {
+                groupCard.tags = groupCard.tags.filter(id => id !== tagId)
+              }
+            })
+          }
+        })
+      }
+    })
+    
+    // 从已选标签中移除
+    selectedTags.value = selectedTags.value.filter(id => id !== tagId)
+    
+    // 同步数据
+    await syncData()
+    
+    showToast('标签删除成功', 'success')
+  } catch (error) {
+    console.error('删除标签失败:', error)
+    showToast('删除标签失败: ' + error.message, 'error')
+  }
+}
+
 // 修复导出提示词功能
 const exportPrompts = () => {
   try {
@@ -2567,7 +2613,6 @@ onMounted(async () => {
       scenes.value.push(defaultScene)
       currentScene.value = defaultScene
       
-      // 保存默认场景
       await syncData()
     }
     
@@ -2586,7 +2631,7 @@ const saveScenes = async () => {
   try {
     // 在保存之前处理场景数据
     scenes.value = scenes.value.map(scene => ({
-      ...scene,
+        ...scene,
       cards: processCards(scene.cards || [])
     }))
     
@@ -2599,28 +2644,22 @@ const saveScenes = async () => {
   }
 }
 
-// 修改处理批量转换的方法
 const handleBatchConvertToCards = ({ cards, targetSceneId }) => {
   try {
-    // 转换为数字类型进行比较
     const targetScene = scenes.value.find(s => Number(s.id) === Number(targetSceneId));
     
     if (!targetScene) {
       throw new Error(`目标场景不存在 (ID: ${targetSceneId})`);
     }
     
-    // 确保场景有 cards 数组
     if (!Array.isArray(targetScene.cards)) {
       targetScene.cards = [];
     }
     
-    // 添加卡片到目标场景
     targetScene.cards.push(...cards);
     
-    // 保存更改
     syncData(); // 使用 syncData 同步到后端
     
-    // 切换到主视图并选中目标场景
     currentView.value = 'main';
     currentScene.value = targetScene;
     
@@ -2635,7 +2674,7 @@ const handleBatchConvertToCards = ({ cards, targetSceneId }) => {
 const saveImmediately = async () => {
   try {
     isLoading.value = true
-    
+
     const dataToSync = {
       scenes: scenes.value.map(scene => ({
         ...scene,
@@ -2655,10 +2694,14 @@ const saveImmediately = async () => {
         showKeywordDetectionModal: showKeywordDetectionModal.value,
       }
     }
-
-    // 使用 dataService 同步数据，而不是直接使用 fetch
-    await dataService.syncData(dataToSync)
     
+    // 使用 dataService 同步数据，而不是直接使用 fetch
+    const result = await dataService.syncData(dataToSync)
+    
+    if (!result.success) {
+      throw new Error(result.error || '同步失败，未知错误')
+    }
+
     showToast('保存成功', 'success')
     return true
   } catch (error) {
@@ -2742,12 +2785,10 @@ const fetchBuiltInPrompts = async () => {
   }
 }
 
-// 在组件挂载时获取内置提示词
 onMounted(async () => {
   await fetchBuiltInPrompts()
 })
 
-// 添加字体大小相关的响应式变量
 const fontSizeLevel = ref(3) // 默认为3级（中等大小）
 const baseFontSize = computed(() => {
   // 基础字体大小，从14px到22px，共5个级别
@@ -2766,7 +2807,6 @@ const baseFontSize = computed(() => {
   return sizes[fontSizeLevel.value] || 18
 })
 
-// 增加字体大小
 const increaseFontSize = () => {
   if (fontSizeLevel.value < 10) {
     fontSizeLevel.value++
@@ -2774,7 +2814,6 @@ const increaseFontSize = () => {
   }
 }
 
-// 减小字体大小
 const decreaseFontSize = () => {
   if (fontSizeLevel.value > 1) {
     fontSizeLevel.value--
@@ -2782,14 +2821,11 @@ const decreaseFontSize = () => {
   }
 }
 
-// 应用字体大小到文档根元素
 const applyFontSize = () => {
   document.documentElement.style.setProperty('--base-font-size', `${baseFontSize.value}px`)
-  // 保存设置
   syncData()
 }
 
-// 在组件挂载时应用字体大小
 onMounted(() => {
   applyFontSize()
 })
@@ -2844,7 +2880,6 @@ const navigateTo = (view) => {
 // 添加新的响应式变量
 const showKeywordModal = ref(false)
 const keywordMatches = ref([])
-const pendingText = ref('')
 const keywordModalResolve = ref(null)
 
 // 计算是否全选
@@ -2892,7 +2927,6 @@ const handlePromptDragLeave = () => {
 const handlePromptDrop = async (prompt, event) => {
   event.preventDefault()
   dragOverPromptId.value = null
-  // ...existing prompt drop handling code...
 }
 
 // 添加新的卡片处理函数
@@ -3073,56 +3107,41 @@ const getPlaceholderPreview = (template, index) => {
   return truncateText(preview, 100)
 }
 
-// 处理内容插入
 const handleInsertContent = (prompt, index) => {
   if (!cardToInsert.value) return
   
-  // 初始化插入内容数组
   if (!prompt.insertedContents) {
     prompt.insertedContents = []
   }
   
-  // 设置或更新指定索引位置的内容
   prompt.insertedContents[index] = {
     id: Date.now(),
     content: cardToInsert.value.content,
     cardId: cardToInsert.value.id
   }
   
-  // 更新提示词
   const promptIndex = prompts.value.findIndex(p => p.id === prompt.id)
   if (promptIndex !== -1) {
     prompts.value[promptIndex] = { ...prompt }
   }
   
-  // 关闭所有模态框
   showPromptSelectModal.value = false
   showPlaceholderModal.value = false
   
-  // 清除临时数据
   cardToInsert.value = null
   
-  // 显示成功提示
   showToast('内容已插入到提示词')
   
-  // 同步数据
   syncData()
 }
 
-// 在App.vue的setup部分前面(之前尚未提供的代码)
-// ... existing code ...
-
-// 提供scenes和syncData方法给CharacterCardPanel组件
 provide('scenes', scenes);
 provide('syncData', syncData);
 provide('tags', tags); // 添加这一行
 
-// ... existing code ...
 </script>
 
 <style scoped>
 @import url("./styles/app.css");
 @import url("./styles/common.css");
-
 </style>
-

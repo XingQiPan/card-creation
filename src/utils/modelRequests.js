@@ -337,8 +337,93 @@ export const sendToModel = async (
       body: JSON.stringify(body),
     };
 
+    // 处理流式响应
+    if (model.provider === 'openai' && body.stream) {
+      const response = await fetch(url, {
+        ...fetchOptions,
+        signal: abortController?.signal
+      });
+
+      if (!response.ok) {
+        // 处理错误响应
+        console.error('API 响应错误:', {
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries([...response.headers.entries()])
+        });
+        
+        const errorText = await response.text();
+        console.error('API 错误响应体:', errorText);
+        
+        throw new Error(`请求失败: ${response.status} - ${response.statusText}`);
+      }
+
+      // 处理 OpenAI 流式响应
+      const reader = response.body.getReader();
+      let decoder = new TextDecoder();
+      let buffer = '';
+      let result = '';
+      
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          // 检查是否已中止
+          if (abortController?.signal.aborted) {
+            reader.cancel();
+            throw new Error('请求已被用户中止');
+          }
+          
+          // 解码数据块
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          
+          // 处理可能包含多个 "data: " 行的块
+          const lines = buffer.split('\n');
+          buffer = '';  // 重置缓冲区
+          
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+            
+            // 对于 OpenAI 格式，处理 data: 开头的行
+            if (trimmedLine.startsWith('data: ')) {
+              const jsonStr = trimmedLine.slice(6);  // 移除 "data: " 前缀
+              
+              // 处理特殊的 [DONE] 标记
+              if (jsonStr === '[DONE]') {
+                continue;
+              }
+              
+              try {
+                // 解析 JSON 并提取内容
+                const data = JSON.parse(jsonStr);
+                if (data.choices && data.choices.length > 0) {
+                  const delta = data.choices[0].delta;
+                  if (delta && delta.content) {
+                    result += delta.content;
+                  }
+                }
+              } catch (e) {
+                console.warn('解析流式 JSON 失败:', e, jsonStr);
+              }
+            } else {
+              // 如果不是以 data: 开头，将行添加回缓冲区
+              buffer += trimmedLine + '\n';
+            }
+          }
+        }
+        return result;
+      } catch (error) {
+        if (error.name === 'AbortError' || error.message === '请求已被用户中止') {
+          throw new Error('请求已中止');
+        }
+        throw error;
+      }
+    }
     // 为Ollama和其他流式响应添加特殊处理
-    if (model.provider === 'ollama' || body.stream) {
+    else if (model.provider === 'ollama' || body.stream) {
       const response = await fetch(url, {
         ...fetchOptions,
         signal: abortController?.signal

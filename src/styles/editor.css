@@ -1054,7 +1054,6 @@
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
-/* 专门为关闭按钮添加样式 */
 .close-panel-btn {
   color: var(--text-white) !important;
   background: rgba(255, 255, 255, 0.15);
@@ -1451,15 +1450,6 @@ button,
   font-size: 12px;
   color: var(--text-secondary);
   margin-top: 4px;
-}
-
-/* 调整面板底部按钮区域 */
-.panel-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 16px;
-  padding: 0 4px 16px;
 }
 
 .close-btn {

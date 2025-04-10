@@ -1399,14 +1399,6 @@ const emit = defineEmits(['close', 'editEntry']);
   line-height: 1.5;
 }
 
-.panel-actions {
-  display: flex;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-top: 1px solid #e0e0e0;
-  background-color: #f8f8f8;
-}
-
 .close-btn {
   padding: 8px 16px;
   border-radius: 4px;
@@ -1422,41 +1414,6 @@ const emit = defineEmits(['close', 'editEntry']);
   background-color: #4caf50;
   color: white;
   cursor: pointer;
-}
-
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background-color: white;
-  border-radius: 4px;
-  width: 90%;
-  max-width: 600px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.modal-header {
-  padding: 16px;
-  border-bottom: 1px solid #e0e0e0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.modal-header h3 {
-  margin: 0;
 }
 
 .close-modal-btn {
@@ -1513,14 +1470,6 @@ const emit = defineEmits(['close', 'editEntry']);
   cursor: pointer;
 }
 
-.save-btn {
-  padding: 8px 16px;
-  border-radius: 4px;
-  border: 1px solid #388e3c;
-  background-color: #4caf50;
-  color: white;
-  cursor: pointer;
-}
 
 .delete-btn.danger {
   padding: 8px 16px;

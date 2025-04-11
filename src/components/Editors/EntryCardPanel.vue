@@ -408,15 +408,62 @@ import { showToast } from '../../utils/common';
 
 // 从App.vue注入scenes数据和数据同步方法
 const appScenes = inject('scenes', ref([]));
+const appTags = inject('tags',ref([])); // 注入tags数据，提供默认值防止undefined
+
 const syncAppData = inject('syncData', async () => {
   console.error('syncData method not provided by parent component');
   return false;
 });
+const characterTagId = ref(null);
 
+// 确保存在"词条"标签
+const ensureCharacterTag = () => {
+  try {
+    // 查找是否已有"词条"标签
+    const characterTag = appTags.value?.find(tag => tag.name === '词条' && tag.isKeyword === true);
+    
+    if (characterTag) {
+      // 如果已存在，保存其ID
+      characterTagId.value = characterTag.id;
+      console.log('找到已存在的角色标签:', characterTagId.value);
+    } else {
+      // 在创建新标签前，再次检查是否已存在同名标签（不考虑isKeyword属性）
+      const existingTag = appTags.value?.find(tag => tag.name === '词条');
+      
+      if (existingTag) {
+        // 如果存在同名标签，将其更新为关键词标签
+        existingTag.isKeyword = true;
+        characterTagId.value = existingTag.id;
+        console.log('更新已有标签为关键词标签:', characterTagId.value);
+      } else {
+        // 创建新的"角色"标签
+        const newTag = {
+          id: uuidv4(), // 使用uuidv4而不是Date.now()避免重复
+          name: '词条',
+          isKeyword: true
+        };
+        
+        // 确保appTags.value是数组
+        if (!appTags.value) appTags.value = [];
+        
+        appTags.value.push(newTag);
+        characterTagId.value = newTag.id;
+      }
+      
+      // 立即同步数据，不使用setTimeout
+      syncAppData();
+    }
+  } catch (error) {
+    console.error('创建词条标签出错:', error);
+    // 设置一个临时ID，确保后续操作不会失败
+    characterTagId.value = 'character-tag';
+  }
+};
 // 封装同步方法，添加更多调试信息
 const syncSceneData = async () => {
   console.log('Synchronizing app data...');
   try {
+    ensureCharacterTag();
     await syncAppData();
     console.log('App data synchronized successfully');
     return true;
@@ -428,7 +475,7 @@ const syncSceneData = async () => {
 };
 
 // 标签常量
-const ENTRY_TAG = '词条';
+
 
 // 数据存储键
 const STORAGE_KEY_ENTRY_GROUPS = 'entry-card-groups';
@@ -508,6 +555,143 @@ const saveData = () => {
   }
 };
 
+// 加载场景中的词条卡片到本地词条数组
+const loadDataFromScene = () => {
+  try {
+    console.log('Loading entry cards from scenes...');
+    
+    if (!appScenes.value || appScenes.value.length === 0) {
+      console.log('No scenes available to load entries from');
+      return;
+    }
+    
+    // 临时存储找到的词条卡片和卡组
+    const tempEntries = [];
+    const tempGroups = [];
+    
+    // 遍历所有场景
+    appScenes.value.forEach(scene => {
+      if (!scene.cards) return;
+      
+      // 查找场景中的卡组
+      const sceneGroups = scene.cards.filter(item => item.type === 'group');
+      
+      sceneGroups.forEach(group => {
+        // 为每个卡组创建一个本地卡组对象
+        const localGroup = {
+          id: group.id,
+          name: group.title,
+          description: '',
+          sceneId: scene.id,
+          entryCount: group.cards ? group.cards.filter(card => 
+            card.tags?.includes(characterTagId.value)
+          ).length : 0
+        };
+        
+        // 只有当卡组包含词条卡片时才添加到本地卡组中
+        if (localGroup.entryCount > 0) {
+          tempGroups.push(localGroup);
+          
+          // 从卡组中提取词条卡片
+          const groupEntries = group.cards?.filter(card => 
+            card.tags?.includes(characterTagId.value)
+          ) || [];
+          
+          groupEntries.forEach(card => {
+            // 为每个卡片创建一个本地词条对象
+            const localEntry = {
+              id: card.id,
+              title: card.title,
+              groupId: group.id,
+              content: card.content || '',
+              description: '',
+              tags: card.tags || [],
+              relatedEntries: [],
+              height: card.height || "120px",
+              titleColor: card.titleColor || "#333333",
+              type: card.type || "normal",
+              insertedContents: card.insertedContents || [],
+              createdAt: card.createdAt || new Date().toISOString(),
+              updatedAt: card.updatedAt || new Date().toISOString()
+            };
+            
+            tempEntries.push(localEntry);
+          });
+        }
+      });
+      
+      // 查找场景级别的词条卡片(不在卡组中的词条卡片)
+      const sceneEntries = scene.cards.filter(card => 
+        card.type === 'normal' && 
+        card.tags?.includes(characterTagId.value) &&
+        !sceneGroups.some(group => group.containedCardIds?.includes(card.id))
+      );
+      
+      sceneEntries.forEach(card => {
+        // 为每个场景级词条创建一个本地词条对象
+        const localEntry = {
+          id: card.id,
+          title: card.title,
+          groupId: '', // 无卡组
+          content: card.content || '',
+          description: '',
+          tags: card.tags || [],
+          relatedEntries: [],
+          height: card.height || "120px",
+          titleColor: card.titleColor || "#333333",
+          type: card.type || "normal",
+          insertedContents: card.insertedContents || [],
+          createdAt: card.createdAt || new Date().toISOString(),
+          updatedAt: card.updatedAt || new Date().toISOString()
+        };
+        
+        tempEntries.push(localEntry);
+      });
+    });
+    
+    // 检查是否找到了新的词条和卡组
+    if (tempEntries.length > 0 || tempGroups.length > 0) {
+      console.log(`Found ${tempEntries.length} entries and ${tempGroups.length} groups from scenes`);
+      
+      // 合并词条数据，避免重复
+      const mergedEntries = [...entries.value];
+      tempEntries.forEach(entry => {
+        if (!mergedEntries.some(e => e.id === entry.id)) {
+          mergedEntries.push(entry);
+        }
+      });
+      
+      // 合并卡组数据，避免重复
+      const mergedGroups = [...entryGroups.value];
+      tempGroups.forEach(group => {
+        if (!mergedGroups.some(g => g.id === group.id)) {
+          mergedGroups.push(group);
+        } else {
+          // 更新现有卡组的计数
+          const existingGroupIndex = mergedGroups.findIndex(g => g.id === group.id);
+          if (existingGroupIndex !== -1) {
+            mergedGroups[existingGroupIndex].entryCount = group.entryCount;
+          }
+        }
+      });
+      
+      // 更新本地数据
+      entries.value = mergedEntries;
+      entryGroups.value = mergedGroups;
+      
+      // 保存到本地存储
+      saveData();
+      
+      showToast(`已从场景中加载 ${tempEntries.length} 个词条和 ${tempGroups.length} 个卡组`, 'success');
+    } else {
+      console.log('No entries or groups found in scenes');
+    }
+  } catch (error) {
+    console.error('从场景加载词条数据失败:', error);
+    showToast('加载词条数据失败', 'error');
+  }
+};
+
 // 刷新场景数据
 const refreshSceneData = () => {
   // 从注入的appScenes中获取最新场景数据
@@ -516,10 +700,10 @@ const refreshSceneData = () => {
   // 检查场景数据结构
   appScenes.value.forEach(scene => {
     console.log(`Scene: ${scene.name}, ID: ${scene.id}`);
-    if (scene.cardGroups) {
-      console.log(`- Card groups: ${scene.cardGroups.length}`);
-      scene.cardGroups.forEach(group => {
-        console.log(`  - Group: ${group.name}, type: ${group.type || 'undefined'}, cards: ${group.cards?.length || 0}`);
+    if (scene.cards) {
+      console.log(`- Card groups: ${scene.cards.length}`);
+      scene.cards.forEach(group => {
+        console.log(`  - Group: ${group.title}, type: ${group.type || 'undefined'}, cards: ${group.cards?.length || 0}`);
       });
     } else {
       console.log('- No card groups');
@@ -527,6 +711,9 @@ const refreshSceneData = () => {
   });
   
   if (appScenes.value && appScenes.value.length > 0) {
+    // 从场景中加载词条数据
+    loadDataFromScene();
+    
     showToast('场景数据已刷新', 'success');
   } else {
     showToast('未找到场景数据', 'warning');
@@ -549,10 +736,96 @@ const getSceneGroups = (scene) => {
   return entryGroups.value.filter(group => group.sceneId === scene.id);
 };
 
+// 更新场景中的卡组
+const updateSceneGroups = (sceneId, group, isDelete = false) => {
+  console.log('Updating scene groups:', { sceneId, group, isDelete });
+  
+  // 找到对应的场景
+  const sceneIndex = appScenes.value.findIndex(s => s.id === sceneId);
+  if (sceneIndex === -1) {
+    console.error('Scene not found:', sceneId);
+    return;
+  }
+
+  // 获取场景对象
+  const scene = appScenes.value[sceneIndex];
+  console.log('Found scene:', scene.name);
+  
+  // 确保场景有cards属性
+  if (!scene.cards) {
+    scene.cards = [];
+    console.log('Created cards array for scene');
+  }
+  
+  if (isDelete) {
+    // 删除卡组
+    console.log('Deleting card group from scene');
+    if (!scene.cards.some(g => g.id === group.id)) {
+      console.log('Card group not found in scene, nothing to delete');
+      return;
+    }
+    scene.cards = scene.cards.filter(g => g.id !== group.id);
+  } else {
+    const existingGroupIndex = scene.cards.findIndex(g => g.id === group.id);
+    
+    if (existingGroupIndex !== -1) {
+      // 更新现有卡组
+      console.log('Updating existing card group in scene');
+      
+      // 保留原有卡片
+      const existingCards = scene.cards[existingGroupIndex].cards || [];
+      
+      scene.cards[existingGroupIndex] = {
+        ...scene.cards[existingGroupIndex],
+        id: group.id, // 确保ID一致
+        title: group.name, // 使用title而不是name
+        type: 'group', // 修改为'group'类型
+        cards: existingCards, // 保留原有卡片
+        expanded: true, // 默认展开
+        insertedContents: [], // 添加空的insertedContents数组
+        containedCardIds: existingCards.map(card => card.id) // 更新containedCardIds
+      };
+    } else {
+      // 添加新卡组
+      console.log('Adding new card group to scene');
+      scene.cards.push({
+        id: group.id,
+        title: group.name, // 使用title而不是name
+        type: 'group', // 修改为'group'类型
+        cards: [], // 初始化为空卡片数组
+        expanded: true, // 默认展开
+        insertedContents: [], // 添加空的insertedContents数组
+        containedCardIds: [] // 添加空的containedCardIds数组
+      });
+    }
+  }
+  
+  // 强制更新appScenes，以触发Vue的响应式更新
+  if (Array.isArray(appScenes.value)) {
+    // 创建新的场景对象，确保Vue能检测到变化
+    const updatedScene = JSON.parse(JSON.stringify(scene));
+    // 更新对应索引的场景
+    appScenes.value.splice(sceneIndex, 1, updatedScene);
+    console.log('Updated scene in app scenes array');
+  }
+  
+  // 输出调试信息
+  console.log('Updated scene has cards:', 
+    appScenes.value[sceneIndex].cards ? 
+    appScenes.value[sceneIndex].cards.length : 0);
+  
+  // 同步场景数据
+  syncSceneData();
+};
+
+// 修改计算属性，只显示带有词条标签的卡片
 const filteredEntries = computed(() => {
   if (!selectedGroup.value) return [];
   
-  let result = entries.value.filter(entry => entry.groupId === selectedGroup.value.id);
+  let result = entries.value.filter(entry => 
+    entry.groupId === selectedGroup.value.id && 
+    entry.tags?.includes(characterTagId.value)
+  );
   
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase();
@@ -567,7 +840,10 @@ const filteredEntries = computed(() => {
 });
 
 const filteredAllEntries = computed(() => {
-  let result = entries.value;
+  // 只获取带有词条标签的卡片
+  let result = entries.value.filter(entry => 
+    entry.tags?.includes(characterTagId.value)
+  );
   
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase();
@@ -665,82 +941,26 @@ const selectEntryById = (entryId) => {
   }
 };
 
-// 更新场景中的卡组
-const updateSceneGroups = (sceneId, group, isDelete = false) => {
-  console.log('Updating scene groups:', { sceneId, group, isDelete });
+// 获取指定场景中含有词条标签的卡片
+const getTaggedEntryCards = (scene) => {
+  if (!scene || !scene.cards) return [];
   
-  // 找到对应的场景
-  const sceneIndex = appScenes.value.findIndex(s => s.id === sceneId);
-  if (sceneIndex === -1) {
-    console.error('Scene not found:', sceneId);
-    return;
-  }
-
-  // 获取场景对象
-  const scene = appScenes.value[sceneIndex];
-  console.log('Found scene:', scene.name);
+  // 首先获取卡组中的词条卡片
+  const groupEntries = scene.cards
+    .filter(item => item.type === 'group')
+    .flatMap(group => 
+      group.cards?.filter(card => 
+        card.tags?.includes(characterTagId.value)
+      ) || []
+    );
   
-  // 确保场景有cardGroups属性
-  if (!scene.cardGroups) {
-    scene.cardGroups = [];
-    console.log('Created cardGroups array for scene');
-  }
+  // 然后获取场景级别的词条卡片
+  const sceneEntries = scene.cards.filter(card => 
+    card.type === 'normal' && 
+    card.tags?.includes(characterTagId.value)
+  );
   
-  if (isDelete) {
-    // 删除卡组
-    console.log('Deleting card group from scene');
-    if (!scene.cardGroups.some(g => g.id === group.id)) {
-      console.log('Card group not found in scene, nothing to delete');
-      return;
-    }
-    scene.cardGroups = scene.cardGroups.filter(g => g.id !== group.id);
-  } else {
-    const existingGroupIndex = scene.cardGroups.findIndex(g => g.id === group.id);
-    
-    if (existingGroupIndex !== -1) {
-      // 更新现有卡组
-      console.log('Updating existing card group in scene');
-      
-      // 保留原有卡片
-      const existingCards = scene.cardGroups[existingGroupIndex].cards || [];
-      
-      scene.cardGroups[existingGroupIndex] = {
-        ...scene.cardGroups[existingGroupIndex],
-        id: group.id, // 确保ID一致
-        name: group.name,
-        description: group.description,
-        type: 'entry', // 标记这是一个词条卡组
-        cards: existingCards // 保留原有卡片
-      };
-    } else {
-      // 添加新卡组
-      console.log('Adding new card group to scene');
-      scene.cardGroups.push({
-        id: group.id,
-        name: group.name,
-        description: group.description,
-        type: 'entry', // 标记这是一个词条卡组
-        cards: [] // 初始化为空卡片数组
-      });
-    }
-  }
-  
-  // 强制更新appScenes，以触发Vue的响应式更新
-  if (Array.isArray(appScenes.value)) {
-    // 创建新的场景对象，确保Vue能检测到变化
-    const updatedScene = JSON.parse(JSON.stringify(scene));
-    // 更新对应索引的场景
-    appScenes.value.splice(sceneIndex, 1, updatedScene);
-    console.log('Updated scene in app scenes array');
-  }
-  
-  // 输出调试信息
-  console.log('Updated scene has cardGroups:', 
-    appScenes.value[sceneIndex].cardGroups ? 
-    appScenes.value[sceneIndex].cardGroups.length : 0);
-  
-  // 同步场景数据
-  syncSceneData();
+  return [...groupEntries, ...sceneEntries];
 };
 
 // 更新场景中的卡片
@@ -767,14 +987,14 @@ const updateSceneCards = (groupId, entry, isDelete = false) => {
   const scene = appScenes.value[sceneIndex];
   console.log('Found scene:', scene.name);
   
-  // 确保场景有cardGroups属性
-  if (!scene.cardGroups) {
-    scene.cardGroups = [];
-    console.log('Created cardGroups array for scene');
+  // 确保场景有cards属性
+  if (!scene.cards) {
+    scene.cards = [];
+    console.log('Created cards array for scene');
   }
   
   // 在场景中找到卡组
-  let cardGroupIndex = scene.cardGroups.findIndex(g => g.id === groupId);
+  let cardGroupIndex = scene.cards.findIndex(g => g.id === groupId);
   
   // 如果卡组不存在，则先创建卡组
   if (cardGroupIndex === -1) {
@@ -783,22 +1003,24 @@ const updateSceneCards = (groupId, entry, isDelete = false) => {
     // 创建新卡组对象
     const newCardGroup = {
       id: group.id,
-      name: group.name,
-      description: group.description || '',
-      type: 'entry', // 标记为词条卡组
-      cards: [] // 初始化空卡片数组
+      title: group.name, // 使用title而不是name
+      type: 'group', // 修改为'group'类型
+      cards: [], // 初始化空卡片数组
+      expanded: true, // 默认展开
+      insertedContents: [], // 添加空的insertedContents数组
+      containedCardIds: [] // 添加空的containedCardIds数组
     };
     
     // 添加到场景
-    scene.cardGroups.push(newCardGroup);
+    scene.cards.push(newCardGroup);
     
     // 更新索引
-    cardGroupIndex = scene.cardGroups.length - 1;
+    cardGroupIndex = scene.cards.length - 1;
     console.log('Created card group in scene at index:', cardGroupIndex);
   }
   
   // 获取卡组对象
-  const cardGroup = scene.cardGroups[cardGroupIndex];
+  const cardGroup = scene.cards[cardGroupIndex];
   
   // 确保卡组有cards属性
   if (!cardGroup.cards) {
@@ -814,22 +1036,30 @@ const updateSceneCards = (groupId, entry, isDelete = false) => {
       return;
     }
     cardGroup.cards = cardGroup.cards.filter(c => c.id !== entry.id);
+    
+    // 更新containedCardIds
+    if (cardGroup.containedCardIds) {
+      cardGroup.containedCardIds = cardGroup.containedCardIds.filter(id => id !== entry.id);
+    }
   } else {
     // 检查卡片是否已存在
     const existingCardIndex = cardGroup.cards.findIndex(c => c.id === entry.id);
     
-    // 准备卡片数据，确保有tags属性
+    // 准备卡片数据，根据正确的卡片格式
     const cardData = {
       id: entry.id,
-      name: entry.title,
-      description: entry.description || '',
+      title: entry.title,
       content: entry.content || '',
-      tags: entry.tags || []
+      height: entry.height || "120px", // 使用现有高度或默认高度
+      tags: entry.tags || [],
+      insertedContents: entry.insertedContents || [],
+      titleColor: entry.titleColor || "#333333",
+      type: entry.type || "normal"
     };
     
     // 确保有词条标签
-    if (!cardData.tags.includes(ENTRY_TAG)) {
-      cardData.tags.push(ENTRY_TAG);
+    if (!cardData.tags.includes(characterTagId.value)) {
+      cardData.tags.push(characterTagId.value);
     }
     
     if (existingCardIndex !== -1) {
@@ -843,6 +1073,12 @@ const updateSceneCards = (groupId, entry, isDelete = false) => {
       // 添加新卡片
       console.log('Adding new card to card group');
       cardGroup.cards.push(cardData);
+      
+      // 更新containedCardIds
+      if (!cardGroup.containedCardIds) {
+        cardGroup.containedCardIds = [];
+      }
+      cardGroup.containedCardIds.push(entry.id);
     }
   }
   
@@ -856,7 +1092,7 @@ const updateSceneCards = (groupId, entry, isDelete = false) => {
   }
   
   // 输出调试信息
-  const updatedCardGroup = appScenes.value[sceneIndex].cardGroups[cardGroupIndex];
+  const updatedCardGroup = appScenes.value[sceneIndex].cards[cardGroupIndex];
   console.log('Updated card group now has cards:', 
     updatedCardGroup.cards ? updatedCardGroup.cards.length : 0);
   
@@ -1016,8 +1252,8 @@ const saveEntry = () => {
       
       // 确保有tags属性，并添加词条标签
       let tags = entries.value[index].tags || [];
-      if (!tags.includes(ENTRY_TAG)) {
-        tags = [...tags, ENTRY_TAG];
+      if (!tags.includes(characterTagId.value)) {
+        tags = [...tags, characterTagId.value];
       }
       
       entries.value[index] = {
@@ -1029,7 +1265,11 @@ const saveEntry = () => {
         content: entryModal.content,
         relatedEntries: entryModal.relatedEntries,
         tags: tags,
-        updatedAt: now
+        updatedAt: now,
+        height: "120px", // 确保有卡片高度
+        titleColor: "#333333", // 确保有标题颜色
+        type: "normal", // 确保有卡片类型
+        insertedContents: entries.value[index].insertedContents || [] // 确保有insertedContents属性
       };
       
       savedEntry = entries.value[index];
@@ -1044,7 +1284,7 @@ const saveEntry = () => {
   } else {
     // 添加新词条
     // 确保有词条标签
-    const tags = [ENTRY_TAG];
+    const tags = [characterTagId.value];
     
     const newEntry = {
       id: uuidv4(),
@@ -1056,7 +1296,11 @@ const saveEntry = () => {
       relatedEntries: entryModal.relatedEntries,
       tags: tags,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      height: "120px", // 添加卡片高度
+      titleColor: "#333333", // 添加标题颜色
+      type: "normal", // 添加卡片类型
+      insertedContents: [] // 添加空的insertedContents数组
     };
     
     entries.value.push(newEntry);
@@ -1184,24 +1428,24 @@ const diagnoseScenes = () => {
   console.log(`总卡组数: ${entryGroups.value.length}`);
   console.log(`总词条数: ${entries.value.length}`);
   
-  // 检查场景是否有cardGroups属性
+  // 检查场景是否有cards属性
   appScenes.value.forEach((scene, index) => {
     console.log(`\n场景 ${index+1}: ${scene.name} (ID: ${scene.id})`);
     
-    if (!scene.cardGroups) {
-      console.log('  警告: 场景没有cardGroups属性');
+    if (!scene.cards) {
+      console.log('  警告: 场景没有cards属性');
     } else {
-      console.log(`  卡组数: ${scene.cardGroups.length}`);
+      console.log(`  卡组数: ${scene.cards.length}`);
       
-      scene.cardGroups.forEach(group => {
-        console.log(`  - 卡组: ${group.name} (ID: ${group.id}, 类型: ${group.type || '未定义'})`);
+      scene.cards.forEach(group => {
+        console.log(`  - 卡组: ${group.title} (ID: ${group.id}, 类型: ${group.type || '未定义'})`);
         
         if (!group.cards) {
           console.log('    警告: 卡组没有cards属性');
         } else {
           console.log(`    卡片数: ${group.cards.length}`);
           group.cards.forEach(card => {
-            console.log(`    - 卡片: ${card.name} (ID: ${card.id}, 标签: ${card.tags?.join(', ') || '无'})`);
+            console.log(`    - 卡片: ${card.title} (ID: ${card.id}, 标签: ${card.tags?.join(', ') || '无'})`);
           });
         }
       });
@@ -1218,11 +1462,11 @@ const diagnoseScenes = () => {
     } else {
       console.log(`  关联场景: ${scene.name}`);
       
-      const sceneGroup = scene.cardGroups?.find(g => g.id === group.id);
+      const sceneGroup = scene.cards?.find(g => g.id === group.id);
       if (!sceneGroup) {
         console.log('  警告: 关联场景中未找到此卡组');
       } else {
-        console.log(`  场景中卡组: ${sceneGroup.name}, 卡片数: ${sceneGroup.cards?.length || 0}`);
+        console.log(`  场景中卡组: ${sceneGroup.title}, 卡片数: ${sceneGroup.cards?.length || 0}`);
       }
     }
   });
@@ -1244,6 +1488,12 @@ defineExpose({
 // 在mounted阶段加载数据
 onMounted(() => {
   loadData();
+  
+  // 确保有词条标签
+  ensureCharacterTag();
+  
+  // 加载场景中的词条数据
+  loadDataFromScene();
   
   // 如果有场景，默认选择第一个
   if (appScenes.value.length > 0) {

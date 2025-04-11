@@ -7,7 +7,6 @@ color 0A
 
 echo [INFO] Starting environment check...
 
-:: Check if Node.js is installed
 node -v > nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] Node.js not found. Please install Node.js first.
@@ -16,7 +15,6 @@ if %errorlevel% neq 0 (
     exit
 )
 
-:: Check if frontend package.json exists
 if not exist "package.json" (
     echo [ERROR] package.json not found
     echo Please make sure you are in the correct project directory
@@ -24,7 +22,6 @@ if not exist "package.json" (
     exit
 )
 
-:: Check if backend directory exists
 if not exist "backend\" (
     echo [INFO] Creating backend directory...
     mkdir backend
@@ -40,7 +37,7 @@ if not exist "backend\" (
     echo     "express": "^4.18.2",>> package.json
     echo     "multer": "^1.4.5-lts.1",>> package.json
     echo     "cors": "^2.8.5",>> package.json
-    echo     "better-sqlite3": "^8.5.0">> package.json
+    echo     "better-sqlite3": "^11.9.1">> package.json
     echo   }>> package.json
     echo }>> package.json
     

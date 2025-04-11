@@ -91,6 +91,7 @@ function createTables() {
       id TEXT PRIMARY KEY,
       name TEXT,
       color TEXT,
+      isKeyword INTEGER DEFAULT 0,
       createdAt TEXT,
       updatedAt TEXT
     )
@@ -458,8 +459,8 @@ export const DataManager = {
           
           // 插入新数据
           const stmt = db.prepare(`
-            INSERT INTO tags (id, name, color, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO tags (id, name, color, isKeyword, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?)
           `)
           
           data.tags.forEach(tag => {
@@ -467,6 +468,7 @@ export const DataManager = {
               tag.id,
               tag.name,
               tag.color,
+              tag.isKeyword ? 1 : 0,
               tag.createdAt || new Date().toISOString(),
               tag.updatedAt || new Date().toISOString()
             )
@@ -562,7 +564,11 @@ export const DataManager = {
   
   // 获取标签数据
   getTags() {
-    return dbUtils.query('SELECT * FROM tags')
+    const tags = dbUtils.query('SELECT * FROM tags')
+    return tags.map(tag => ({
+      ...tag,
+      isKeyword: tag.isKeyword === 1
+    }))
   },
   
   // 获取配置数据

@@ -38,6 +38,7 @@
 - 增加写入db数据库（抛弃了之前的json存储数据）
 - 删除部分冗余样式
 - 拆解优化了首页代码
+- 解决了依赖问题
 
 </details>
 
@@ -187,6 +188,8 @@ start-dev.bat
 - 拖拽优化：场景和卡片拖拽时不会干扰文本选择
 - 拆书功能：支持断点续传，可以导入之前的进度继续处理
 
+- API文档：[API注册与星卡填入API文档](https://rw29psdqbrk.feishu.cn/docx/PLgIdp2N9o1tyjxPhLyc5Mghnbh?from=from_copylink)
+
 ## 🤝 贡献指南
 
 欢迎提交 Issue 和 Pull Request 来帮助改进这个项目！
@@ -212,7 +215,7 @@ start-dev.bat
 
 新教程：
 
-2、[【星卡写作第二课教程，如何接入API】]() (版本号：0.9.3.6)
+2、[【星卡写作第二课教程，如何接入API】]() (版本号：0.9.3.5)
 
 文档；[【API注册与星卡填入API文档】](https://rw29psdqbrk.feishu.cn/docx/PLgIdp2N9o1tyjxPhLyc5Mghnbh?from=from_copylink)
 
@@ -220,7 +223,7 @@ start-dev.bat
 
 旧教程：
 
-1、[【逆天，一步操作，写作10倍效率——《星卡基础教程》】](https://www.bilibili.com/video/BV1WdPFegEpt/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1) (版本号：0.9.3.2之前)
+1、[【逆天，一步操作，写作10倍效率——《星卡基础教程》】](https://www.bilibili.com/video/BV1WdPFegEpt/?share_source=copy_web&vd_source=92632bab5e8514b32ea9f54b8f6199a1) (版本号：0.9.3.2-旧版本)
 
 本教程虽然才过了几天，但是已经与最新版本有较大差异，可以在本视频了解对应功能。
 

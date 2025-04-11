@@ -437,29 +437,34 @@ const ensureCharacterTag = () => {
       characterTagId.value = characterTag.id;
       console.log('找到已存在的角色标签:', characterTagId.value);
     } else {
-      // 创建新的"角色"标签
-      const newTag = {
-        id: Date.now(),
-        name: '角色',
-        isKeyword: true
-      };
+      // 在创建新标签前，再次检查是否已存在同名标签（不考虑isKeyword属性）
+      const existingTag = appTags.value?.find(tag => tag.name === '角色');
       
-      // 确保appTags.value是数组
-      if (!appTags.value) appTags.value = [];
+      if (existingTag) {
+        // 如果存在同名标签，将其更新为关键词标签
+        existingTag.isKeyword = true;
+        characterTagId.value = existingTag.id;
+        console.log('更新已有标签为关键词标签:', characterTagId.value);
+      } else {
+        // 创建新的"角色"标签
+        const newTag = {
+          id: uuidv4(), // 使用uuidv4而不是Date.now()避免重复
+          name: '角色',
+          isKeyword: true
+        };
+        
+        // 确保appTags.value是数组
+        if (!appTags.value) appTags.value = [];
+        
+        appTags.value.push(newTag);
+        characterTagId.value = newTag.id;
+      }
       
-      appTags.value.push(newTag);
-
-      characterTagId.value = newTag.id;
-      console.log('创建了新角色标签:', newTag, '当前tags:', appTags.value);
-      setTimeout(() => {
-        console.log('同步数据前tags:', appTags.value);
-        syncAppData();
-        console.log('同步数据后tags:', appTags.value);
-      }, 0);
+      // 立即同步数据
+      syncAppData();
     }
   } catch (error) {
     console.error('创建角色标签出错:', error);
-    // 设置一个临时ID，确保后续操作不会失败
     characterTagId.value = 'character-tag';
   }
 };

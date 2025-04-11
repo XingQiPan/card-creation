@@ -29,7 +29,6 @@ if %errorlevel% neq 0 (
     exit
 )
 
-:: Check if frontend package.json exists
 if not exist "package.json" (
     echo [ERROR] package.json not found
     echo Please make sure you are in the correct project directory
@@ -37,7 +36,6 @@ if not exist "package.json" (
     exit
 )
 
-:: Check if backend directory exists
 if not exist "backend\" (
     echo [INFO] Creating backend directory...
     mkdir backend
@@ -61,6 +59,8 @@ if not exist "backend\" (
     echo     "multer": "^1.4.5-lts.1",>> package.json
     echo     "python-shell": "^5.0.0",>> package.json
     echo     "uuid": "^11.1.0">> package.json
+    echo     "cors": "^2.8.5",>> package.json
+    echo     "better-sqlite3": "^11.9.1">> package.json
     echo   }>> package.json
     echo }>> package.json
     

@@ -34,7 +34,7 @@
     "webdav": "^5.8.0",
     "d3": "^7.9.0",
     "force-graph": "^1.43.8",
-    "better-sqlite3": "^9.0.0"
+    "better-sqlite3": "^11.9.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",

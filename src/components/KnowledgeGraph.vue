@@ -283,6 +283,11 @@
     },
     mounted() {
       this.initialize();
+      window.addEventListener('resize', this.handleResize);
+    },
+    
+    beforeDestroy() {
+      window.removeEventListener('resize', this.handleResize);
     },
     methods: {
       async initialize() {
@@ -294,6 +299,14 @@
         
         // 初始化图谱可视化
         this.initializeGraph();
+      },
+      
+      handleResize() {
+        if (this.graphInstance) {
+          this.graphInstance.width(this.$refs.graphContainer.offsetWidth);
+          this.graphInstance.height(this.$refs.graphContainer.offsetHeight);
+          this.graphInstance.d3ReheatSimulation();
+        }
       },
       
       async loadGraphFileList() {

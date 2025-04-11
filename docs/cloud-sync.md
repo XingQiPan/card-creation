@@ -82,6 +82,19 @@ POST /api/cloud/sync
 
 这将创建一个带有当前时间戳的备份并上传到云端。
 
+**请求示例**：
+```
+POST /api/cloud/sync
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "message": "备份已成功上传到云端"
+}
+```
+
 ### 查看备份列表
 
 您可以查看所有云端备份：
@@ -92,6 +105,20 @@ GET /api/cloud/backups
 
 这将返回所有可用备份的列表，包括文件名、大小和修改日期。
 
+**成功响应**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "name": "data-backup-2023-05-16T14-30-00.zip",
+      "size": 1024,
+      "lastModified": "2023-05-16T14:30:00.000Z"
+    }
+  ]
+}
+```
+
 ### 恢复备份
 
 要恢复特定备份：
@@ -100,6 +127,15 @@ GET /api/cloud/backups
 POST /api/cloud/restore
 {
   "backupPath": "/CardCreationBackup/data-backup-2023-05-16T14-30-00.zip"
+}
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "message": "备份已成功恢复",
+  "localBackupPath": "H:/ds/xk4.9/card-creation-main/backend/DataBackup/data-local-backup-2023-05-16T15-30-00.zip"
 }
 ```
 
@@ -113,6 +149,31 @@ POST /api/cloud/restore
 DELETE /api/cloud/backups
 {
   "backupPath": "/CardCreationBackup/data-backup-2023-05-16T14-30-00.zip"
+}
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "message": "备份已成功删除"
+}
+```
+
+### 检查连接状态
+
+您可以检查WebDAV连接状态：
+
+```
+GET /api/cloud/status
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "connected": true,
+  "lastSync": "2023-05-16T14:30:00.000Z"
 }
 ```
 

@@ -595,8 +595,25 @@ app.post('/api/save-tags', (req, res) => {
 
 app.post('/api/save-config', (req, res) => {
   try {
-    const config = req.body
-    DataManager.syncData({ config })
+    const oldConfig = DataManager.getConfig()
+    const newConfig = req.body
+    
+    // 保存新配置
+    DataManager.syncData({ config: newConfig })
+    
+    // 检查与备份相关的配置是否发生变化
+    const backupConfigChanged = (
+      oldConfig.cloudSyncEnabled !== newConfig.cloudSyncEnabled ||
+      oldConfig.backupIntervalHours !== newConfig.backupIntervalHours ||
+      oldConfig.cloudSyncInterval !== newConfig.cloudSyncInterval
+    )
+    
+    // 仅当备份相关配置变化时才重启备份服务
+    if (backupConfigChanged) {
+      console.log('备份相关配置已更新，重启备份服务...')
+      cloudSyncService.restartAutoBackup()
+    }
+    
     ResponseHandler.success(res)
   } catch (error) {
     ResponseHandler.error(res, error)
@@ -1385,6 +1402,49 @@ app.get('/api/kg/graph-files', async (req, res) => {
   }
 })
 
+// 删除知识图谱文件
+app.delete('/api/kg/delete-graph', async (req, res) => {
+  try {
+    const { fileName } = req.body
+    
+    if (!fileName) {
+      return res.status(400).json({
+        success: false,
+        error: '未指定要删除的文件名'
+      })
+    }
+    
+    // 验证文件名是否合法，防止路径遍历攻击
+    if (fileName.includes('..') || fileName.includes('/') || fileName.includes('\\')) {
+      return res.status(400).json({
+        success: false,
+        error: '文件名不合法'
+      })
+    }
+    
+    const filePath = path.join(KNOWLEDGE_GRAPH_DIR, fileName)
+    
+    const result = await kg.deleteFile(filePath)
+    
+    if (result) {
+      res.status(200).json({
+        success: true,
+        message: `成功删除知识图谱文件: ${fileName}`
+      })
+    } else {
+      res.status(404).json({
+        success: false,
+        error: `删除知识图谱文件失败: ${fileName}`
+      })
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: `删除知识图谱文件失败: ${error.message}`
+    })
+  }
+})
+
 // WebDAV云同步相关API端点
 // 检查WebDAV连接状态
 app.get('/api/cloud/status', async (req, res) => {
@@ -1403,9 +1463,10 @@ app.get('/api/cloud/status', async (req, res) => {
 // 更新WebDAV设置
 app.post('/api/settings/webdav', async (req, res) => {
   try {
-    const { webdavUrl, webdavUsername, webdavPassword } = req.body
+    const { webdavUrl, webdavUsername, webdavPassword, autoSaveInterval } = req.body
     
-    if (!webdavUrl || !webdavUsername || !webdavPassword) {
+    
+    if (!webdavUrl || !webdavUsername || !webdavPassword || !autoSaveInterval) {
       return res.status(400).json({
         success: false,
         error: 'WebDAV配置不完整，请提供所有必要参数'
@@ -1422,6 +1483,7 @@ app.post('/api/settings/webdav', async (req, res) => {
     const webdavUrlRegex = /WEBDAV_URL=.*/
     const webdavUsernameRegex = /WEBDAV_USERNAME=.*/
     const webdavPasswordRegex = /WEBDAV_PASSWORD=.*/
+    const cloudSyncIntervalRegex = /CLOUD_SYNC_INTERVAL=.*/
     
     if (webdavUrlRegex.test(envContent)) {
       envContent = envContent.replace(webdavUrlRegex, `WEBDAV_URL=${webdavUrl}`)
@@ -1441,13 +1503,24 @@ app.post('/api/settings/webdav', async (req, res) => {
       envContent += `\nWEBDAV_PASSWORD=${webdavPassword}`
     }
     
+    if (cloudSyncIntervalRegex.test(envContent)) {
+      envContent = envContent.replace(cloudSyncIntervalRegex, `CLOUD_SYNC_INTERVAL=${autoSaveInterval}`)
+    } else {
+      envContent += `\nCLOUD_SYNC_INTERVAL=${autoSaveInterval}`
+    }
+    
     fs.writeFileSync(envPath, envContent)
     
     process.env.WEBDAV_URL = webdavUrl
     process.env.WEBDAV_USERNAME = webdavUsername
     process.env.WEBDAV_PASSWORD = webdavPassword
+    process.env.CLOUD_SYNC_INTERVAL = autoSaveInterval
     
+    // 重新初始化云同步服务，确保新的配置生效
     cloudSyncService.initialize()
+    
+    // 更新同步间隔
+    cloudSyncService.syncInterval = Math.max(parseInt(autoSaveInterval), 60000)
     
     const status = await cloudSyncService.checkConnection()
     
@@ -1468,6 +1541,10 @@ app.post('/api/settings/webdav', async (req, res) => {
       success: false,
       error: '更新WebDAV设置失败: ' + error.message
     })
+    
+    // 保存设置后重新加载.env文件
+    dotenv.config()
+    
   }
 })
 
@@ -1504,6 +1581,29 @@ app.post('/api/local/restore', async (req, res) => {
     res.status(500).json({
       success: false,
       error: '从本地备份恢复失败: ' + error.message
+    })
+  }
+})
+
+// 添加删除本地备份API端点
+app.delete('/api/local/backups', async (req, res) => {
+  try {
+    const { backupPath } = req.body
+    
+    if (!backupPath) {
+      return res.status(400).json({
+        success: false,
+        error: '未指定要删除的备份路径'
+      })
+    }
+    
+    const result = await cloudSyncService.deleteLocalBackup(backupPath)
+    res.json(result)
+  } catch (error) {
+    console.error('删除本地备份失败:', error)
+    res.status(500).json({
+      success: false,
+      error: '删除本地备份失败: ' + error.message
     })
   }
 })
@@ -1604,6 +1704,13 @@ process.on('SIGTERM', () => {
   process.exit(0)
 })
 
+// 初始化云同步备份服务 - 已移至CloudSyncService类中实现
+// 此函数保留为空以保持兼容性
+function initCloudSyncBackup(cloudSyncService) {
+  // 功能已移至CloudSyncService类中实现
+  console.log('云同步备份服务由CloudSyncService类管理')
+}
+
 // 启动服务器
 const PORT = process.env.PORT || 3000
 app.listen(PORT, async () => {
@@ -1615,46 +1722,8 @@ app.listen(PORT, async () => {
     console.error('AI检测器测试失败:', error)
   }
   
-  // 设置定时自动备份（如果WebDAV配置有效）
-  if (cloudSyncService.webdavClient) {
-    console.log('WebDAV云同步服务已启用')
-    
-    // 每24小时执行一次自动备份
-    const autoBackupInterval = 24 * 60 * 60 * 1000 // 24小时
-    
-    // 设置定时任务
-    setInterval(async () => {
-      try {
-        console.log('执行自动云备份...')
-        const result = await cloudSyncService.syncToCloud()
-        
-        if (result.success) {
-          console.log('自动云备份成功:', result.path)
-        } else {
-          console.error('自动云备份失败:', result.error)
-        }
-      } catch (error) {
-        console.error('自动云备份出错:', error)
-      }
-    }, autoBackupInterval)
-    
-    // 启动时执行一次备份，但使用try-catch捕获错误
-    setTimeout(async () => {
-      try {
-        console.log('启动时执行初始化云备份...')
-        const result = await cloudSyncService.syncToCloud()
-        if (result.success) {
-          console.log('初始化云备份成功:', result.path)
-        } else {
-          console.error('初始化云备份失败，但不影响服务运行:', result.error)
-        }
-      } catch (error) {
-        console.error('初始化云备份失败，但不影响服务运行:', error)
-      }
-    }, 30000) // 延迟30秒执行，确保服务器已完全启动
-  } else {
-    console.warn('WebDAV云同步服务未启用，请检查环境变量配置')
-  }
+  // 初始化云同步备份服务
+  initCloudSyncBackup(cloudSyncService)
   
   APIDocService.getAllRoutes().forEach(route => {
     console.log(`${route.method.padEnd(6)} ${route.path.padEnd(30)} ${route.description}`)

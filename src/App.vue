@@ -210,8 +210,9 @@
           />
         </div>
       </div>
-          <!-- 暂时解决方案，以后记得修改路由方式，统一使用v-if-->
-      <router-view />
+          <!-- 暂时解决方案，以后记得修改路由方式，统一使用-->
+      <router-view v-if="currentView !== 'book' && currentView !== 'chat' && currentView !== 'note' && currentView !== 'agents' && currentView !== 'detector' && currentView !== 'knowledge' && currentView !== 'knowledgeGraph' && currentView !== 'cloudSync'" />
+      
       <BookSplitter 
         v-if="currentView === 'book'"
         :scenes="scenes"
@@ -945,6 +946,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { debugLog, setDebugMode } from './utils/debug'
 import AIDetector from './components/AIDetector.vue'
 import KnowledgeBase from './components/KnowledgeBase.vue'
+import KnowledgeGraph from './components/KnowledgeGraph.vue'
+import CloudSync from './components/CloudSync.vue'
 
 import { 
   useScenes, 

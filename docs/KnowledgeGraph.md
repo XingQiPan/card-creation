@@ -36,6 +36,111 @@ function initKnowledgeGraph(graphParam = null) {
 
 ### 1. 获取完整知识图谱
 
+### 2. 创建实体
+
+```
+POST /api/kg/entities
+```
+
+**请求体**：
+```json
+{
+  "entities": [
+    {
+      "name": "实体名称",
+      "type": "实体类型",
+      "observations": ["观察内容1", "观察内容2"],
+      "overwrite": false
+    }
+  ]
+}
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "name": "实体名称",
+      "status": "created"
+    }
+  ]
+}
+```
+
+### 3. 创建关系
+
+```
+POST /api/kg/relations
+```
+
+**请求体**：
+```json
+{
+  "relations": [
+    {
+      "source": "源实体名称",
+      "target": "目标实体名称",
+      "type": "关系类型",
+      "properties": {},
+      "overwrite": false
+    }
+  ]
+}
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "source": "源实体名称",
+      "target": "目标实体名称",
+      "type": "关系类型",
+      "status": "created"
+    }
+  ]
+}
+```
+
+### 4. 添加观察
+
+```
+POST /api/kg/observations
+```
+
+**请求体**：
+```json
+{
+  "observations": [
+    {
+      "entityName": "实体名称",
+      "content": "观察内容",
+      "timestamp": "2023-04-09T08:30:00.000Z",
+      "source": "用户"
+    }
+  ]
+}
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "entityName": "实体名称",
+      "status": "added",
+      "content": "观察内容"
+    }
+  ]
+}
+```
+
+### 1. 获取完整知识图谱
+
 ```
 GET /api/kg/graph
 ```
@@ -534,4 +639,4 @@ PUT /api/kg/entity-observations
 - 200/201: 成功
 - 400: 请求参数错误
 - 404: 资源不存在
-- 500: 服务器内部错误 
+- 500: 服务器内部错误

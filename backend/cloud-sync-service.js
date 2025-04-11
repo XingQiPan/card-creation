@@ -5,19 +5,39 @@ import archiver from 'archiver'
 import { pipeline } from 'stream/promises'
 import * as unzipper from 'unzipper'
 import dotenv from 'dotenv'
+import { EventEmitter } from 'events'
 
 // 加载环境变量
 dotenv.config()
+
+// 默认自动保存间隔(毫秒)
+const DEFAULT_SYNC_INTERVAL = 300000 // 5分钟
 
 /**
  * WebDAV云同步服务
  * 提供数据备份、上传下载、恢复等功能
  */
-class CloudSyncService {
+class CloudSyncService extends EventEmitter {
   constructor(dataDir) {
+    super()
     this.webdavClient = null
     this.DATA_DIR = dataDir
+    this.backupInterval = null
+    this.syncInterval = this._getSyncInterval()
+    this.isBackupRunning = false
     this.initialize()
+  }
+
+  /**
+   * 获取同步间隔时间（毫秒）
+   * @private
+   * @returns {number} 同步间隔时间（毫秒）
+   */
+  _getSyncInterval() {
+    // 从环境变量获取同步间隔，确保最小为1分钟
+    return process.env.CLOUD_SYNC_INTERVAL 
+      ? Math.max(parseInt(process.env.CLOUD_SYNC_INTERVAL), 60000) 
+      : DEFAULT_SYNC_INTERVAL
   }
 
   /**
@@ -26,7 +46,15 @@ class CloudSyncService {
    */
   initialize() {
     try {
+      // 更新同步间隔
+      this.syncInterval = this._getSyncInterval()
+      
+      // 调试日志：输出当前同步间隔
+      console.log(`当前同步间隔: ${this.syncInterval}ms`)     
       this.webdavClient = this.configureWebDAVClient()
+      if (this.webdavClient) {
+        this.startAutoBackup()
+      }
       return !!this.webdavClient
     } catch (error) {
       console.error('初始化WebDAV客户端失败:', error)
@@ -111,7 +139,7 @@ class CloudSyncService {
    * @returns {Promise<string>} 备份文件路径
    */
   async compressDataDir(backupName = null) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const timestamp = new Date().toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).replace(/[\/:]/g, '-').replace(/\s+/g, '_')
     const zipFileName = backupName || `data-backup-${timestamp}.zip`
     const backupDir = path.join(path.dirname(this.DATA_DIR), 'DataBackup')
     
@@ -300,7 +328,7 @@ class CloudSyncService {
   async extractBackup(zipFilePath) {
     try {
       // 创建备份当前数据的时间戳
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const timestamp = new Date().toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).replace(/[\/:]/g, '-').replace(/\s+/g, '_')
       const backupDir = path.join(path.dirname(this.DATA_DIR), 'DataBackup')
       
       // 确保备份目录存在
@@ -491,6 +519,142 @@ class CloudSyncService {
       console.error('从本地备份恢复失败:', error)
       return { success: false, error: error.message }
     }
+  }
+
+  /**
+   * 删除本地备份文件
+   * @param {string} backupPath 本地备份文件路径
+   * @returns {Promise<Object>} 删除结果
+   */
+  async deleteLocalBackup(backupPath) {
+    try {
+      // 检查备份文件是否存在
+      if (!fs.existsSync(backupPath)) {
+        return { success: false, error: `本地备份文件不存在: ${backupPath}` }
+      }
+      
+      // 删除文件
+      await fs.promises.unlink(backupPath)
+      
+      console.log(`成功删除本地备份: ${backupPath}`)
+      return { 
+        success: true, 
+        message: '备份已删除',
+        path: backupPath
+      }
+    } catch (error) {
+      console.error('删除本地备份失败:', error)
+      return { success: false, error: error.message }
+    }
+  }
+
+  /**
+   * 启动定时备份服务
+   * @param {boolean} runInitialBackup 是否立即执行一次备份
+   * @returns {boolean} 是否成功启动
+   */
+  startAutoBackup(runInitialBackup = true) {
+    // 如果WebDAV客户端未初始化，则无法启动备份
+    if (!this.webdavClient) {
+      console.warn('WebDAV客户端未初始化，无法启动自动备份')
+      return false
+    }
+    
+    // 停止现有的定时任务
+    this.stopAutoBackup()
+    
+    // 更新同步间隔
+    this.syncInterval = this._getSyncInterval()
+    
+    console.log(`设置自动备份间隔: ${this.syncInterval}ms`)
+
+    // 启动新的定时任务
+    this.backupInterval = setInterval(async () => {
+      if (this.isBackupRunning) {
+        console.log('上一次备份任务仍在运行，跳过本次备份')
+        return
+      }
+      
+      this.isBackupRunning = true
+      console.log('执行定时备份...')
+      
+      try {
+        const result = await this.syncToCloud()
+        if (result.success) {
+          console.log('定时备份完成')
+          this.emit('backup-completed', { success: true })
+        } else {
+          console.error('定时备份失败:', result.error)
+          this.emit('backup-completed', { success: false, error: result.error })
+        }
+      } catch (error) {
+        console.error('定时备份出错:', error)
+        this.emit('backup-error', error)
+      } finally {
+        this.isBackupRunning = false
+      }
+    }, this.syncInterval)
+
+    // 立即执行一次备份
+    if (runInitialBackup) {
+      this._runInitialBackup()
+    }
+    
+    this.emit('backup-service-started')
+    return true
+  }
+  
+  /**
+   * 执行初始备份
+   * @private
+   */
+  _runInitialBackup() {
+    // 使用setTimeout避免阻塞初始化流程
+    setTimeout(async () => {
+      if (this.isBackupRunning) return
+      
+      this.isBackupRunning = true
+      try {
+        console.log('执行初始备份...')
+        const result = await this.syncToCloud()
+        if (result.success) {
+          console.log('初始备份完成')
+          this.emit('initial-backup-completed', { success: true })
+        } else {
+          console.error('初始备份失败:', result.error)
+          this.emit('initial-backup-completed', { success: false, error: result.error })
+        }
+      } catch (error) {
+        console.error('初始备份失败:', error)
+        this.emit('initial-backup-error', error)
+      } finally {
+        this.isBackupRunning = false
+      }
+    }, 5000) // 延迟5秒执行，避免与服务器启动冲突
+  }
+  
+  /**
+   * 停止定时备份服务
+   */
+  stopAutoBackup() {
+    if (this.backupInterval) {
+      clearInterval(this.backupInterval)
+      this.backupInterval = null
+      console.log('已停止自动备份服务')
+      this.emit('backup-service-stopped')
+      return true
+    }
+    return false
+  }
+
+  /**
+   * 重启定时备份服务
+   * @param {boolean} runInitialBackup 是否立即执行一次备份
+   * @returns {boolean} 是否成功重启
+   */
+  restartAutoBackup(runInitialBackup = false) {
+    console.log('重启定时备份服务...')
+    return this.startAutoBackup(runInitialBackup)
   }
 }
 

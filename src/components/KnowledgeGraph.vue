@@ -77,7 +77,15 @@
                 <option v-for="file in graphFiles" :key="file" :value="file">{{ file }}</option>
                 <option v-if="graphFiles.length === 0" value="">没有可用的图谱文件</option>
               </select>
-              <button @click="loadGraphFile">加载图谱</button>
+              <div class="graph-file-actions">
+                <button @click="loadGraphFile">加载图谱</button>
+                <button 
+                  @click="confirmDeleteGraphFile" 
+                  class="delete-graph-btn" 
+                  :disabled="!selectedGraphFile">
+                  删除存档
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1432,6 +1440,41 @@
           if (!obs.content) return true;
           return !obs.content.match(/color=#([0-9A-Fa-f]{6})/);
         });
+      },
+      
+      async confirmDeleteGraphFile() {
+        if (confirm('确定要删除这个图谱存档吗？这将同时删除所有相关的关系。')) {
+          await this.deleteGraphFile(this.selectedGraphFile);
+        }
+      },
+      
+      async deleteGraphFile(fileName) {
+        try {
+          const response = await fetch(`${this.apiBaseUrl}/delete-graph`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ fileName: fileName })
+          });
+          
+          const data = await response.json();
+          
+          if (data.success) {
+            this.showNotification(`成功删除图谱存档: ${fileName}`, 'success');
+            
+            // 重置选中的图谱文件
+            this.selectedGraphFile = '';
+            
+            // 重新加载图谱文件列表
+            await this.loadGraphFileList();
+          } else {
+            throw new Error(data.error || '删除图谱存档失败');
+          }
+        } catch (error) {
+          console.error('删除图谱存档出错:', error);
+          this.showNotification('删除图谱存档失败: ' + error.message, 'error');
+        }
       }
     }
   };
@@ -1450,8 +1493,8 @@
   
   /* 头部样式 */
   header {
-    background-color: #2c3e50;
-    color: white;
+    background-color: #e3eaf1;
+    color: rgb(31, 31, 44);
     padding: 0.8rem 1.5rem;
     display: flex;
     justify-content: space-between;
@@ -1551,7 +1594,7 @@
   .graph-file-selector {
     display: flex;
     gap: 0.5rem;
-    margin-top: 0.5rem;
+    margin-top: 10px;
   }
   
   .graph-file-selector select {
@@ -1913,5 +1956,30 @@
   
   .color-close-btn:hover {
     background-color: #7f8c8d;
+  }
+  
+  .graph-file-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  
+  .delete-graph-btn {
+    background-color: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s;
+  }
+  
+  .delete-graph-btn:hover {
+    background-color: #c0392b;
+  }
+  
+  .delete-graph-btn:disabled {
+    background-color: #e74c3c80;
+    cursor: not-allowed;
   }
   </style>

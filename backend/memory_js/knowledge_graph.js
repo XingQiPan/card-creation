@@ -86,6 +86,46 @@ class KnowledgeGraph {
   }
 
   /**
+   * 删除知识图谱文件
+   * @param {string} filePath - 要删除的知识图谱文件路径
+   * @returns {boolean} - 删除是否成功
+   */
+  async deleteFile(filePath) {
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        console.log(`已删除知识图谱文件: ${filePath}`);
+        
+        // 如果删除的是当前加载的图谱，则加载默认图谱
+        if (this.storagePath === filePath) {
+          // 从当前目录向上一级找到backend目录，然后定位到data/KnowledgeGraph
+          const __filename = fileURLToPath(import.meta.url);
+          const __dirname = path.dirname(__filename);
+          const backendDir = path.resolve(__dirname, '..');
+          const kgDataDir = path.join(backendDir, 'data', 'KnowledgeGraph');
+          
+          // 确保目录存在
+          if (!fs.existsSync(kgDataDir)) {
+            fs.mkdirSync(kgDataDir, { recursive: true });
+          }
+          
+          this.storagePath = path.join(kgDataDir, 'knowledge_graph.json');
+          this.graph = { entities: {}, relations: [] };
+          this.saveGraph();
+        }
+        
+        return true;
+      } else {
+        console.error(`知识图谱文件不存在: ${filePath}`);
+        return false;
+      }
+    } catch (error) {
+      console.error(`删除知识图谱文件失败: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
    * 保存知识图谱到文件
    */
   saveGraph() {

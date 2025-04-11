@@ -1,13 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import NotePad from '../components/NotePad.vue'
 import Editor from '../components/Editor.vue'
-import ChatView from '../components/ChatView.vue'
-import AgentsView from '../components/AgentsView.vue'
-import KnowledgeView from '../components/KnowledgeBase.vue'
-import BookView from '../components/BookSplitter.vue'
 import MainView from '../App.vue'
-import KnowledgeGraph from '../components/KnowledgeGraph.vue'
-import CloudSync from '../components/CloudSync.vue'
 
 const routes = [
   {
@@ -18,37 +11,37 @@ const routes = [
   {
     path: '/book',
     name: 'Book',
-    component: BookView
+    component: MainView
   },
   {
     path: '/chat',
     name: 'Chat',
-    component: ChatView
+    component: MainView
   },
   {
     path: '/note',
     name: 'Note',
-    component: NotePad
+    component: MainView
   },
   {
     path: '/agents',
     name: 'Agents',
-    component: AgentsView
+    component: MainView
   },
   {
     path: '/knowledge',
     name: 'Knowledge',
-    component: KnowledgeView
+    component: MainView
   },
   {
     path: '/knowledgeGraph',
     name: 'KnowledgeGraph',
-    component: KnowledgeGraph
+    component: MainView
   },
   {
     path: '/cloudSync',
     name: 'CloudSync',
-    component: CloudSync
+    component: MainView
   },
   {
     path: '/editor/:bookId/section/:sectionId',

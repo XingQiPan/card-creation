@@ -25,6 +25,7 @@ class CloudSyncService extends EventEmitter {
     this.backupInterval = null
     this.syncInterval = this._getSyncInterval()
     this.isBackupRunning = false
+    this.isAutoBackupEnabled = this._getAutoBackupEnabled()
     this.initialize()
   }
 
@@ -41,6 +42,16 @@ class CloudSyncService extends EventEmitter {
   }
 
   /**
+   * 获取自动备份启用状态
+   * @private
+   * @returns {boolean} 是否启用自动备份
+   */
+  _getAutoBackupEnabled() {
+    // 从环境变量获取自动备份启用状态，默认为true
+    return process.env.AUTO_BACKUP_ENABLED === undefined ? true : process.env.AUTO_BACKUP_ENABLED.toLowerCase() === 'true'
+  }
+
+  /**
    * 初始化WebDAV客户端
    * @returns {boolean} 初始化是否成功
    */
@@ -49,10 +60,11 @@ class CloudSyncService extends EventEmitter {
       // 更新同步间隔
       this.syncInterval = this._getSyncInterval()
       
-      // 调试日志：输出当前同步间隔
+      // 调试日志：输出当前同步间隔和自动备份状态
       console.log(`当前同步间隔: ${this.syncInterval}ms`)     
+      console.log(`自动备份状态: ${this.isAutoBackupEnabled ? '已启用' : '已禁用'}`)
       this.webdavClient = this.configureWebDAVClient()
-      if (this.webdavClient) {
+      if (this.webdavClient && this.isAutoBackupEnabled) {
         this.startAutoBackup()
       }
       return !!this.webdavClient
@@ -645,6 +657,32 @@ class CloudSyncService extends EventEmitter {
       return true
     }
     return false
+  }
+
+  /**
+   * 获取自动备份状态
+   * @returns {boolean} 是否启用自动备份
+   */
+  getAutoBackupStatus() {
+    return this.isAutoBackupEnabled
+  }
+
+  /**
+   * 设置自动备份状态
+   * @param {boolean} enabled 是否启用自动备份
+   * @returns {boolean} 设置是否成功
+   */
+  setAutoBackupStatus(enabled) {
+    this.isAutoBackupEnabled = enabled
+    
+    // 更新环境变量中的配置（需要在调用此方法的地方保存到.env文件）
+    process.env.AUTO_BACKUP_ENABLED = String(enabled)
+    
+    if (enabled) {
+      return this.startAutoBackup(false)
+    } else {
+      return this.stopAutoBackup()
+    }
   }
 
   /**

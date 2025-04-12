@@ -720,6 +720,82 @@ app.get('/api/agents', (req, res) => {
   }
 })
 
+// 添加自动备份控制路由
+app.post('/api/cloud-sync/auto-backup', (req, res) => {
+  try {
+    const { enabled } = req.body
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: '参数错误：enabled必须是布尔值'
+      })
+    }
+
+    // 更新环境变量中的AUTO_BACKUP_ENABLED配置
+    const envPath = path.join(__dirname, '.env')
+    let envContent = ''
+    
+    if (fs.existsSync(envPath)) {
+      envContent = fs.readFileSync(envPath, 'utf8')
+    }
+    
+    const autoBackupEnabledRegex = /AUTO_BACKUP_ENABLED=.*/
+    
+    if (autoBackupEnabledRegex.test(envContent)) {
+      envContent = envContent.replace(autoBackupEnabledRegex, `AUTO_BACKUP_ENABLED=${enabled}`)
+    } else {
+      envContent += `\nAUTO_BACKUP_ENABLED=${enabled}`
+    }
+    
+    fs.writeFileSync(envPath, envContent)
+    
+    // 更新环境变量
+    process.env.AUTO_BACKUP_ENABLED = String(enabled)
+
+    const result = cloudSyncService.setAutoBackupStatus(enabled)
+    res.json({
+      success: true,
+      data: {
+        enabled: cloudSyncService.getAutoBackupStatus(),
+        status: result ? '操作成功' : '操作失败'
+      }
+    })
+  } catch (error) {
+    console.error('设置自动备份状态失败:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// 获取自动备份状态
+app.get('/api/cloud-sync/auto-backup', (req, res) => {
+  try {
+    // 从环境变量和服务实例获取状态
+    const envStatus = process.env.AUTO_BACKUP_ENABLED === 'true'
+    const serviceStatus = cloudSyncService.getAutoBackupStatus()
+    
+    // 如果环境变量和服务实例状态不一致，更新服务实例状态
+    if (envStatus !== serviceStatus) {
+      cloudSyncService.setAutoBackupStatus(envStatus)
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        enabled: cloudSyncService.getAutoBackupStatus()
+      }
+    })
+  } catch (error) {
+    console.error('获取自动备份状态失败:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
 // 添加API文档路由
 app.get('/api/docs', (req, res) => {
   try {
@@ -1463,7 +1539,7 @@ app.get('/api/cloud/status', async (req, res) => {
 // 更新WebDAV设置
 app.post('/api/settings/webdav', async (req, res) => {
   try {
-    const { webdavUrl, webdavUsername, webdavPassword, autoSaveInterval } = req.body
+    const { webdavUrl, webdavUsername, webdavPassword, autoSaveInterval, autoBackupEnabled } = req.body
     
     
     if (!webdavUrl || !webdavUsername || !webdavPassword || !autoSaveInterval) {
@@ -1471,6 +1547,11 @@ app.post('/api/settings/webdav', async (req, res) => {
         success: false,
         error: 'WebDAV配置不完整，请提供所有必要参数'
       })
+    }
+    
+    // 更新环境变量
+    if (autoBackupEnabled !== undefined) {
+      process.env.AUTO_BACKUP_ENABLED = String(autoBackupEnabled)
     }
     
     const envPath = path.join(__dirname, '.env')
@@ -1484,6 +1565,7 @@ app.post('/api/settings/webdav', async (req, res) => {
     const webdavUsernameRegex = /WEBDAV_USERNAME=.*/
     const webdavPasswordRegex = /WEBDAV_PASSWORD=.*/
     const cloudSyncIntervalRegex = /CLOUD_SYNC_INTERVAL=.*/
+    const autoBackupEnabledRegex = /AUTO_BACKUP_ENABLED=.*/
     
     if (webdavUrlRegex.test(envContent)) {
       envContent = envContent.replace(webdavUrlRegex, `WEBDAV_URL=${webdavUrl}`)
@@ -1507,6 +1589,15 @@ app.post('/api/settings/webdav', async (req, res) => {
       envContent = envContent.replace(cloudSyncIntervalRegex, `CLOUD_SYNC_INTERVAL=${autoSaveInterval}`)
     } else {
       envContent += `\nCLOUD_SYNC_INTERVAL=${autoSaveInterval}`
+    }
+    
+    // 处理自动备份启用状态
+    if (autoBackupEnabled !== undefined) {
+      if (autoBackupEnabledRegex.test(envContent)) {
+        envContent = envContent.replace(autoBackupEnabledRegex, `AUTO_BACKUP_ENABLED=${autoBackupEnabled}`)
+      } else {
+        envContent += `\nAUTO_BACKUP_ENABLED=${autoBackupEnabled}`
+      }
     }
     
     fs.writeFileSync(envPath, envContent)

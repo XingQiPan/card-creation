@@ -1506,7 +1506,7 @@
   
   /* 头部样式 */
   header {
-    background-color: #e3eaf1;
+    background-color: #dbeafa;
     color: rgb(31, 31, 44);
     padding: 0.8rem 1.5rem;
     display: flex;

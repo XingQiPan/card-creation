@@ -36,6 +36,44 @@ function initKnowledgeGraph(graphParam = null) {
 
 ### 1. 获取完整知识图谱
 
+```
+GET /api/kg/graph
+```
+
+获取知识图谱中的所有实体和关系数据。
+
+**返回示例：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "entities": {
+      "实体1": {
+        "name": "实体1",
+        "type": "人物",
+        "observations": [
+          {
+            "content": "这是关于实体1的观察",
+            "timestamp": "2023-04-09T08:30:00.000Z",
+            "source": "user"
+          }
+        ],
+        "properties": {}
+      }
+    },
+    "relations": [
+      {
+        "source": "实体1",
+        "target": "实体2",
+        "type": "朋友",
+        "properties": {}
+      }
+    ]
+  }
+}
+```
+
 ### 2. 创建实体
 
 ```
@@ -584,6 +622,44 @@ PUT /api/kg/observations
 
 ```
 PUT /api/kg/entity-observations
+```
+
+一次性替换实体的所有观察项。
+
+**请求体：**
+
+```json
+{
+  "entityName": "实体名称",
+  "observations": [
+    {
+      "content": "观察内容1",
+      "timestamp": "2023-04-09T08:30:00.000Z",
+      "source": "user"
+    },
+    {
+      "content": "观察内容2",
+      "timestamp": "2023-04-09T09:30:00.000Z",
+      "source": "user"
+    }
+  ]
+}
+```
+
+**参数说明：**
+- `entityName`：实体名称（必需）
+- `observations`：完整的新观察项列表
+
+**返回示例：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "entityName": "实体名称",
+    "status": "observations_updated"
+  }
+}
 ```
 
 一次性替换实体的所有观察项。

@@ -179,7 +179,7 @@ GET /api/cloud/status
 
 ## 自动备份
 
-系统默认每24小时自动执行一次备份。所有备份都保存在WebDAV服务的`/CardCreationBackup`目录中。
+所有备份都保存在WebDAV服务的`/CardCreationBackup`目录中。
 
 ## 常见问题
 
@@ -204,6 +204,101 @@ GET /api/cloud/status
 ### 4. 如何在多设备间同步数据？
 
 目前需要在每台设备上单独配置WebDAV服务。您可以在一台设备上创建备份，然后在另一台设备上恢复该备份。
+
+### 5. 如何控制自动存档功能？
+
+您可以通过API来控制自动存档功能的开启和关闭：
+
+```
+POST /api/settings/auto-backup
+```
+
+**请求参数**：
+```json
+{
+  "enabled": true,  // true表示开启，false表示关闭
+  "interval": 300000  // 可选，自动保存间隔（毫秒）
+}
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "message": "自动存档设置已更新",
+  "settings": {
+    "enabled": true,
+    "interval": 300000
+  }
+}
+```
+
+### 6. 更新WebDAV设置
+
+您可以通过以下API更新WebDAV服务配置：
+
+```
+POST /api/settings/webdav
+```
+
+**请求参数**：
+```json
+{
+  "webdavUrl": "https://your-webdav-server.com/dav/",
+  "webdavUsername": "your_username",
+  "webdavPassword": "your_password",
+  "autoSaveInterval": 300000,  // 自动保存间隔（毫秒）
+  "autoBackupEnabled": true  // 是否启用自动备份
+}
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "message": "WebDAV设置已更新，连接测试成功"
+}
+```
+
+### 7. 获取自动备份状态
+
+```
+GET /api/cloud-sync/auto-backup
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "data": {
+    "enabled": true
+  }
+}
+```
+
+### 8. 设置自动备份状态
+
+```
+POST /api/cloud-sync/auto-backup
+```
+
+**请求参数**：
+```json
+{
+  "enabled": true  // true表示开启，false表示关闭
+}
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "data": {
+    "enabled": true,
+    "status": "操作成功"
+  }
+}
+```
 
 ---
 

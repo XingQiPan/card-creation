@@ -6,6 +6,8 @@ import AgentsView from '../components/AgentsView.vue'
 import KnowledgeView from '../components/KnowledgeBase.vue'
 import BookView from '../components/BookSplitter.vue'
 import MainView from '../App.vue'
+import KnowledgeGraph from '../components/KnowledgeGraph.vue'
+import CloudSync from '../components/CloudSync.vue'
 
 const routes = [
   {
@@ -37,6 +39,16 @@ const routes = [
     path: '/knowledge',
     name: 'Knowledge',
     component: KnowledgeView
+  },
+  {
+    path: '/knowledgegraph',
+    name: 'KnowledgeGraph',
+    component: KnowledgeGraph
+  },
+  {
+    path: '/cloudsync',
+    name: 'CloudSync',
+    component: CloudSync
   },
   {
     path: '/editor/:bookId/section/:sectionId',

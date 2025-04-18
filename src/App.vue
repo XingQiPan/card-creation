@@ -245,6 +245,12 @@
         v-if="currentView === 'knowledge'"
         :models="models"
       />
+      <KnowledgeGraph
+        v-if="currentView === 'knowledgegraph'"
+      />
+      <CloudSync
+        v-if="currentView === 'cloudsync'"
+      />
     </div>
     <router-view v-else />
     <!-- 视图切换按钮 -->
@@ -297,6 +303,20 @@
         title="知识库"
       >
         <i class="fas fa-database"></i>
+      </button>
+      <button 
+        @click="navigateTo('knowledgegraph')" 
+        :class="{ active: currentView === 'knowledgegraph' }"
+        title="知识图谱"
+      >
+        <i class="fas fa-project-diagram"></i>
+      </button>
+      <button 
+        @click="navigateTo('cloudsync')" 
+        :class="{ active: currentView === 'cloudsync' }"
+        title="云同步"
+      >
+        <i class="fas fa-cloud"></i>
       </button>
     </div>
   
@@ -924,6 +944,8 @@ import { dataService } from './utils/services/dataService'
 import { debugLog, setDebugMode } from './utils/debug'
 import AIDetector from './components/AIDetector.vue'
 import KnowledgeBase from './components/KnowledgeBase.vue'
+import KnowledgeGraph from './components/KnowledgeGraph.vue'
+import CloudSync from './components/CloudSync.vue'
 import { useRoute, useRouter } from 'vue-router'
 
 setDebugMode(false)
@@ -951,7 +973,7 @@ watch(() => route.path, (newPath) => {
   } else {
     // 从路径中提取视图名称
     const viewPath = newPath.substring(1) // 去掉开头的'/'
-    if (['book', 'chat', 'note', 'agents', 'detector', 'knowledge'].includes(viewPath)) {
+    if (['book', 'chat', 'note', 'agents', 'detector', 'knowledge', 'knowledgegraph', 'cloudsync'].includes(viewPath)) {
       currentView.value = viewPath
     }
   }

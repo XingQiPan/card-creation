@@ -1,7 +1,7 @@
 <template>
   <div class="container">    
     <!-- 其他视图内容 -->
-    <div class="content-area" v-if="currentView !== 'editor'">
+    <div class="content-area" v-if="dataLoaded">
       <!-- 主要内容区域 -->
       <div v-if="currentView === 'main'" class="main-content">
         <!-- 左侧提示词模板区 -->
@@ -134,6 +134,7 @@
               >
                 <template #item="{ element: scene }">
                   <div 
+                    v-if="shouldShowScene(scene)"
                     class="scene-tab"
                     :class="{ 
                       active: currentScene?.id === scene.id,
@@ -163,6 +164,13 @@
                 </template>
               </draggable>
             </div>
+            
+            <!-- 添加选择项目按钮 -->
+            <button @click="toggleProjectSidebar" class="project-btn" title="选择项目">
+              <i class="fas fa-folder"></i>
+              {{ activeProject ? activeProject.name : '全部场景' }}
+            </button>
+            
             <button @click="createNewScene">
               <i class="fas fa-plus"></i> 新建场景
             </button>
@@ -923,6 +931,22 @@
         </div>
       </div>
     </div>
+
+    <!-- 项目侧边栏 -->
+    <ProjectSidebar 
+      v-if="showProjectSidebar"
+      :show="showProjectSidebar"
+      :scenes="scenes"
+      :projects="projects"
+      :activeProject="activeProject"
+      @close="showProjectSidebar = false"
+      @select-project="selectProject"
+      @add-project="createProject"
+      @update-project="updateProject"
+      @delete-project="deleteProject"
+      @rename-scenes="handleRenameScenes"
+    />
+    
 </template>
 
 
@@ -947,6 +971,8 @@ import KnowledgeBase from './components/KnowledgeBase.vue'
 import KnowledgeGraph from './components/KnowledgeGraph.vue'
 import CloudSync from './components/CloudSync.vue'
 import { useRoute, useRouter } from 'vue-router'
+import ProjectSidebar from './components/ProjectSidebar.vue'
+import ProjectForm from './components/ProjectForm.vue'
 
 setDebugMode(false)
 
@@ -1091,6 +1117,8 @@ const syncData = createDebounce(async () => {
       scenes: validatedScenes,
       prompts: prompts.value,
       tags: tags.value,
+      projects: projects.value, // 添加项目数据
+      activeProject: activeProject.value ? activeProject.value.id : null, // 添加当前活动项目ID
       config: {
         models: models.value,
         notepadContent: notepadInitialContent.value,
@@ -1119,6 +1147,8 @@ const syncData = createDebounce(async () => {
       scenes: scenes.value,
       prompts: prompts.value,
       tags: tags.value,
+      projects: projects.value, // 添加项目数据
+      activeProject: activeProject.value ? activeProject.value.id : null, // 添加当前活动项目ID
       config: {
         models: models.value,
         notepadContent: notepadInitialContent.value,
@@ -1183,6 +1213,14 @@ const initializeData = (data) => {
   
   // 更新标签
   tags.value = data.tags || []
+  
+  // 更新项目数据
+  projects.value = data.projects || []
+  
+  // 更新当前激活的项目
+  if (data.activeProject) {
+    activeProject.value = projects.value.find(p => p.id === data.activeProject) || null
+  }
 
   if (data.config) {
     // 更新模型，确保有默认值
@@ -1375,14 +1413,7 @@ const processKeywords = async (text) => {
   return text
 }
 
-// 生命周期钩子
-onMounted(async () => {
-  try {
-    await loadAllData()
-  } catch (error) {
-    console.error('初始化数据失败:', error)
-  }
-})
+// 生命周期钩子已合并到主要的onMounted钩子中
 
 // 合并后的数据监听
 watch(
@@ -1883,7 +1914,7 @@ const createNewScene = async () => {
     switchScene(newScene)
     
     // 保存更改
-    await syncData() // 使用 syncData 同步到后端
+    syncData() // 使用 syncData 同步到后端
     showToast('新场景创建成功', 'success')
   } catch (error) {
     console.error('创建场景失败:', error)
@@ -2151,8 +2182,64 @@ const deleteCard = async (id) => {
 
 // 减少自动同步间隔到10秒
 onMounted(async () => {
-  await loadAllData()
-  setInterval(syncData, 10000) // 10秒自动同步一次
+  try {
+    isLoading.value = true
+    
+    // 加载所有数据
+    await loadAllData();
+    
+    // 如果没有场景，创建一个默认场景
+    if (scenes.value.length === 0) {
+      const defaultScene = {
+        id: Date.now(),
+        name: '默认场景',
+        cards: []
+      }
+      scenes.value.push(defaultScene)
+      currentScene.value = defaultScene
+      
+      await syncData()
+    }
+    
+    // 加载项目数据
+    await loadProjects();
+    
+    // 获取内置提示词
+    await fetchBuiltInPrompts();
+    
+    // 加载标签数据
+    try {
+      // 使用 dataService 加载标签数据
+      const data = await dataService.loadAllData()
+      
+      // 更新标签数据
+      if (Array.isArray(data.tags)) {
+        tags.value = data.tags
+      } else {
+        console.warn('加载的标签数据格式不正确:', data.tags)
+        tags.value = []
+      }
+    } catch (error) {
+      console.error('加载标签失败:', error)
+      tags.value = []
+    }
+    
+    // 应用字体大小设置
+    applyFontSize();
+    
+    // 应用卡片布局设置
+    applyCardLayout();
+    
+    // 设置自动同步
+    setInterval(syncData, 10000); // 10秒自动同步一次
+    
+    dataLoaded.value = true
+  } catch (error) {
+    console.error('初始化数据失败:', error)
+    showToast('初始化数据失败: ' + error.message, 'error')
+  } finally {
+    isLoading.value = false
+  }
 })
 
 // 处理插入卡片到提示词
@@ -2637,6 +2724,9 @@ onMounted(async () => {
       
       await syncData()
     }
+    
+    // 加载项目数据
+    await loadProjects();
     
     dataLoaded.value = true
   } catch (error) {
@@ -3161,9 +3251,375 @@ provide('scenes', scenes);
 provide('syncData', syncData);
 provide('tags', tags); // 添加这一行
 
+// 添加项目管理相关状态
+const projects = ref([]);
+const activeProject = ref(null);
+const showProjectSidebar = ref(false);
+
+// 项目管理相关方法
+const toggleProjectSidebar = () => {
+  showProjectSidebar.value = !showProjectSidebar.value;
+};
+
+// 判断场景是否应该显示
+const shouldShowScene = (scene) => {
+  // 如果没有选择项目，显示所有场景
+  if (!activeProject.value) {
+    return true;
+  }
+  
+  // 否则，只显示属于当前项目的场景
+  return activeProject.value.scenes.some(projectScene => projectScene.id === scene.id);
+};
+
+const selectProject = (project) => {
+  activeProject.value = project;
+  
+  // 保存当前激活的项目
+  saveActiveProject();
+  
+  // 如果选择了项目，就显示项目中的场景
+  if (project) {
+    // 获取项目中的场景
+    const projectScenes = project.scenes;
+    
+    // 如果有场景，显示第一个场景
+    if (projectScenes.length > 0) {
+      // 查找真实的场景对象
+      const firstSceneId = projectScenes[0].id;
+      const firstScene = scenes.value.find(s => s.id === firstSceneId);
+      if (firstScene) {
+        switchScene(firstScene);
+      }
+    }
+  } else {
+    // 如果选择了"全部场景"，显示第一个场景
+    if (scenes.value.length > 0) {
+      switchScene(scenes.value[0]);
+    }
+  }
+};
+
+const addProject = async (project) => {
+  projects.value.push(project);
+  showToast('项目添加成功', 'success');
+  
+  // 保存项目
+  await saveProjects();
+  
+  // 自动选中新建的项目
+  selectProject(project);
+};
+
+// const updateProject = async (updatedProject) => {
+//   const index = projects.value.findIndex(p => p.id === updatedProject.id);
+//   if (index !== -1) {
+//     projects.value[index] = updatedProject;
+    
+//     // 如果更新的是当前激活的项目，也更新activeProject
+//     if (activeProject.value && activeProject.value.id === updatedProject.id) {
+//       activeProject.value = updatedProject;
+//     }
+    
+//     await saveProjects();
+//     showToast('项目更新成功', 'success');
+//   }
+// };
+// 
+// const deleteProject = async (projectId) => {
+//   const index = projects.value.findIndex(p => p.id === projectId);
+//   if (index !== -1) {
+//     projects.value.splice(index, 1);
+    
+//     // 如果删除的是当前激活的项目，重置为显示全部场景
+//     if (activeProject.value && activeProject.value.id === projectId) {
+//       activeProject.value = null;
+//     }
+    
+//     await saveProjects();
+//     showToast('项目删除成功', 'success');
+//   }
+// };
+
+// 保存项目数据
+// const saveProjects = async () => {
+//   try {
+//     await dataService.saveItem('projects', projects.value);
+//     return true;
+//   } catch (error) {
+//     console.error('保存项目数据失败:', error);
+//     showToast('保存项目数据失败', 'error');
+//     return false;
+//   }
+// };
+// 
+// 保存当前激活的项目
+// const saveActiveProject = async () => {
+//   try {
+//     const activeProjectId = activeProject.value ? activeProject.value.id : null;
+//     dataService.saveToLocalStorage('activeProject', activeProjectId);
+//     return true;
+//   } catch (error) {
+//     console.error('保存当前项目失败:', error);
+//     return false;
+//   }
+// };
+
+// 加载项目数据
+const loadProjects = async () => {
+  try {
+    // 从后端加载所有数据
+    const data = await dataService.loadBackendData();
+    
+    // 加载项目数据
+    if (data.projects && Array.isArray(data.projects)) {
+      projects.value = data.projects;
+    } else {
+      // 如果后端没有项目数据，从本地存储加载
+      const savedProjects = dataService.loadFromLocalStorage('projects', []);
+      projects.value = savedProjects;
+    }
+    
+    // 加载当前激活的项目
+    const activeProjectId = data.activeProject || dataService.loadFromLocalStorage('activeProject');
+    if (activeProjectId) {
+      activeProject.value = projects.value.find(p => p.id === activeProjectId) || null;
+    }
+  } catch (error) {
+    console.error('加载项目数据失败:', error);
+    showToast('加载项目数据失败', 'error');
+    
+    // 从本地存储加载作为备份
+    const savedProjects = dataService.loadFromLocalStorage('projects', []);
+    projects.value = savedProjects;
+    
+    const activeProjectId = dataService.loadFromLocalStorage('activeProject');
+    if (activeProjectId) {
+      activeProject.value = projects.value.find(p => p.id === activeProjectId) || null;
+    }
+  }
+};
+
+// 在初始化时加载项目数据
+onMounted(async () => {
+  try {
+    isLoading.value = true
+    
+    // 使用 dataService 加载所有数据
+    await loadAllData()
+    
+    // 如果没有场景，创建一个默认场景
+    if (scenes.value.length === 0) {
+      const defaultScene = {
+        id: Date.now(),
+        name: '默认场景',
+        cards: []
+      }
+      scenes.value.push(defaultScene)
+      currentScene.value = defaultScene
+      
+      await syncData()
+    }
+    
+    // 加载项目数据
+    await loadProjects();
+    
+    dataLoaded.value = true
+  } catch (error) {
+    console.error('初始化数据失败:', error)
+    showToast('初始化数据失败: ' + error.message, 'error')
+  } finally {
+    isLoading.value = false
+  }
+})
+
+// 在loadProjects函数附近添加项目管理完整功能
+
+// 创建新项目
+const createProject = async (project) => {
+  try {
+    // 添加时间戳和ID
+    const newProject = {
+      ...project,
+      id: Date.now(),
+      createdAt: new Date().toISOString()
+    };
+    
+    // 添加到项目列表
+    projects.value.push(newProject);
+    
+    // 选择新创建的项目
+    activeProject.value = newProject;
+    
+    // 保存项目列表
+    saveProjects();
+    
+    // 保存当前激活的项目
+    saveActiveProject();
+    
+    // 关闭项目侧边栏
+    showProjectSidebar.value = false;
+    
+    showToast('项目创建成功', 'success');
+    return true;
+  } catch (error) {
+    console.error('创建项目失败:', error);
+    showToast('创建项目失败', 'error');
+    return false;
+  }
+};
+
+// 更新项目
+const updateProject = async (project) => {
+  try {
+    const index = projects.value.findIndex(p => p.id === project.id);
+    if (index !== -1) {
+      // 保留原有的创建时间
+      const createdAt = projects.value[index].createdAt;
+      
+      // 更新项目，添加更新时间
+      projects.value[index] = {
+        ...project,
+        createdAt,
+        updatedAt: new Date().toISOString()
+      };
+      
+      // 如果正在更新的是当前激活的项目，更新activeProject
+      if (activeProject.value && activeProject.value.id === project.id) {
+        activeProject.value = projects.value[index];
+      }
+      
+      // 保存项目列表
+      saveProjects();
+      
+      showToast('项目更新成功', 'success');
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('更新项目失败:', error);
+    showToast('更新项目失败', 'error');
+    return false;
+  }
+};
+
+// 删除项目
+const deleteProject = async (projectId) => {
+  try {
+    const index = projects.value.findIndex(p => p.id === projectId);
+    if (index !== -1) {
+      projects.value.splice(index, 1);
+      
+      // 如果删除的是当前激活的项目，重置activeProject
+      if (activeProject.value && activeProject.value.id === projectId) {
+        activeProject.value = null;
+      }
+      
+      // 保存项目列表
+      saveProjects();
+      
+      // 保存当前激活的项目
+      saveActiveProject();
+      
+      showToast('项目删除成功', 'success');
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('删除项目失败:', error);
+    showToast('删除项目失败', 'error');
+    return false;
+  }
+};
+
+// 保存项目列表
+const saveProjects = () => {
+  try {
+    // 保存到本地存储作为备份
+    dataService.saveToLocalStorage('projects', projects.value);
+    
+    // 通过syncData保存到后端
+    syncData();
+    
+    return true;
+  } catch (error) {
+    console.error('保存项目数据失败:', error);
+    showToast('保存项目数据失败', 'error');
+    return false;
+  }
+};
+
+// 保存当前激活的项目
+const saveActiveProject = async () => {
+  try {
+    const activeProjectId = activeProject.value ? activeProject.value.id : null;
+    
+    // 保存到本地存储作为备份
+    dataService.saveToLocalStorage('activeProject', activeProjectId);
+    
+    // 通过syncData保存到后端
+    syncData();
+    
+    return true;
+  } catch (error) {
+    console.error('保存当前项目失败:', error);
+    return false;
+  }
+};
+
+// 在项目相关方法中添加重命名场景的处理函数
+const handleRenameScenes = async (modifiedScenes) => {
+  try {
+    // 更新场景数据
+    modifiedScenes.forEach(modifiedScene => {
+      const index = scenes.value.findIndex(s => s.id === modifiedScene.id);
+      if (index !== -1) {
+        scenes.value[index] = modifiedScene;
+      }
+    });
+    
+    // 同步到后端
+    await syncData();
+    
+    showToast('场景重命名成功', 'success');
+  } catch (error) {
+    console.error('场景重命名失败:', error);
+    showToast('场景重命名失败: ' + error.message, 'error');
+  }
+};
+
 </script>
 
 <style scoped>
 @import url("./styles/app.css");
 @import url("./styles/common.css");
+</style>
+
+<style>
+/* 在 app.css 中已有的样式后添加 */
+.project-btn {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  cursor: pointer;
+  gap: 8px;
+  transition: all 0.2s;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-btn:hover {
+  background: #e9ecef;
+}
+
+.project-btn i {
+  color: #ffc107;
+}
 </style>

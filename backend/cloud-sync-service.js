@@ -586,36 +586,37 @@ class CloudSyncService {
       // 调试日志：显示完整请求路径
       const fullRemotePath = path.posix.join(process.env.WEBDAV_URL, remotePath)
       const fullNewPath = path.posix.join(process.env.WEBDAV_URL, newPath)
-      console.log('完整请求路径:', {
-        original: fullRemotePath,
-        new: fullNewPath
-      })
+    //   console.log('完整请求路径:', {
+    //     original: fullRemotePath,
+    //     new: fullNewPath
+    //   }
+    // )
 
-      console.log('完整路径转换:', {
-        originalRemote: remotePath,
-        computedNewPath: newPath,
-        webdavRoot: process.env.WEBDAV_URL
-      })
+      // console.log('完整路径转换:', {
+      //   originalRemote: remotePath,
+      //   computedNewPath: newPath,
+      //   webdavRoot: process.env.WEBDAV_URL
+      // })
 
       // WebDAV移动/重命名操作
-      console.time('WebDAV重命名操作')
+    //  console.time('WebDAV重命名操作')
       const response = await this.webdavClient.moveFile(
         remotePath, 
         newPath,
         { overwrite: true }
       )
-      console.timeEnd('WebDAV重命名操作')
+      //console.timeEnd('WebDAV重命名操作')
 
-      // 调试日志：输出服务器响应详情
-      if (response) {
-        console.log('WebDAV服务器响应:', {
-          status: response?.status,
-          headers: response?.headers,
-          data: response?.data
-        })
-      } else {
-        console.warn('WebDAV响应对象未定义')
-      }
+      // // 调试日志：输出服务器响应详情
+      // if (response) {
+      //   console.log('WebDAV服务器响应:', {
+      //     status: response?.status,
+      //     headers: response?.headers,
+      //     data: response?.data
+      //   })
+      // } else {
+      //   console.warn('WebDAV响应对象未定义')
+      // }
 
       return { 
         success: true, 

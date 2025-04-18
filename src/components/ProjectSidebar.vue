@@ -78,7 +78,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed ,inject} from 'vue';
 import ProjectForm from './ProjectForm.vue';
 import { showToast } from '../utils/common';
 
@@ -102,7 +102,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'select-project', 'add-project', 'update-project', 'delete-project', 'rename-scenes']);
-
+const syncData = inject('syncData');
 // 状态变量
 const showProjectForm = ref(false);
 const editingProject = ref(null);
@@ -119,7 +119,9 @@ const closeProjectSidebar = () => {
 
 const selectProject = (project) => {
   emit('select-project', project);
+  syncData()
   closeProjectSidebar();
+  
 };
 
 const openAddProjectSidebar = () => {

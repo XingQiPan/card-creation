@@ -1892,7 +1892,7 @@ const createNewScene = async () => {
     switchScene(newScene)
     
     // 保存更改
-    await syncData() // 使用 syncData 同步到后端
+    syncData() // 使用 syncData 同步到后端
     showToast('新场景创建成功', 'success')
   } catch (error) {
     console.error('创建场景失败:', error)

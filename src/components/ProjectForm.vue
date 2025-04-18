@@ -258,6 +258,7 @@ const saveProject = () => {
   };
   
   emit('save', projectData);
+  syncData()
 };
 
 // 初始化表单数据

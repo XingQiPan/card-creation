@@ -15,7 +15,10 @@
           <div class="panel">
             <h2>实体详情</h2>
             <div id="entity-details" v-if="selectedNode">
-              <div class="entity-name">{{ selectedNode.name }}</div>
+              <div class="entity-header">
+                <div class="entity-name">{{ selectedNode.name }}</div>
+                <button class="edit-entity-btn" @click="showEditEntityModal(selectedNode)">编辑</button>
+              </div>
               <div class="entity-type">{{ selectedNode.type }}</div>
               <div class="entity-color">
                 <span class="color-label">颜色:</span>
@@ -29,7 +32,7 @@
               <div class="observations">
                 <h3>观察项</h3>
                 <ul class="observations-list">
-                  <li v-for="(observation, index) in filterObservations(selectedNode.observations)" :key="index">
+                  <li v-for="(observation, index) in selectedNode.observations" :key="index">
                     {{ observation.content }}
                     <span class="observation-meta" v-if="observation.timestamp">
                       ({{ formatDate(observation.timestamp) }})
@@ -50,9 +53,17 @@
                     {{ link.direction === 'outgoing' ? '→' : '←' }}
                     {{ link.direction === 'outgoing' ? link.target : link.source }}
                     <span class="relation-type">({{ link.type }})</span>
-                    <button class="delete-btn" @click="confirmDeleteRelation(link)">
-                      删除
-                    </button>
+                    <div class="relation-actions">
+                      <button class="property-btn" @click="showRelationProperties(link)">
+                        属性
+                      </button>
+                      <button class="edit-btn" @click="showEditRelationModal(link)">
+                        编辑
+                      </button>
+                      <button class="delete-btn" @click="confirmDeleteRelation(link)">
+                        删除
+                      </button>
+                    </div>
                   </li>
                 </ul>
               </div>
@@ -111,6 +122,9 @@
         
         <!-- 节点上的右键菜单 -->
         <div v-else-if="contextMenu.type === 'node'">
+          <div class="context-menu-item" @click="handleContextMenuAction('edit-node')">
+            <span class="context-menu-icon">✏️</span>编辑实体
+          </div>
           <div class="context-menu-item" @click="handleContextMenuAction('create-relation')">
             <span class="context-menu-icon">↔</span>创建关系
           </div>
@@ -177,6 +191,12 @@
                   {{ entity.name }}
                 </option>
               </select>
+            </div>
+            <div class="form-group">
+              <label for="relation-properties">关系属性（每行一个，格式：key=value）</label>
+              <textarea id="relation-properties" v-model="modal.relation.properties" rows="4" placeholder="例如：
+开始时间=2023-01-01
+结束时间=2023-12-31"></textarea>
             </div>
             <button type="submit">保存</button>
           </form>
@@ -247,6 +267,71 @@
           </form>
         </div>
       </div>
+
+      <!-- 添加关系属性编辑模态框 -->
+      <div class="modal" v-if="modal.relationProperties.show">
+        <div class="modal-content">
+          <span class="close" @click="hideModal('relationProperties')">&times;</span>
+          <h2>关系属性</h2>
+          <div class="relation-info">
+            <div class="relation-path">
+              {{ modal.relationProperties.source }} → {{ modal.relationProperties.target }}
+              <span class="relation-type">({{ modal.relationProperties.type }})</span>
+            </div>
+          </div>
+          <form @submit.prevent="handleUpdateRelationProperties">
+            <div class="form-group">
+              <label for="relation-properties-edit">属性（每行一个，格式：key=value）</label>
+              <textarea 
+                id="relation-properties-edit" 
+                v-model="modal.relationProperties.propertiesText" 
+                rows="6" 
+                placeholder="例如：
+开始时间=2023-01-01
+结束时间=2023-12-31"></textarea>
+            </div>
+            <button type="submit">保存</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- 添加实体编辑模态框 -->
+      <div class="modal" v-if="modal.editEntity.show">
+        <div class="modal-content">
+          <span class="close" @click="hideModal('editEntity')">&times;</span>
+          <h2>编辑实体</h2>
+          <form @submit.prevent="handleUpdateEntity">
+            <div class="form-group">
+              <label for="edit-entity-name">实体名称</label>
+              <input type="text" id="edit-entity-name" v-model="modal.editEntity.name" required>
+            </div>
+            <div class="form-group">
+              <label for="edit-entity-type">实体类型</label>
+              <input type="text" id="edit-entity-type" v-model="modal.editEntity.type" required>
+            </div>
+            <div class="form-group">
+              <label for="edit-entity-observations">观察项（每行一个）</label>
+              <textarea id="edit-entity-observations" v-model="modal.editEntity.observations" rows="4"></textarea>
+            </div>
+            <button type="submit">保存</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- 添加关系编辑模态框 -->
+      <div class="modal" v-if="modal.editRelation.show">
+        <div class="modal-content">
+          <span class="close" @click="hideModal('editRelation')">&times;</span>
+          <h2>编辑关系</h2>
+          <form @submit.prevent="handleUpdateRelation">
+            <div class="form-group">
+              <label for="edit-relation-type">关系类型</label>
+              <input type="text" id="edit-relation-type" v-model="modal.editRelation.type" required>
+            </div>
+            <button type="submit">保存</button>
+          </form>
+        </div>
+      </div>
     </div>
   </template>
   
@@ -297,7 +382,8 @@
             show: false,
             source: '',
             target: '',
-            type: ''
+            type: '',
+            properties: ''
           },
           observation: {
             show: false,
@@ -313,6 +399,34 @@
           newGraph: {
             show: false,
             fileName: ''
+          },
+          // 新增 - 关系属性编辑模态框
+          relationProperties: {
+            show: false,
+            source: '',
+            target: '',
+            type: '',
+            direction: '',
+            propertiesText: '',
+            originalLink: null
+          },
+          // 新增 - 实体编辑模态框
+          editEntity: {
+            show: false,
+            id: '',
+            name: '',
+            type: '',
+            observations: '',
+            originalNode: null
+          },
+          // 新增 - 关系编辑模态框
+          editRelation: {
+            show: false,
+            source: '',
+            target: '',
+            type: '',
+            originalType: '',
+            originalLink: null
           }
         },
         // 新增 - 颜色相关
@@ -432,8 +546,8 @@
           
           // 创建节点
           this.graphData.nodes = entitiesArray.map(entity => {
-            // 从观察项中解析颜色
-            const customColor = this.parseColorFromObservations(entity.observations);
+            // 从实体属性中获取颜色
+            const customColor = this.getNodeColor(entity);
             
             return {
               id: entity.name,
@@ -471,21 +585,15 @@
         this.initTypeColorMap();
       },
       
-      // 新增 - 解析观察项中的颜色信息
-      parseColorFromObservations(observations) {
-        if (!observations || observations.length === 0) return null;
-        
-        // 检查第一个观察项是否包含颜色信息
-        const firstObservation = observations[0];
-        if (!firstObservation || !firstObservation.content) return null;
-        
-        // 使用正则表达式匹配颜色格式 color=#RRGGBB
-        const colorMatch = firstObservation.content.match(/color=#([0-9A-Fa-f]{6})/);
-        if (colorMatch && colorMatch[1]) {
-          return '#' + colorMatch[1];
+      // 从实体属性中获取颜色
+      getNodeColor(entity) {
+        // 优先从属性中获取颜色
+        if (entity.properties && entity.properties.color) {
+          return entity.properties.color;
         }
         
-        return null;
+        // 如果没有设置颜色，使用实体类型的默认颜色
+        return this.getEntityColor(entity.type);
       },
       
       // 初始化类型颜色映射
@@ -962,12 +1070,32 @@
           this.modal.relation.source = '';
           this.modal.relation.target = '';
           this.modal.relation.type = '';
+          this.modal.relation.properties = '';
         } else if (type === 'observation') {
           this.modal.observation.entityName = '';
           this.modal.observation.content = '';
         } else if (type === 'typeColor') {
           this.modal.typeColor.typeColors = {};
           this.initTypeColorMap(); // 重新初始化类型颜色映射
+        } else if (type === 'relationProperties') {
+          this.modal.relationProperties.source = '';
+          this.modal.relationProperties.target = '';
+          this.modal.relationProperties.type = '';
+          this.modal.relationProperties.direction = '';
+          this.modal.relationProperties.propertiesText = '';
+          this.modal.relationProperties.originalLink = null;
+        } else if (type === 'editEntity') {
+          this.modal.editEntity.id = '';
+          this.modal.editEntity.name = '';
+          this.modal.editEntity.type = '';
+          this.modal.editEntity.observations = '';
+          this.modal.editEntity.originalNode = null;
+        } else if (type === 'editRelation') {
+          this.modal.editRelation.source = '';
+          this.modal.editRelation.target = '';
+          this.modal.editRelation.type = '';
+          this.modal.editRelation.originalType = '';
+          this.modal.editRelation.originalLink = null;
         }
       },
       
@@ -979,19 +1107,25 @@
         const entityName = this.modal.entity.name;
         const entityType = this.modal.entity.type;
         
+        // 检查是否已存在同名实体
+        const existingEntity = this.graphData.nodes.find(node => node.name === entityName);
+        if (existingEntity) {
+          this.showNotification(`实体"${entityName}"已存在，请使用不同的名称`, 'warning');
+          return;
+        }
+        
         // 处理观察项
         const observations = [];
         
-        // 如果设置了自定义颜色，添加到第一个观察项
+        // 准备实体属性
+        const properties = {};
+        
+        // 如果设置了自定义颜色，添加到属性中
         if (this.modal.entity.customColor && this.modal.entity.customColor !== '') {
-          observations.push({
-            content: `color=${this.modal.entity.customColor}`,
-            timestamp: new Date().toISOString(),
-            source: 'user'
-          });
+          properties.color = this.modal.entity.customColor;
         }
         
-        // 添加用户输入的其他观察项
+        // 添加用户输入的观察项
         if (this.modal.entity.observations && this.modal.entity.observations.trim() !== '') {
           const userObservations = this.modal.entity.observations
             .split('\n')
@@ -1017,6 +1151,7 @@
                   name: entityName,
                   type: entityType,
                   observations: observations,
+                  properties: properties,
                   overwrite: false
                 }
               ]
@@ -1040,6 +1175,23 @@
         }
       },
       
+      // 解析关系属性文本为对象
+      parseProperties(propertiesText) {
+        if (!propertiesText) return {};
+        
+        const properties = {};
+        const lines = propertiesText.split('\n').filter(line => line.trim() !== '');
+        
+        lines.forEach(line => {
+          const [key, value] = line.split('=').map(part => part.trim());
+          if (key && value) {
+            properties[key] = value;
+          }
+        });
+        
+        return properties;
+      },
+      
       async handleCreateRelation(e) {
         e.preventDefault();
         
@@ -1055,7 +1207,7 @@
                   source: this.modal.relation.source,
                   target: this.modal.relation.target,
                   type: this.modal.relation.type,
-                  properties: {},
+                  properties: this.parseProperties(this.modal.relation.properties),
                   overwrite: false
                 }
               ]
@@ -1319,65 +1471,27 @@
             throw new Error('找不到指定的实体');
           }
           
-          // 检查是否已有颜色观察项
-          let hasColorObs = false;
-          let observations = [...(entity.observations || [])];
+          // 准备实体属性
+          const properties = { ...(entity.properties || {}) };
+          // 设置颜色属性
+          properties.color = newColor;
           
-          if (observations.length > 0) {
-            const firstObs = observations[0];
-            hasColorObs = firstObs.content && firstObs.content.match(/color=#([0-9A-Fa-f]{6})/);
-          }
+          // 调用API更新实体属性
+          const response = await fetch(`${this.apiBaseUrl}/entity-properties`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              entityName: entityName,
+              properties: properties
+            })
+          });
           
-          if (hasColorObs) {
-            // 使用新的API更新第一个观察项
-            observations[0] = {
-              ...observations[0],
-              content: `color=${newColor}`,
-              timestamp: new Date().toISOString()
-            };
-            
-            const response = await fetch(`${this.apiBaseUrl}/entity-observations`, {
-              method: 'PUT',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                entityName: entityName,
-                observations: observations
-              })
-            });
-            
-            const data = await response.json();
-            
-            if (!data.success) {
-              throw new Error(data.error || '更新颜色失败');
-            }
-          } else {
-            // 创建新的颜色观察项并加到列表前面
-            const newObservation = {
-              content: `color=${newColor}`,
-              timestamp: new Date().toISOString(),
-              source: 'user'
-            };
-            
-            observations = [newObservation, ...observations];
-            
-            const response = await fetch(`${this.apiBaseUrl}/entity-observations`, {
-              method: 'PUT',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                entityName: entityName,
-                observations: observations
-              })
-            });
-            
-            const data = await response.json();
-            
-            if (!data.success) {
-              throw new Error(data.error || '设置颜色失败');
-            }
+          const data = await response.json();
+          
+          if (!data.success) {
+            throw new Error(data.error || '更新颜色失败');
           }
           
           this.showNotification(`成功设置实体颜色: ${entityName}`, 'success');
@@ -1452,43 +1566,21 @@
             const typeEntities = this.entities.filter(e => e.type === type);
             
             for (const entity of typeEntities) {
-              // 检查是否已有颜色观察项
-              let hasColorObs = false;
-              let observations = [...(entity.observations || [])];
+              // 准备实体属性
+              const properties = { ...(entity.properties || {}) };
+              // 设置颜色属性
+              properties.color = color;
               
-              if (observations.length > 0) {
-                const firstObs = observations[0];
-                hasColorObs = firstObs.content && firstObs.content.match(/color=#([0-9A-Fa-f]{6})/);
-              }
-              
-              if (hasColorObs) {
-                // 更新第一个观察项
-                observations[0] = {
-                  ...observations[0],
-                  content: `color=${color}`,
-                  timestamp: new Date().toISOString()
-                };
-              } else {
-                // 创建新的颜色观察项并加到列表前面
-                const newObservation = {
-                  content: `color=${color}`,
-                  timestamp: new Date().toISOString(),
-                  source: 'user'
-                };
-                
-                observations = [newObservation, ...observations];
-              }
-              
-              // 使用新的API更新所有观察项
+              // 调用API更新实体属性
               updatePromises.push(
-                fetch(`${this.apiBaseUrl}/entity-observations`, {
+                fetch(`${this.apiBaseUrl}/entity-properties`, {
                   method: 'PUT',
                   headers: {
                     'Content-Type': 'application/json'
                   },
                   body: JSON.stringify({
                     entityName: entity.name,
-                    observations: observations
+                    properties: properties
                   })
                 })
               );
@@ -1501,23 +1593,24 @@
             }
           }
           
-          // 执行所有更新请求
-          const responses = await Promise.all(updatePromises);
-          const results = await Promise.all(responses.map(r => r.json()));
+          // 等待所有更新完成
+          const results = await Promise.all(updatePromises);
+          const failedUpdates = results.filter(resp => !resp.ok).length;
           
-          if (results.every(r => r.success)) {
-            this.showNotification('成功设置所有类型颜色', 'success');
-            
-            // 刷新图谱
-            this.graphInstance.graphData(this.graphData);
-            
-            // 重新加载图谱数据
-            await this.loadGraphData();
-            
-            this.hideModal('typeColor');
-          } else {
-            throw new Error('部分类型颜色设置失败');
+          if (failedUpdates > 0) {
+            throw new Error(`部分类型颜色设置失败: ${failedUpdates}个`);
           }
+          
+          this.showNotification('成功设置所有类型颜色', 'success');
+          
+          // 刷新图谱
+          this.graphInstance.graphData(this.graphData);
+          
+          // 隐藏模态框
+          this.hideModal('typeColor');
+          
+          // 重新加载图谱数据
+          await this.loadGraphData();
         } catch (error) {
           console.error('设置类型颜色出错:', error);
           this.showNotification('设置类型颜色失败: ' + error.message, 'error');
@@ -1553,12 +1646,7 @@
       
       // 检查是否有可见的观察项
       hasVisibleObservations(observations) {
-        if (!observations || observations.length === 0) return false;
-        
-        return observations.some(obs => {
-          if (!obs.content) return true;
-          return !obs.content.match(/color=#([0-9A-Fa-f]{6})/);
-        });
+        return observations && observations.length > 0;
       },
       
       async confirmDeleteGraphFile() {
@@ -1643,6 +1731,16 @@
             }
             this.showModal('observation');
             break;
+          case 'edit-node':
+            if (this.contextMenu.targetNode) {
+              this.showEditEntityModal(this.contextMenu.targetNode);
+            }
+            break;
+          case 'edit-relation':
+            if (this.contextMenu.targetLink) {
+              this.showEditRelationModal(this.contextMenu.targetLink);
+            }
+            break;
           case 'delete-node':
             if (this.contextMenu.targetNode) {
               this.confirmDeleteEntity();
@@ -1691,6 +1789,220 @@
           console.error('创建知识图谱出错:', error);
           this.showNotification('创建知识图谱失败: ' + error.message, 'error');
         }
+      },
+      
+      // 显示关系属性编辑模态框
+      showRelationProperties(relation) {
+        this.modal.relationProperties.source = relation.source;
+        this.modal.relationProperties.target = relation.target;
+        this.modal.relationProperties.type = relation.type;
+        this.modal.relationProperties.show = true;
+      },
+      
+      // 更新关系属性
+      async handleUpdateRelationProperties(e) {
+        e.preventDefault();
+        
+        try {
+          const response = await fetch(`${this.apiBaseUrl}/relations`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              relations: [
+                {
+                  source: this.modal.relationProperties.source,
+                  target: this.modal.relationProperties.target,
+                  type: this.modal.relationProperties.type,
+                  properties: this.parseProperties(this.modal.relationProperties.propertiesText),
+                  overwrite: false
+                }
+              ]
+            })
+          });
+          
+          const data = await response.json();
+          
+          if (data.success) {
+            this.showNotification(`成功更新关系属性: ${this.modal.relationProperties.source} → ${this.modal.relationProperties.target}`, 'success');
+            this.hideModal('relationProperties');
+            
+            // 重新加载图谱数据
+            await this.loadGraphData();
+            
+            // 如果当前有选中的节点，更新其相关连接
+            if (this.selectedNode) {
+              this.updateRelatedLinks(this.selectedNode);
+            }
+          } else {
+            throw new Error(data.error || '更新关系属性失败');
+          }
+        } catch (error) {
+          console.error('更新关系属性出错:', error);
+          this.showNotification('更新关系属性失败: ' + error.message, 'error');
+        }
+      },
+      
+      // 显示实体编辑模态框
+      showEditEntityModal(node) {
+        if (!node) return;
+        
+        // 设置模态框数据
+        this.modal.editEntity.id = node.id;
+        this.modal.editEntity.name = node.name;
+        this.modal.editEntity.type = node.type;
+        this.modal.editEntity.originalNode = node;
+        
+        // 设置观察项
+        this.modal.editEntity.observations = (node.observations || [])
+          .map(obs => obs.content)
+          .filter(content => content) // 过滤掉空内容
+          .join('\n');
+        
+        // 显示模态框
+        this.modal.editEntity.show = true;
+      },
+      
+      // 处理实体更新
+      async handleUpdateEntity() {
+        // 检查是否已存在同名实体（排除当前正在编辑的实体）
+        if (this.modal.editEntity.name && this.modal.editEntity.name !== this.modal.editEntity.originalNode.name) {
+          const existingEntity = this.entities.find(e => 
+            e.name === this.modal.editEntity.name && e.id !== this.modal.editEntity.originalNode.id
+          );
+          if (existingEntity) {
+            this.showNotification(`实体名称"${this.modal.editEntity.name}"已存在`, 'error');
+            return;
+          }
+        }
+        try {
+          const editData = this.modal.editEntity;
+          const originalNode = editData.originalNode;
+          
+          if (!originalNode) {
+            this.showNotification('找不到原始实体数据', 'error');
+            return;
+          }
+          
+          // 检查名称是否变更
+          const isNameChanged = editData.name !== originalNode.name;
+          
+          // 准备更新实体数据
+          const entityData = {
+            name: isNameChanged ? editData.name : originalNode.name,
+            type: editData.type,
+            oldName: isNameChanged ? originalNode.name : undefined
+          };
+          
+          // 发送请求更新实体基本信息
+          const response = await fetch(`${this.apiBaseUrl}/entity`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(entityData)
+          });
+          
+          const data = await response.json();
+          
+          if (!data.success) {
+            throw new Error(data.error || '更新实体失败');
+          }
+          
+          // 准备观察项更新
+          let observations = [];
+          
+          // 添加用户编辑的观察项
+          if (editData.observations && editData.observations.trim() !== '') {
+            const userObservations = editData.observations
+              .split('\n')
+              .filter(obs => obs.trim() !== '')
+              .map(obs => ({
+                content: obs.trim(),
+                timestamp: new Date().toISOString(),
+                source: 'user'
+              }));
+            
+            observations = [...observations, ...userObservations];
+          }
+          
+          // 更新实体的观察项
+          const obsResponse = await fetch(`${this.apiBaseUrl}/entity-observations`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              entityName: isNameChanged ? editData.name : originalNode.name,
+              observations: observations
+            })
+          });
+          
+          const obsData = await obsResponse.json();
+          
+          if (!obsData.success) {
+            throw new Error(obsData.error || '更新实体观察项失败');
+          }
+          
+          // 保持实体颜色不变 - 获取当前属性
+          const currentProperties = originalNode.properties || {};
+          
+          // 更新实体的属性（保留颜色属性）
+          const propsResponse = await fetch(`${this.apiBaseUrl}/entity-properties`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              entityName: isNameChanged ? editData.name : originalNode.name,
+              properties: currentProperties
+            })
+          });
+          
+          const propsData = await propsResponse.json();
+          
+          if (!propsData.success) {
+            throw new Error(propsData.error || '更新实体属性失败');
+          }
+          
+          this.showNotification('实体更新成功', 'success');
+          
+          // 关闭模态框
+          this.hideModal('editEntity');
+          
+          // 重新加载图谱数据
+          this.showNotification('实体更新成功', 'success');
+          
+          // 关闭模态框
+          this.hideModal('editEntity');
+          
+          // 重新加载图谱数据
+          await this.loadGraphData();
+          
+        } catch (error) {
+          console.error('更新实体出错:', error);
+          this.showNotification('更新实体失败: ' + error.message, 'error');
+        }
+      },
+      
+      // 显示编辑关系模态框
+      showEditRelationModal(link) {
+        if (!link) return;
+        
+        // 设置正确的源和目标
+        const source = link.direction === 'outgoing' ? link.source : link.target;
+        const target = link.direction === 'outgoing' ? link.target : link.source;
+        
+        // 设置模态框数据
+        this.modal.editRelation.source = source;
+        this.modal.editRelation.target = target;
+        this.modal.editRelation.type = link.type;
+        this.modal.editRelation.originalType = link.type;
+        this.modal.editRelation.originalLink = link;
+        
+        // 显示模态框
+        this.modal.editRelation.show = true;
       }
     }
   };
@@ -1885,10 +2197,31 @@
     padding: 1rem;
   }
   
+  .entity-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+  }
+  
   .entity-name {
     font-weight: bold;
     font-size: 1.1rem;
-    margin-bottom: 0.5rem;
+  }
+  
+  .edit-entity-btn {
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 0.2rem 0.5rem;
+    transition: background-color 0.3s;
+  }
+  
+  .edit-entity-btn:hover {
+    background-color: #2980b9;
   }
   
   .entity-type {
@@ -1961,19 +2294,66 @@
     margin-left: 0.3rem;
   }
   
+  .relation-actions {
+    display: flex;
+    gap: 5px;
+  }
+  
+  .property-btn {
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+    transition: background-color 0.3s;
+  }
+  
+  .property-btn:hover {
+    background-color: #2980b9;
+  }
+  
+  .edit-btn {
+    background-color: #f39c12;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+    transition: background-color 0.3s;
+  }
+  
+  .edit-btn:hover {
+    background-color: #e67e22;
+  }
+  
   .delete-btn {
     background-color: transparent;
     color: #e74c3c;
     border: none;
     cursor: pointer;
-    font-size: 0.8rem;
-    padding: 0.2rem 0.5rem;
-    opacity: 0.5;
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+    opacity: 0.7;
     transition: opacity 0.3s;
   }
   
   .delete-btn:hover {
     opacity: 1;
+  }
+  
+  /* 关系信息样式 */
+  .relation-info {
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 0.8rem;
+    margin-bottom: 1rem;
+  }
+  
+  .relation-path {
+    font-weight: 500;
   }
   
   /* 模态框样式 */

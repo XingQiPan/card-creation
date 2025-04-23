@@ -799,6 +799,42 @@ app.get('/api/docs', (req, res) => {
   }
 })
 
+
+// 获取关系属性
+app.get('/api/kg/relations/:source/:target/:type/properties', async (req, res) => {
+  try {
+    const { source, target, type } = req.params;
+    const graph = kg.readGraph();
+    const relation = graph.relations.find(
+      r => r.source === source && r.target === target && r.type === type
+    );
+    ResponseHandler.success(res, relation ? relation.properties : {});
+  } catch (error) {
+    ResponseHandler.error(res, error);
+  }
+});
+
+// 更新关系属性
+app.put('/api/kg/relation-properties', async (req, res) => {
+  try {
+    const { relation } = req.body;
+    if (!relation || !relation.source || !relation.target || !relation.type) {
+      return res.status(400).json({ success: false, error: '缺少必要的关系参数' });
+    }
+
+    const { source, target, type, properties } = relation;
+    const result = await kg.updateRelationProperties(source, target, type, properties);
+    
+    if (result.success) {
+      res.status(200).json({ success: true, message: '关系属性更新成功' });
+    } else {
+      res.status(400).json({ success: false, error: result.error || '更新关系属性失败' });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // 处理文本输入的检测请求
 app.post('/api/detect-ai-text', async (req, res) => {
     try {
@@ -1270,6 +1306,21 @@ app.put('/api/kg/entity-observations', async (req, res) => {
   }
 })
 
+// 更新实体属性
+app.put('/api/kg/entity-properties', async (req, res) => {
+  try {
+    const entityName = req.body.entityName
+    const properties = req.body.properties
+    if (!entityName) {
+      return res.status(400).json({ success: false, error: '必须提供实体名称' })
+    }
+    const result = await kg.updateEntityProperties(entityName, properties)
+    res.status(200).json({ success: true, data: result })
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message })
+  }
+})
+
 // 删除实体
 app.delete('/api/kg/entities', async (req, res) => {
   try {
@@ -1659,6 +1710,82 @@ app.get('/api/cloud-sync/auto-backup', (req, res) => {
     res.status(500).json({ success: false, error: error.message })
   }
 })
+
+// 更新实体基本信息 (支持重命名)
+app.put('/api/kg/entity', async (req, res) => {
+  try {
+    const { name, type, oldName } = req.body;
+    
+    if (!name || !type) {
+      return res.status(400).json({ success: false, error: '缺少必要的实体参数' });
+    }
+    
+    // 如果提供了oldName且与name不同，表示要重命名实体
+    if (oldName && oldName !== name) {
+      const result = await kg.renameEntity(oldName, name, type);
+      res.status(200).json(result);
+    } else {
+      // 只更新类型
+      const result = await kg.updateEntityType(name, type);
+      res.status(200).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 更新关系信息
+app.put('/api/kg/relation', async (req, res) => {
+  try {
+    const { source, target, type, originalType } = req.body;
+    
+    if (!source || !target || !type || !originalType) {
+      return res.status(400).json({ success: false, error: '缺少必要的关系参数' });
+    }
+    
+    // 如果类型没有变化，直接返回成功
+    if (type === originalType) {
+      return res.status(200).json({ success: true, message: '关系类型未发生变化' });
+    }
+    
+    // 查找原关系
+    const graph = kg.readGraph();
+    const existingRelation = graph.relations.find(
+      r => r.source === source && r.target === target && r.type === originalType
+    );
+    
+    if (!existingRelation) {
+      return res.status(404).json({ success: false, error: '找不到原关系' });
+    }
+    
+    // 保存原关系的属性
+    const properties = existingRelation.properties || {};
+    
+    // 删除原关系
+    const deleteResult = await kg.deleteRelations([{ source, target, type: originalType }]);
+    
+    if (!deleteResult || !deleteResult.find(r => r.status === 'deleted')) {
+      return res.status(500).json({ success: false, error: '删除原关系失败' });
+    }
+    
+    // 创建新关系
+    const createResult = await kg.createRelations([{
+      source,
+      target,
+      type,
+      properties,
+      overwrite: false
+    }]);
+    
+    if (!createResult || !createResult.find(r => r.status === 'created')) {
+      return res.status(500).json({ success: false, error: '创建新关系失败' });
+    }
+    
+    res.status(200).json({ success: true, message: '关系更新成功' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // 启动服务器
 const PORT = process.env.PORT || 3000

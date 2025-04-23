@@ -9,7 +9,9 @@ import { Entity, Relation } from './models.js';
 class KnowledgeGraph {
   async deleteFile(filePath) {
     try {
+      console.log(`开始删除文件: ${filePath}`);
       if (!fs.existsSync(filePath)) {
+        console.error(`文件不存在: ${filePath}`);
         return { success: false, error: '文件不存在' };
       }
 
@@ -23,6 +25,7 @@ class KnowledgeGraph {
         this.loadGraph();
       }
 
+      console.log(`文件删除成功: ${filePath}`);
       return { success: true, message: '文件删除成功' };
     } catch (error) {
       console.error('删除文件失败:', error);
@@ -195,7 +198,9 @@ class KnowledgeGraph {
    * @returns {Object} - 成功创建的实体列表
    */
   async createEntities(entities) {
+    console.log(`开始创建实体，数量: ${entities.length}`);
     if (!Array.isArray(entities) || entities.length === 0) {
+      console.error('创建实体失败: 实体必须是非空数组');
       throw new Error('实体必须是非空数组');
     }
 
@@ -241,6 +246,7 @@ class KnowledgeGraph {
 
     // 保存更改
     await this.saveGraph();
+    console.log(`实体创建完成，结果: ${JSON.stringify(results)}`);
     return results;
   }
 
@@ -250,7 +256,9 @@ class KnowledgeGraph {
    * @returns {Object} - 成功创建的关系列表
    */
   async createRelations(relations) {
+    console.log(`开始创建关系，数量: ${relations.length}`);
     if (!Array.isArray(relations) || relations.length === 0) {
+      console.error('创建关系失败: 关系必须是非空数组');
       throw new Error('关系必须是非空数组');
     }
 
@@ -280,8 +288,9 @@ class KnowledgeGraph {
         if (relation.overwrite) {
           const index = this.graph.relations.indexOf(existingRelation);
           this.graph.relations[index] = {
+            ...existingRelation,
             ...relation,
-            properties: relation.properties || {}
+            properties: relation.properties || existingRelation.properties || {}
           };
           results.push({
             source: relation.source,
@@ -316,6 +325,7 @@ class KnowledgeGraph {
 
     // 保存更改
     await this.saveGraph();
+    console.log(`关系创建完成，结果: ${JSON.stringify(results)}`);
     return results;
   }
 
@@ -326,7 +336,9 @@ class KnowledgeGraph {
    * @throws {Error} - 如果实体不存在
    */
   async addObservations(observations) {
+    console.log(`开始添加观察项，数量: ${observations.length}`);
     if (!Array.isArray(observations) || observations.length === 0) {
+      console.error('添加观察失败: 观察必须是非空数组');
       throw new Error('观察必须是非空数组');
     }
 
@@ -372,6 +384,8 @@ class KnowledgeGraph {
 
     // 保存更改
     await this.saveGraph();
+    console.log(`关系创建完成，结果: ${JSON.stringify(results)}`);
+    console.log(`观察项添加完成，结果: ${JSON.stringify(results)}`);
     return results;
   }
 
@@ -381,7 +395,9 @@ class KnowledgeGraph {
    * @returns {Object} - 删除操作的结果
    */
   async deleteEntities(entityNames) {
+    console.log(`开始删除实体，数量: ${entityNames.length}`);
     if (!Array.isArray(entityNames) || entityNames.length === 0) {
+      console.error('删除实体失败: 实体名称必须是非空数组');
       throw new Error('实体名称必须是非空数组');
     }
 
@@ -410,6 +426,12 @@ class KnowledgeGraph {
 
     // 保存更改
     await this.saveGraph();
+    console.log(`实体创建完成，结果: ${JSON.stringify(results)}`);
+    console.log(`关系创建完成，结果: ${JSON.stringify(results)}`);
+    console.log(`观察项添加完成，结果: ${JSON.stringify(results)}`);
+    console.log(`实体删除完成，结果: ${JSON.stringify(results)}`);
+    console.log(`观察项删除完成，结果: ${JSON.stringify(results)}`);
+    console.log(`关系删除完成，结果: ${JSON.stringify(results)}`);
     return results;
   }
 
@@ -419,7 +441,9 @@ class KnowledgeGraph {
    * @returns {Object} - 删除操作的结果
    */
   async deleteObservations(deletions) {
+    console.log(`开始删除观察项，数量: ${deletions.length}`);
     if (!Array.isArray(deletions) || deletions.length === 0) {
+      console.error('删除观察失败: 删除请求必须是非空数组');
       throw new Error('删除请求必须是非空数组');
     }
 
@@ -462,6 +486,12 @@ class KnowledgeGraph {
 
     // 保存更改
     await this.saveGraph();
+    console.log(`实体创建完成，结果: ${JSON.stringify(results)}`);
+    console.log(`关系创建完成，结果: ${JSON.stringify(results)}`);
+    console.log(`观察项添加完成，结果: ${JSON.stringify(results)}`);
+    console.log(`实体删除完成，结果: ${JSON.stringify(results)}`);
+    console.log(`观察项删除完成，结果: ${JSON.stringify(results)}`);
+    console.log(`关系删除完成，结果: ${JSON.stringify(results)}`);
     return results;
   }
 
@@ -471,7 +501,9 @@ class KnowledgeGraph {
    * @returns {Object} - 删除操作的结果
    */
   async deleteRelations(relations) {
+    console.log(`开始删除关系，数量: ${relations.length}`);
     if (!Array.isArray(relations) || relations.length === 0) {
+      console.error('删除关系失败: 关系必须是非空数组');
       throw new Error('关系必须是非空数组');
     }
 
@@ -510,7 +542,67 @@ class KnowledgeGraph {
 
     // 保存更改
     await this.saveGraph();
+    console.log(`实体创建完成，结果: ${JSON.stringify(results)}`);
+    console.log(`关系创建完成，结果: ${JSON.stringify(results)}`);
+    console.log(`观察项添加完成，结果: ${JSON.stringify(results)}`);
+    console.log(`实体删除完成，结果: ${JSON.stringify(results)}`);
+    console.log(`观察项删除完成，结果: ${JSON.stringify(results)}`);
+    console.log(`关系删除完成，结果: ${JSON.stringify(results)}`);
     return results;
+  }
+
+  /**
+   * 获取关系的属性
+   * @param {string} source - 源实体名称
+   * @param {string} target - 目标实体名称
+   * @param {string} type - 关系类型
+   * @returns {Object|null} - 关系的属性对象，如果关系不存在则返回null
+   */
+  getRelationProperties(source, target, type) {
+    const relation = this.graph.relations.find(
+      r => r.source === source && 
+           r.target === target && 
+           r.type === type
+    );
+    
+    return relation ? relation.properties : null;
+  }
+
+  /**
+   * 更新关系的属性
+   * @param {string} source - 源实体名称
+   * @param {string} target - 目标实体名称
+   * @param {string} type - 关系类型
+   * @param {Object} properties - 要更新的属性对象
+   * @returns {Object} - 更新操作的结果
+   */
+  async updateRelationProperties(source, target, type, properties) {
+    console.log(`开始更新关系属性: ${source} -> ${target} (${type})`);
+    
+    try {
+      // 查找关系
+      const relation = this.graph.relations.find(r => 
+        r.source === source && 
+        r.target === target && 
+        r.type === type
+      );
+      
+      if (!relation) {
+        console.error(`关系不存在: ${source} -> ${target} (${type})`);
+        return { success: false, error: '关系不存在' };
+      }
+      
+      // 更新属性
+      relation.properties = properties || {};
+      
+      // 保存更改
+      await this.saveGraph();
+      console.log(`关系属性更新成功: ${source} -> ${target} (${type})`);
+      return { success: true };
+    } catch (error) {
+      console.error(`更新关系属性失败: ${error.message}`);
+      return { success: false, error: error.message };
+    }
   }
 
   /**
@@ -579,6 +671,12 @@ class KnowledgeGraph {
       }
     }
 
+    console.log(`实体创建完成，结果: ${JSON.stringify(results)}`);
+    console.log(`关系创建完成，结果: ${JSON.stringify(results)}`);
+    console.log(`观察项添加完成，结果: ${JSON.stringify(results)}`);
+    console.log(`实体删除完成，结果: ${JSON.stringify(results)}`);
+    console.log(`观察项删除完成，结果: ${JSON.stringify(results)}`);
+    console.log(`关系删除完成，结果: ${JSON.stringify(results)}`);
     return results;
   }
 
@@ -609,7 +707,166 @@ class KnowledgeGraph {
       }
     }
 
+    console.log(`实体创建完成，结果: ${JSON.stringify(results)}`);
+    console.log(`关系创建完成，结果: ${JSON.stringify(results)}`);
+    console.log(`观察项添加完成，结果: ${JSON.stringify(results)}`);
+    console.log(`实体删除完成，结果: ${JSON.stringify(results)}`);
+    console.log(`观察项删除完成，结果: ${JSON.stringify(results)}`);
+    console.log(`关系删除完成，结果: ${JSON.stringify(results)}`);
     return results;
+  }
+
+  /**
+   * 更新实体类型
+   * @param {string} entityName - 实体名称
+   * @param {string} newType - 新的实体类型
+   * @returns {Object} - 操作结果
+   */
+  async updateEntityType(entityName, newType) {
+    console.log(`开始更新实体类型: ${entityName} -> ${newType}`);
+    
+    try {
+      // 验证实体存在
+      if (!this.graph.entities[entityName]) {
+        console.error(`实体不存在: ${entityName}`);
+        return { success: false, error: `实体不存在: ${entityName}` };
+      }
+      
+      // 更新类型
+      this.graph.entities[entityName].type = newType;
+      
+      // 保存更改
+      await this.saveGraph();
+      console.log(`实体类型更新成功: ${entityName} -> ${newType}`);
+      return { success: true, message: '实体类型更新成功' };
+    } catch (error) {
+      console.error(`更新实体类型失败: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * 重命名实体
+   * @param {string} oldName - 旧的实体名称
+   * @param {string} newName - 新的实体名称
+   * @param {string} type - 实体类型
+   * @returns {Object} - 操作结果
+   */
+  async renameEntity(oldName, newName, type) {
+    console.log(`开始重命名实体: ${oldName} -> ${newName}`);
+    
+    try {
+      // 验证旧实体存在
+      if (!this.graph.entities[oldName]) {
+        console.error(`实体不存在: ${oldName}`);
+        return { success: false, error: `实体不存在: ${oldName}` };
+      }
+      
+      // 检查新名称是否已存在
+      if (this.graph.entities[newName]) {
+        console.error(`实体已存在: ${newName}`);
+        return { success: false, error: `新名称已被使用: ${newName}` };
+      }
+      
+      // 创建新实体
+      this.graph.entities[newName] = {
+        ...this.graph.entities[oldName],
+        name: newName,
+        type: type // 同时更新类型
+      };
+      
+      // 更新所有相关的关系
+      this.graph.relations.forEach(relation => {
+        if (relation.source === oldName) {
+          relation.source = newName;
+        }
+        if (relation.target === oldName) {
+          relation.target = newName;
+        }
+      });
+      
+      // 删除旧实体
+      delete this.graph.entities[oldName];
+      
+      // 保存更改
+      await this.saveGraph();
+      console.log(`实体重命名成功: ${oldName} -> ${newName}`);
+      return { success: true, message: '实体重命名成功' };
+    } catch (error) {
+      console.error(`重命名实体失败: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * 设置实体的所有观察项
+   * @param {Object} params - 参数对象
+   * @param {string} params.entityName - 实体名称
+   * @param {Array} params.observations - 观察项数组
+   * @returns {Object} - 操作结果
+   */
+  async setEntityObservations({ entityName, observations }) {
+    console.log(`开始设置实体观察项: ${entityName}`);
+    
+    try {
+      // 验证实体存在
+      if (!this.graph.entities[entityName]) {
+        console.error(`实体不存在: ${entityName}`);
+        return { success: false, error: `实体不存在: ${entityName}` };
+      }
+      
+      // 设置观察项
+      this.graph.entities[entityName].observations = observations || [];
+      
+      // 保存更改
+      await this.saveGraph();
+      console.log(`实体观察项设置成功: ${entityName}`);
+      return { 
+        success: true, 
+        data: {
+          entityName: entityName,
+          status: 'observations_updated'
+        }
+      };
+    } catch (error) {
+      console.error(`设置实体观察项失败: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * 更新实体的属性
+   * @param {string} entityName - 实体名称
+   * @param {Object} properties - 要设置的属性对象
+   * @returns {Object} - 操作结果
+   */
+  async updateEntityProperties(entityName, properties) {
+    console.log(`开始更新实体属性: ${entityName}`);
+    
+    try {
+      // 验证实体存在
+      if (!this.graph.entities[entityName]) {
+        console.error(`实体不存在: ${entityName}`);
+        return { success: false, error: `实体不存在: ${entityName}` };
+      }
+      
+      // 更新属性
+      this.graph.entities[entityName].properties = properties || {};
+      
+      // 保存更改
+      await this.saveGraph();
+      console.log(`实体属性更新成功: ${entityName}`);
+      return { 
+        success: true, 
+        data: {
+          entityName: entityName,
+          status: 'properties_updated'
+        }
+      };
+    } catch (error) {
+      console.error(`更新实体属性失败: ${error.message}`);
+      return { success: false, error: error.message };
+    }
   }
 }
 

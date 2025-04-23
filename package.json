@@ -11,6 +11,7 @@
   "dependencies": {
     "@fortawesome/fontawesome-free": "^6.7.2",
     "@google/generative-ai": "^0.22.0",
+    "@modelcontextprotocol/sdk": "^1.10.2",
     "@vue-flow/background": "^1.2.0",
     "@vue-flow/controls": "^1.0.5",
     "@vue-flow/core": "^1.20.1",
@@ -18,9 +19,11 @@
     "@vueuse/core": "^12.7.0",
     "axios": "^1.7.9",
     "cors": "^2.8.5",
+    "d3": "^7.9.0",
     "dompurify": "^3.2.4",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "force-graph": "^1.43.8",
     "idb": "^8.0.2",
     "marked": "^15.0.7",
     "mitt": "^3.0.1",
@@ -31,9 +34,7 @@
     "vue": "^3.5.13",
     "vue-router": "^4.5.0",
     "vuedraggable": "^4.1.0",
-    "webdav": "^5.8.0",
-    "d3": "^7.9.0",
-    "force-graph": "^1.43.8"
+    "webdav": "^5.8.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",

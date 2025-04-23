@@ -7,6 +7,90 @@ import { fileURLToPath } from 'url'
 import { Entity, Relation } from './models.js';
 
 class KnowledgeGraph {
+  async deleteFile(filePath) {
+    try {
+      if (!fs.existsSync(filePath)) {
+        return { success: false, error: '文件不存在' };
+      }
+
+      fs.unlinkSync(filePath);
+      
+      // 如果删除的是当前存储路径文件则重置数据
+      if (this.storagePath === filePath) {
+        this.graph = { entities: {}, relations: [] };
+        const defaultPath = path.join(path.dirname(this.storagePath), 'knowledge_graph.json');
+        this.storagePath = defaultPath;
+        this.loadGraph();
+      }
+
+      return { success: true, message: '文件删除成功' };
+    } catch (error) {
+      console.error('删除文件失败:', error);
+      return { success: false, error: `文件删除失败: ${error.message}` };
+    }
+  }
+
+  /**
+   * 创建新的知识图谱文件
+   * @param {string} fileName - 知识图谱文件名，不需要包含路径和扩展名
+   * @returns {Object} - 创建结果，包含成功标志和文件路径
+   */
+  async createNewGraph(fileName) {
+    try {
+      console.log(`开始创建新的知识图谱文件: ${fileName}`);
+      
+      // 检验文件名是否合法
+      if (!fileName || typeof fileName !== 'string') {
+        console.error('创建知识图谱失败: 文件名无效');
+        return { success: false, error: '文件名无效' };
+      }
+      
+      // 处理文件名，去除不安全字符
+      const safeName = fileName.replace(/[\/\\?%*:|"<>]/g, '_');
+      
+      // 获取默认存储目录
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
+      const backendDir = path.resolve(__dirname, '..');
+      const kgDataDir = path.join(backendDir, 'data', 'KnowledgeGraph');
+      
+      // 确保目录存在
+      if (!fs.existsSync(kgDataDir)) {
+        fs.mkdirSync(kgDataDir, { recursive: true });
+      }
+      
+      // 构建完整文件路径
+      const filePath = path.join(kgDataDir, `${safeName}.json`);
+      
+      // 检查文件是否已存在
+      if (fs.existsSync(filePath)) {
+        console.error(`创建知识图谱失败: 文件已存在 ${filePath}`);
+        return { success: false, error: '该名称的知识图谱文件已存在' };
+      }
+      
+      // 创建空的知识图谱数据结构
+      const emptyGraph = {
+        entities: {},
+        relations: []
+      };
+      
+      // 写入文件
+      fs.writeFileSync(filePath, JSON.stringify(emptyGraph, null, 2), 'utf8');
+      
+      console.log(`成功创建新的知识图谱文件: ${filePath}`);
+      
+      return { 
+        success: true, 
+        message: '知识图谱文件创建成功',
+        path: filePath,
+        fileName: `${safeName}.json` 
+      };
+    } catch (error) {
+      console.error(`创建知识图谱文件失败: ${error.message}`);
+      return { success: false, error: `创建知识图谱文件失败: ${error.message}` };
+    }
+  }
+
   /**
    * 初始化知识图谱
    * 
@@ -529,4 +613,4 @@ class KnowledgeGraph {
   }
 }
 
-export default KnowledgeGraph; 
+export default KnowledgeGraph;

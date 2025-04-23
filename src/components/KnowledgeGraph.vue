@@ -73,17 +73,22 @@
           <div class="panel">
             <h2>知识图谱文件</h2>
             <div class="graph-file-selector">
-              <select v-model="selectedGraphFile">
-                <option v-for="file in graphFiles" :key="file" :value="file">{{ file }}</option>
-                <option v-if="graphFiles.length === 0" value="">没有可用的图谱文件</option>
-              </select>
+              <div class="graph-file-list">
+                <select v-model="selectedGraphFile">
+                  <option v-for="file in graphFiles" :key="file" :value="file">{{ file }}</option>
+                  <option v-if="graphFiles.length === 0" value="">没有可用的图谱文件</option>
+                </select>
+              </div>
               <div class="graph-file-actions">
-                <button @click="loadGraphFile">加载图谱</button>
+                <button @click="loadGraphFile" class="graph-action-btn">加载图谱</button>
                 <button 
                   @click="confirmDeleteGraphFile" 
-                  class="delete-graph-btn" 
+                  class="graph-action-btn delete-graph-btn" 
                   :disabled="!selectedGraphFile">
                   删除存档
+                </button>
+                <button @click="showModal('newGraph')" class="graph-action-btn create-graph-btn">
+                  新建图谱
                 </button>
               </div>
             </div>
@@ -94,6 +99,29 @@
           <!-- 知识图谱将在这里渲染 -->
         </div>
       </main>
+  
+      <!-- 右键菜单 -->
+      <div class="context-menu" v-show="contextMenu.show" :style="contextMenuStyle">
+        <!-- 画布上的右键菜单 -->
+        <div v-if="contextMenu.type === 'canvas'">
+          <div class="context-menu-item" @click="handleContextMenuAction('create-entity')">
+            <span class="context-menu-icon">+</span>创建实体
+          </div>
+        </div>
+        
+        <!-- 节点上的右键菜单 -->
+        <div v-else-if="contextMenu.type === 'node'">
+          <div class="context-menu-item" @click="handleContextMenuAction('create-relation')">
+            <span class="context-menu-icon">↔</span>创建关系
+          </div>
+          <div class="context-menu-item" @click="handleContextMenuAction('add-observation')">
+            <span class="context-menu-icon">📝</span>添加观察项
+          </div>
+          <div class="context-menu-item danger" @click="handleContextMenuAction('delete-node')">
+            <span class="context-menu-icon">🗑</span>删除实体
+          </div>
+        </div>
+      </div>
   
       <!-- 模态框 -->
       <div class="modal" v-if="modal.entity.show">
@@ -205,6 +233,20 @@
           {{ notification.message }}
         </div>
       </div>
+  
+      <div class="modal" v-if="modal.newGraph.show">
+        <div class="modal-content">
+          <span class="close" @click="hideModal('newGraph')">&times;</span>
+          <h2>创建新的知识图谱</h2>
+          <form @submit.prevent="handleCreateNewGraph">
+            <div class="form-group">
+              <label for="graph-name">图谱名称</label>
+              <input type="text" id="graph-name" v-model="modal.newGraph.fileName" placeholder="输入新图谱名称" required>
+            </div>
+            <button type="submit">创建</button>
+          </form>
+        </div>
+      </div>
     </div>
   </template>
   
@@ -229,6 +271,14 @@
         selectedGraphFile: '',
         currentGraphFile: '',
         isFiltered: false, // 标记图谱是否被过滤
+        // 右键菜单状态
+        contextMenu: {
+          show: false,
+          x: 0,
+          y: 0,
+          type: 'canvas', // canvas or node
+          targetNode: null // 右键点击的节点
+        },
         notification: {
           show: false,
           message: '',
@@ -258,6 +308,11 @@
           typeColor: {
             show: false,
             typeColors: {} // 存储类型和颜色的映射关系
+          },
+          // 新增 - 创建新图谱模态框
+          newGraph: {
+            show: false,
+            fileName: ''
           }
         },
         // 新增 - 颜色相关
@@ -279,15 +334,27 @@
     computed: {
       apiBaseUrl() {
         return '/api/kg';  // 知识图谱API的基础URL
+      },
+      // 右键菜单样式
+      contextMenuStyle() {
+        return {
+          top: `${this.contextMenu.y}px`,
+          left: `${this.contextMenu.x}px`
+        };
       }
     },
     mounted() {
       this.initialize();
       window.addEventListener('resize', this.handleResize);
+      // 添加全局点击事件，用于关闭右键菜单
+      document.addEventListener('click', this.hideContextMenu);
+      document.addEventListener('contextmenu', this.hideContextMenu);
     },
     
     beforeDestroy() {
       window.removeEventListener('resize', this.handleResize);
+      document.removeEventListener('click', this.hideContextMenu);
+      document.removeEventListener('contextmenu', this.hideContextMenu);
     },
     methods: {
       async initialize() {
@@ -464,6 +531,9 @@
         // 预处理连接数据，将同向的多种关系合并
         this.processLinks();
         
+        // 跟踪当前悬停的节点
+        let hoverNode = null;
+        
         // 使用Force-Graph库创建图谱
         this.graphInstance = ForceGraph()(container)
           .graphData(this.graphData)
@@ -474,6 +544,13 @@
           .linkDirectionalArrowLength(3.5)
           .linkDirectionalArrowRelPos(1)
           .onNodeClick(node => this.handleNodeClick(node))
+          .onNodeRightClick((node, event) => this.showContextMenu(event, 'node', node))
+          .onNodeHover(node => {
+            // 更新悬停节点状态
+            hoverNode = node || null;
+          })
+          .onBackgroundClick(() => this.hideContextMenu())
+          .onBackgroundRightClick((event) => this.showContextMenu(event, 'canvas'))
           .linkWidth(1)
           .linkColor(() => '#999')
           .linkCurvature(link => {
@@ -492,14 +569,32 @@
             const textWidth = ctx.measureText(label).width;
             const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.2);
             
+            // 判断是否为悬停节点
+            const isHover = hoverNode === node;
+            
+            // 节点半径 - 悬停时增大
+            const nodeRadius = isHover ? 7 : 5;
+            
+            // 绘制发光效果 (仅在悬停时)
+            if (isHover) {
+              ctx.shadowColor = node.color;
+              ctx.shadowBlur = 15;
+            }
+            
             // 绘制节点圆形
             ctx.beginPath();
-            ctx.arc(node.x, node.y, 5, 0, 2 * Math.PI);
+            ctx.arc(node.x, node.y, nodeRadius, 0, 2 * Math.PI);
             ctx.fillStyle = node.color;
             ctx.fill();
             ctx.strokeStyle = 'white';
             ctx.lineWidth = 1.5;
             ctx.stroke();
+            
+            // 重置阴影效果
+            if (isHover) {
+              ctx.shadowColor = 'transparent';
+              ctx.shadowBlur = 0;
+            }
             
             // 绘制文本背景
             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
@@ -586,6 +681,17 @@
             ctx.textBaseline = 'middle';
             ctx.fillStyle = '#3498db'; // 使用蓝色显示关系文本
             ctx.fillText(link.type, textPos.x, textPos.y);
+          })
+          // 右键菜单事件处理
+          .onNodeRightClick((node, event) => {
+            event.preventDefault(); // 阻止默认右键菜单
+            this.showContextMenu(event, 'node', node);
+            return false;
+          })
+          .onBackgroundRightClick((event) => {
+            event.preventDefault(); // 阻止默认右键菜单
+            this.showContextMenu(event, 'canvas');
+            return false;
           });
       },
       
@@ -1457,11 +1563,11 @@
       
       async confirmDeleteGraphFile() {
         if (confirm('确定要删除这个图谱存档吗？这将同时删除所有相关的关系。')) {
-          await this.deleteGraphFile(this.selectedGraphFile);
+          await this.deleteFile(this.selectedGraphFile);
         }
       },
       
-      async deleteGraphFile(fileName) {
+      async deleteFile(fileName) {
         try {
           const response = await fetch(`${this.apiBaseUrl}/delete-graph`, {
             method: 'DELETE',
@@ -1487,6 +1593,103 @@
         } catch (error) {
           console.error('删除图谱存档出错:', error);
           this.showNotification('删除图谱存档失败: ' + error.message, 'error');
+        }
+      },
+      
+      // 显示右键菜单
+      showContextMenu(event, type, node = null) {
+        // 阻止默认右键菜单
+        event.preventDefault();
+        
+        // 设置右键菜单位置
+        this.contextMenu.x = event.clientX;
+        this.contextMenu.y = event.clientY;
+        this.contextMenu.type = type;
+        this.contextMenu.show = true;
+        
+        if (type === 'node' && node) {
+          this.contextMenu.targetNode = node;
+          // 同时设置为当前选中的节点
+          this.selectedNode = node;
+          this.updateRelatedLinks(node);
+        }
+        
+        // 阻止事件冒泡，防止立即触发隐藏
+        event.stopPropagation();
+      },
+      
+      // 隐藏右键菜单
+      hideContextMenu() {
+        this.contextMenu.show = false;
+      },
+      
+      // 处理右键菜单项点击
+      handleContextMenuAction(action) {
+        switch (action) {
+          case 'create-entity':
+            this.showModal('entity');
+            break;
+          case 'create-relation':
+            // 设置源实体为当前选中节点
+            if (this.contextMenu.targetNode) {
+              this.modal.relation.source = this.contextMenu.targetNode.name;
+            }
+            this.showModal('relation');
+            break;
+          case 'add-observation':
+            // 设置实体为当前选中节点
+            if (this.contextMenu.targetNode) {
+              this.modal.observation.entityName = this.contextMenu.targetNode.name;
+            }
+            this.showModal('observation');
+            break;
+          case 'delete-node':
+            if (this.contextMenu.targetNode) {
+              this.confirmDeleteEntity();
+            }
+            break;
+        }
+        
+        // 操作完成后隐藏右键菜单
+        this.hideContextMenu();
+      },
+      
+      // 创建新的知识图谱文件
+      async handleCreateNewGraph() {
+        try {
+          const fileName = this.modal.newGraph.fileName;
+          if (!fileName.trim()) {
+            this.showNotification('请输入有效的图谱名称', 'warning');
+            return;
+          }
+          
+          const response = await fetch(`${this.apiBaseUrl}/create-graph`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ fileName })
+          });
+          
+          const data = await response.json();
+          
+          if (data.success) {
+            this.showNotification(data.message || '成功创建新的知识图谱', 'success');
+            this.hideModal('newGraph');
+            
+            // 重新加载图谱文件列表
+            await this.loadGraphFileList();
+            
+            // 将新创建的图谱设置为当前选中
+            if (data.fileName) {
+              this.selectedGraphFile = data.fileName;
+            }
+          } else {
+            throw new Error(data.error || '创建知识图谱失败');
+          }
+        } catch (error) {
+          console.error('创建知识图谱出错:', error);
+          this.showNotification('创建知识图谱失败: ' + error.message, 'error');
         }
       }
     }
@@ -1606,8 +1809,23 @@
   /* 图谱文件选择器样式 */
   .graph-file-selector {
     display: flex;
+    flex-direction: column;
     gap: 0.5rem;
     margin-top: 10px;
+    
+    .graph-file-list {
+      width: 100%;
+      
+      select {
+        width: 100%;
+      }
+    }
+    
+    .graph-file-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
   }
   
   .graph-file-selector select {
@@ -1977,6 +2195,11 @@
     margin-top: 10px;
   }
   
+  .graph-file-actions button {
+    width: 100px;
+    margin: 5px 0;
+  }
+  
   .delete-graph-btn {
     background-color: #e74c3c;
     color: white;
@@ -1994,5 +2217,59 @@
   .delete-graph-btn:disabled {
     background-color: #e74c3c80;
     cursor: not-allowed;
+  }
+  
+  /* 右键菜单样式 */
+  .context-menu {
+    position: fixed;
+    z-index: 1000;
+    background-color: white;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    min-width: 160px;
+    padding: 5px 0;
+  }
+  
+  .context-menu-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: center;
+  }
+  
+  .context-menu-item:hover {
+    background-color: #f1f1f1;
+  }
+  
+  .context-menu-icon {
+    margin-right: 8px;
+    font-size: 14px;
+    width: 20px;
+    text-align: center;
+  }
+  
+  .context-menu-item.danger {
+    color: #e74c3c;
+  }
+  
+  .context-menu-item.danger:hover {
+    background-color: #ffeaea;
+  }
+  
+  .create-graph-btn {
+    background-color: #2ecc71;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    margin-top: 10px;
+    width: 100%;
+  }
+  
+  .create-graph-btn:hover {
+    background-color: #27ae60;
   }
   </style>

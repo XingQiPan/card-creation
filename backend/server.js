@@ -1197,6 +1197,27 @@ app.post('/api/kg/entities', async (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 })
+
+// 创建新的知识图谱文件
+app.post('/api/kg/create-graph', async (req, res) => {
+  try {
+    const { fileName } = req.body
+    if (!fileName) {
+      return res.status(400).json({ success: false, error: '必须提供文件名' })
+    }
+    
+    const result = await kg.createNewGraph(fileName)
+    
+    if (result.success) {
+      res.status(201).json(result)
+    } else {
+      res.status(400).json(result)
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
 // 创建关系
 app.post('/api/kg/relations', async (req, res) => {
   try {
@@ -1207,6 +1228,7 @@ app.post('/api/kg/relations', async (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 })
+
 // 添加观察
 app.post('/api/kg/observations', async (req, res) => {
   try {
@@ -1221,6 +1243,7 @@ app.post('/api/kg/observations', async (req, res) => {
     }
   }
 })
+
 // 更新特定观察项
 app.put('/api/kg/observations', async (req, res) => {
   try {
@@ -1231,6 +1254,7 @@ app.put('/api/kg/observations', async (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 })
+
 // 更新实体所有观察项
 app.put('/api/kg/entity-observations', async (req, res) => {
   try {
@@ -1245,6 +1269,7 @@ app.put('/api/kg/entity-observations', async (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 })
+
 // 删除实体
 app.delete('/api/kg/entities', async (req, res) => {
   try {
@@ -1255,6 +1280,7 @@ app.delete('/api/kg/entities', async (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 })
+
 // 删除观察
 app.delete('/api/kg/observations', async (req, res) => {
   try {
@@ -1265,6 +1291,7 @@ app.delete('/api/kg/observations', async (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 })
+
 // 删除关系
 app.delete('/api/kg/relations', async (req, res) => {
   try {
@@ -1275,6 +1302,7 @@ app.delete('/api/kg/relations', async (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 })
+
 // 获取完整知识图谱
 app.get('/api/kg/graph', (req, res) => {
   try {
@@ -1284,6 +1312,7 @@ app.get('/api/kg/graph', (req, res) => {
     res.status(500).json({ success: false, error: error.message })
   }
 })
+
 // 搜索节点
 app.get('/api/kg/search', (req, res) => {
   try {
@@ -1294,6 +1323,7 @@ app.get('/api/kg/search', (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 })
+
 // 按名称检索节点
 app.get('/api/kg/nodes', (req, res) => {
   try {
@@ -1305,6 +1335,7 @@ app.get('/api/kg/nodes', (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 })
+
 // 加载指定知识图谱文件
 app.post('/api/kg/load-graph', async (req, res) => {
   try {
@@ -1330,6 +1361,7 @@ app.post('/api/kg/load-graph', async (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 })
+
 // 获取知识图谱文件列表
 app.get('/api/kg/graph-files', async (req, res) => {
   try {
@@ -1342,8 +1374,10 @@ app.get('/api/kg/graph-files', async (req, res) => {
     res.status(500).json({ success: false, error: error.message })
   }
 })
+
 // 删除知识图谱文件
 app.delete('/api/kg/delete-graph', async (req, res) => {
+  
   try {
     const { fileName } = req.body
     if (!fileName) {
@@ -1374,6 +1408,7 @@ app.get('/api/cloud/status', async (req, res) => {
     res.status(500).json({ success: false, error: '检查WebDAV状态失败: ' + error.message })
   }
 })
+
 // 更新WebDAV设置
 app.post('/api/settings/webdav', async (req, res) => {
   try {
@@ -1464,216 +1499,6 @@ app.post('/api/settings/webdav', async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ success: false, error: '更新WebDAV设置失败: ' + error.message })
-  }
-})
-// 获取本地备份列表
-app.get('/api/local/backups', async (req, res) => {
-  try {
-    const result = await cloudSyncService.getLocalBackupsList()
-    res.json(result)
-  } catch (error) {
-    res.status(500).json({ success: false, error: '获取本地备份列表失败: ' + error.message })
-  }
-})
-// 从本地备份恢复
-app.post('/api/local/restore', async (req, res) => {
-  try {
-    const { backupPath } = req.body
-    if (!backupPath) {
-      return res.status(400).json({ success: false, error: '未指定要恢复的备份路径' })
-    }
-    const result = await cloudSyncService.restoreFromLocal(backupPath)
-    res.json(result)
-  } catch (error) {
-    res.status(500).json({ success: false, error: '从本地备份恢复失败: ' + error.message })
-  }
-})
-// 删除本地备份
-app.delete('/api/local/backups', async (req, res) => {
-  try {
-    const { backupPath } = req.body
-    if (!backupPath) {
-      return res.status(400).json({ success: false, error: '未指定要删除的备份路径' })
-    }
-    if (fs.existsSync(backupPath)) {
-      fs.unlinkSync(backupPath)
-      res.json({ success: true, message: '本地备份已删除' })
-    } else {
-      res.status(404).json({ success: false, error: '本地备份文件不存在' })
-    }
-  } catch (error) {
-    res.status(500).json({ success: false, error: '删除本地备份失败: ' + error.message })
-  }
-})
-// 手动执行云同步备份
-app.post('/api/cloud/sync', async (req, res) => {
-  try {
-    const result = await cloudSyncService.syncToCloud()
-    res.json(result)
-  } catch (error) {
-    res.status(500).json({ success: false, error: '云同步失败: ' + error.message })
-  }
-})
-// 获取云端备份列表
-app.get('/api/cloud/backups', async (req, res) => {
-  try {
-    const result = await cloudSyncService.getBackupsList()
-    res.json(result)
-  } catch (error) {
-    res.status(500).json({ success: false, error: '获取云端备份列表失败: ' + error.message })
-  }
-})
-// 从云端恢复
-app.post('/api/cloud/restore', async (req, res) => {
-  try {
-    const { backupPath } = req.body
-    if (!backupPath) {
-      return res.status(400).json({ success: false, error: '未指定要恢复的备份路径' })
-    }
-    const result = await cloudSyncService.restoreFromCloud(backupPath)
-    res.json(result)
-  } catch (error) {
-    res.status(500).json({ success: false, error: '从云端恢复备份失败: ' + error.message })
-  }
-})
-// 删除云端备份
-app.delete('/api/cloud/backups', async (req, res) => {
-  try {
-    const { backupPath } = req.body
-    if (!backupPath) {
-      return res.status(400).json({ success: false, error: '未指定要删除的备份路径' })
-    }
-    if (!cloudSyncService.webdavClient) {
-      return res.status(500).json({ success: false, error: 'WebDAV客户端未初始化' })
-    }
-    await cloudSyncService.webdavClient.deleteFile(backupPath)
-    res.json({ success: true, message: '备份已删除' })
-  } catch (error) {
-    res.status(500).json({ success: false, error: '删除云端备份失败: ' + error.message })
-  }
-})
-// 自动备份开关
-app.post('/api/cloud-sync/auto-backup', (req, res) => {
-  try {
-    const { enabled } = req.body
-    if (typeof enabled !== 'boolean') {
-      return res.status(400).json({ success: false, error: '参数错误：enabled必须是布尔值' })
-    }
-
-    // 更新环境变量
-    const envPath = path.join(__dirname, '.env')
-    let envContent = ''
-    if (fs.existsSync(envPath)) {
-      envContent = fs.readFileSync(envPath, 'utf8')
-    }
-    
-    const autoBackupEnabledRegex = /AUTO_BACKUP_ENABLED=.*/
-    if (autoBackupEnabledRegex.test(envContent)) {
-      envContent = envContent.replace(autoBackupEnabledRegex, `AUTO_BACKUP_ENABLED=${enabled}`)
-    } else {
-      envContent += `\nAUTO_BACKUP_ENABLED=${enabled}`
-    }
-    fs.writeFileSync(envPath, envContent)
-    
-    // 更新环境变量和云同步服务状态
-    process.env.AUTO_BACKUP_ENABLED = String(enabled)
-    const result = cloudSyncService.setAutoBackupStatus(enabled)
-    
-    res.json({ 
-      success: true, 
-      data: { 
-        enabled: cloudSyncService.getAutoBackupStatus(), 
-        status: result ? '操作成功' : '操作失败' 
-      }
-    })
-  } catch (error) {
-    console.error('设置自动备份状态失败:', error)
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-// 获取自动备份状态
-app.get('/api/cloud-sync/auto-backup', (req, res) => {
-  try {
-    // 从环境变量和服务实例获取状态
-    const envStatus = process.env.AUTO_BACKUP_ENABLED === 'true'
-    const serviceStatus = cloudSyncService.getAutoBackupStatus()
-    
-    // 如果环境变量和服务实例状态不一致，更新服务实例状态
-    if (envStatus !== serviceStatus) {
-      cloudSyncService.setAutoBackupStatus(envStatus)
-    }
-    
-    res.json({
-      success: true,
-      data: {
-        enabled: cloudSyncService.getAutoBackupStatus(),
-        interval: parseInt(process.env.CLOUD_SYNC_INTERVAL) || 3600000
-      }
-    })
-  } catch (error) {
-    console.error('获取自动备份状态失败:', error)
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-// 初始化 API 文档路由
-app.get('/api-docs', (req, res) => {
-  res.json(apiDoc)
-})
-
-// 云同步API路由
-// 获取WebDAV连接状态
-app.get('/api/cloud/status', async (req, res) => {
-  try {
-    const status = await cloudSyncService.checkConnection()
-    res.json(status)
-  } catch (error) {
-    console.error('获取WebDAV状态失败:', error)
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-// 重命名云端备份
-app.post('/api/cloud/rename', async (req, res) => {
-  try {
-    const { backupPath, newName } = req.body
-    
-    if (!backupPath || !newName) {
-      return res.status(400).json({ success: false, error: '缺少必要参数' })
-    }
-    
-    const result = await cloudSyncService.renameCloudBackup(backupPath, newName)
-    
-    if (result.success) {
-      res.json(result)
-    } else {
-      res.status(400).json(result)
-    }
-  } catch (error) {
-    console.error('重命名云端备份失败:', error)
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-// 重命名本地备份
-app.post('/api/local/rename', async (req, res) => {
-  try {
-    const { backupPath, newName } = req.body
-    
-    if (!backupPath || !newName) {
-      return res.status(400).json({ success: false, error: '缺少必要参数' })
-    }
-    
-    const result = await cloudSyncService.renameLocalBackup(backupPath, newName)
-    
-    if (result.success) {
-      res.json(result)
-    } else {
-      res.status(400).json(result)
-    }
-  } catch (error) {
-    console.error('重命名本地备份失败:', error)
-    res.status(500).json({ success: false, error: error.message })
   }
 })
 

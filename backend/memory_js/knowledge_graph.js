@@ -9,7 +9,6 @@ import { Entity, Relation } from './models.js';
 class KnowledgeGraph {
   async deleteFile(filePath) {
     try {
-      console.log(`开始删除文件: ${filePath}`);
       if (!fs.existsSync(filePath)) {
         console.error(`文件不存在: ${filePath}`);
         return { success: false, error: '文件不存在' };
@@ -24,8 +23,6 @@ class KnowledgeGraph {
         this.storagePath = defaultPath;
         this.loadGraph();
       }
-
-      console.log(`文件删除成功: ${filePath}`);
       return { success: true, message: '文件删除成功' };
     } catch (error) {
       console.error('删除文件失败:', error);
@@ -40,8 +37,6 @@ class KnowledgeGraph {
    */
   async createNewGraph(fileName) {
     try {
-      console.log(`开始创建新的知识图谱文件: ${fileName}`);
-      
       // 检验文件名是否合法
       if (!fileName || typeof fileName !== 'string') {
         console.error('创建知识图谱失败: 文件名无效');
@@ -79,8 +74,6 @@ class KnowledgeGraph {
       
       // 写入文件
       fs.writeFileSync(filePath, JSON.stringify(emptyGraph, null, 2), 'utf8');
-      
-      console.log(`成功创建新的知识图谱文件: ${filePath}`);
       
       return { 
         success: true, 
@@ -135,12 +128,10 @@ class KnowledgeGraph {
       if (fs.existsSync(this.storagePath)) {
         const data = fs.readFileSync(this.storagePath, 'utf8');
         this.graph = JSON.parse(data);
-        console.log(`已加载知识图谱: ${this.storagePath}`);
         return true;
       } else {
         // 如果文件不存在，就用空图初始化
         this.saveGraph();
-        console.log(`创建新的知识图谱: ${this.storagePath}`);
         return true;
       }
     } catch (error) {
@@ -160,7 +151,6 @@ class KnowledgeGraph {
         const data = fs.readFileSync(filePath, 'utf8');
         this.graph = JSON.parse(data);
         this.storagePath = filePath;
-        console.log(`已加载知识图谱: ${filePath}`);
         return true;
       } else {
         console.error(`知识图谱文件不存在: ${filePath}`);

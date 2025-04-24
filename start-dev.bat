@@ -71,13 +71,29 @@ if not exist "node_modules\" (
     )
 )
 
+:: Check McpServer dependencies
+if exist "McpServer\" (
+    cd McpServer
+    if not exist "node_modules\" (
+        echo [INFO] Installing McpServer dependencies...
+        call npm install
+        if %errorlevel% neq 0 (
+            echo [ERROR] Failed to install McpServer dependencies
+            pause
+            exit
+        )
+    )
+    cd ..
+)
+
 :: Start frontend and backend services
 echo [INFO] Starting services...
 start cmd /c "cd backend && cmd /c title Backend-Service && color 0B && node server.js"
+start cmd /c "cd McpServer && cmd /c title McpServer-Service && color 0C && node build/index.js"
 start cmd /c "cmd /c title Frontend-Service && color 0E && npm run dev"
 
 echo [SUCCESS] Services started successfully!
 echo [INFO] Frontend URL: http://localhost:8888
 echo [INFO] Backend URL: http://localhost:3000
 
-pause 
+pause

@@ -1553,6 +1553,22 @@ app.post('/api/settings/webdav', async (req, res) => {
   }
 })
 
+// 创建本地备份
+app.post('/api/local/backup', async (req, res) => {
+  try {
+    const backupPath = await cloudSyncService.compressDataDir()
+    res.json({ 
+      success: true, 
+      message: '本地备份创建成功',
+      backupPath: backupPath
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: '创建本地备份失败: ' + error.message })
+  }
+})
+
+
+
 // 获取本地备份列表
 app.get('/api/local/backups', async (req, res) => {
   try {

@@ -40,7 +40,8 @@
         </div>
 
         <div class="action-buttons">
-          <button class="primary-btn" @click="createBackup" :disabled="loading || !connected">创建备份</button>
+          <button class="primary-btn" @click="createBackup" :disabled="loading || !connected">创建云备份</button>
+          <button class="primary-btn" @click="createLocalBackup" :disabled="loading">创建本地备份</button>
           <button class="refresh-btn" @click="loadBackups" :disabled="loading">刷新列表</button>
           <button class="delete-btn" @click="confirmBatchDelete" :disabled="loading || !hasSelectedBackups">批量删除</button>
         </div>
@@ -54,7 +55,7 @@
               <div class="empty-state">
                 <div class="empty-icon">📦</div>
                 <div class="empty-text">未找到云端备份</div>
-                <button class="primary-btn small" @click="createBackup" :disabled="!connected || loading">
+                <button class="primary-btn small" @click="createLocalBackup" :disabled="loading">
                   创建第一个备份
                 </button>
               </div>
@@ -448,7 +449,7 @@ const loadBackups = async () => {
   }
 }
 
-// 创建备份
+// 创建云备份
 const createBackup = async () => {
   loading.value = true
   loadingText.value = '正在创建并上传备份...'
@@ -473,6 +474,34 @@ const createBackup = async () => {
     loading.value = false
   }
 }
+
+// 创建本地备份
+const createLocalBackup = async () => {
+  loading.value = true
+  loadingText.value = '正在创建本地备份...'
+  
+  try {
+    const response = await fetch(`${baseUrl.value}/local/backup`, {
+      method: 'POST'
+    })
+    
+    const data = await response.json()
+    
+    if (data.success) {
+      // 刷新备份列表
+      loadBackups()
+    } else {
+      errorMessage.value = `本地备份创建失败: ${data.error || '未知错误'}`
+      loading.value = false
+    }
+  } catch (error) {
+    console.error('创建本地备份失败:', error)
+    errorMessage.value = `本地备份创建失败: ${error.message}`
+    loading.value = false
+  }
+}
+
+
 
 
 // 加载设置
@@ -899,6 +928,26 @@ const executeRename = async () => {
   margin: 0 auto;
   padding: 20px;
   font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.location-btn {
+  background-color: #4a6fa5;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.3s;
+}
+
+.location-btn:hover {
+  background-color: #3a5a8c;
+}
+
+.location-btn:disabled {
+  background-color: #a0a0a0;
+  cursor: not-allowed;
 }
 
 .sync-header {
